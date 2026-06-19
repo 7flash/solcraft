@@ -30,6 +30,7 @@ import {
 import { loadAtlasRuntimeConfig, terrainMats, tickVisualTextures, setTerrainVisualPrefs } from "../client/textures";
 import { loadCharacterProfile, saveCharacterProfile, type CharacterProfile } from "../client/dollProfile";
 import { isMoveKey, movementVectorFromKeys, normalizeMoveKey } from "../client/game/directionalInput";
+import { canIssueKeyboardStep, DEFAULT_KEYBOARD_STEP_MS } from "../client/game/keyboardStepper";
 import { CORE_ACTIONS } from "../client/ui/coreActions";
 import { actionBarActive } from "../client/ui/actionBarState";
 import { MORE_MENU_GROUPS } from "../client/ui/moreMenu";
@@ -50,6 +51,8 @@ import { PlayerHudView } from "../client/ui/playerHud";
 import { TopChromeView } from "../client/ui/topChrome";
 import { configureMinimapCanvas } from "../client/ui/minimapShell";
 import { WorldMapModalView } from "../client/ui/worldMapModal";
+import { PlayerModalView } from "../client/ui/playerModal";
+import { renderKnownWorldMap, tileFromCanvasEvent } from "../client/world/mapCanvas";
 
 const AUTH_KEY = "solcraft:auth";
 const FACE_KEY = "solcraft:face.v1";
@@ -279,6 +282,7 @@ const UI_SLOT: Record<string, [number, number]> = {
   bank: [0, 1], settings: [1, 1], sound: [2, 1], logout: [3, 1], exit: [3, 1],
   craft: [0, 2], wood: [1, 2], stone: [2, 2], claim: [3, 2], capture: [3, 2],
   build: [0, 3], spawn: [1, 3], use: [2, 3], energy: [3, 3],
+  tools: [0, 2], move: [1, 3], demolish: [2, 3], teleport: [3, 3],
   gold: [0, 1], heart: [3, 3],
 };
 function UiIcon({ name, fallback = "•" }: any) {
@@ -1060,87 +1064,18 @@ export default function mount() {
 
   function drawKnownWorldMap(canvas, expanded = false) {
     if (!canvas || !ST.me) return null;
-    const c = canvas.getContext("2d");
-    const Wm = canvas.width, Hm = canvas.height;
     const data = worldMapData(expanded);
-    const { tiles, buildings, loot, players, minX, maxX, minZ, maxZ } = data;
-    c.clearRect(0, 0, Wm, Hm);
-    c.fillStyle = "#111821"; c.fillRect(0, 0, Wm, Hm);
-    const spanX = Math.max(1, maxX - minX + 1), spanZ = Math.max(1, maxZ - minZ + 1);
-    const margin = expanded ? 30 : 7;
-    const scale = Math.max(1, Math.min((Wm - margin * 2) / spanX, (Hm - margin * 2) / spanZ));
-    const ox = (Wm - spanX * scale) / 2, oz = (Hm - spanZ * scale) / 2;
-    const px = (x) => ox + (Number(x) - minX) * scale;
-    const pz = (z) => oz + (Number(z) - minZ) * scale;
-    const cell = Math.max(expanded ? 2 : 1, scale * 0.92);
-    c.save();
-    c.globalAlpha = expanded ? 0.18 : 0.10;
-    c.strokeStyle = "#14f195"; c.lineWidth = 1;
-    const gridStep = expanded ? Math.max(1, Math.ceil(8 / Math.max(1, scale))) : Math.max(2, Math.ceil(18 / Math.max(1, scale)));
-    for (let x = Math.ceil(minX / gridStep) * gridStep; x <= maxX; x += gridStep) { c.beginPath(); c.moveTo(px(x), oz); c.lineTo(px(x), oz + spanZ * scale); c.stroke(); }
-    for (let z = Math.ceil(minZ / gridStep) * gridStep; z <= maxZ; z += gridStep) { c.beginPath(); c.moveTo(ox, pz(z)); c.lineTo(ox + spanX * scale, pz(z)); c.stroke(); }
-    c.restore();
-    for (const t of tiles) {
-      const col = new THREE.Color(t.ownerBody || 0x6f8057);
-      c.fillStyle = `#${col.getHexString()}`;
-      c.globalAlpha = t.owner === ST.me.id ? 0.92 : 0.42;
-      c.fillRect(px(t.x), pz(t.z), cell, cell);
-    }
-    c.globalAlpha = 1;
-    const wondersForMap = buildings.filter((b) => b && b.kind === "worldwonder");
-    for (const w of wondersForMap) {
-      const r = wonderMapDistrictRadius(w);
-      const sx = px(Number(w.x) - r), sz = pz(Number(w.z) - r);
-      const sw = Math.max(2, (r * 2 + 1) * scale), sh = Math.max(2, (r * 2 + 1) * scale);
-      c.save();
-      c.globalAlpha = expanded ? 0.18 : 0.11;
-      c.strokeStyle = wonderDistrictColorHex(w);
-      c.lineWidth = expanded ? 2 : 1;
-      c.strokeRect(sx, sz, sw, sh);
-      c.restore();
-    }
-    const roadMap = new Map();
-    for (const r of districtRoadsForMap(buildings)) roadMap.set(`${r.x},${r.z}`, r);
-    if (roadMap.size) {
-      c.save();
-      c.globalAlpha = expanded ? 0.64 : 0.48;
-      for (const r of roadMap.values()) {
-        c.fillStyle = r.color || "#d3aa63";
-        const rr = Math.max(expanded ? 2 : 1.1, scale * 0.48);
-        c.fillRect(px(r.x) + scale * 0.26, pz(r.z) + scale * 0.26, rr, rr);
-      }
-      c.restore();
-    }
-    for (const b of buildings) {
-      c.fillStyle = b.kind === "worldwonder" ? "#9945ff" : b.kind === "keep" ? "#ff705c" : b.kind === "bomb" ? "#ffb36c" : b.owner === ST.me.id ? "#f6ead6" : "#37404b";
-      const s = b.kind === "worldwonder" ? Math.max(4, scale * 1.15) : Math.max(2, scale * .75);
-      c.fillRect(px(b.x) + scale * .12, pz(b.z) + scale * .12, s, s);
-    }
-    for (const l of loot) {
-      if (l.kind !== "gold") continue;
-      c.fillStyle = "#ffd76e"; c.beginPath(); c.arc(px(l.x) + scale * .5, pz(l.z) + scale * .5, Math.max(1.6, scale * .28), 0, Math.PI * 2); c.fill();
-    }
-    const nowMs = Date.now();
-    for (const q of players) {
-      const isMe = q.id === ST.me.id;
-      const seenAt = Number(q.lastSeen || q.ts || 0);
-      const active = isMe || !seenAt || nowMs - seenAt <= 120000;
-      const x = px(q.x) + scale * .5, z = pz(q.z) + scale * .5;
-      const ghost = !!q.spectator;
-      const col = new THREE.Color(isMe ? 0xffffff : ghost ? 0x9fdcff : (q.body || 0xf29c72));
-      c.globalAlpha = ghost ? 0.58 : active ? 1 : 0.35;
-      c.fillStyle = `#${col.getHexString()}`; c.beginPath(); c.arc(x, z, isMe ? Math.max(4, scale * .55) : Math.max(2.4, scale * .42), 0, Math.PI * 2); c.fill();
-      c.strokeStyle = isMe ? "#14f195" : ghost ? "rgba(189,238,255,.9)" : "rgba(255,255,255,.75)"; c.lineWidth = isMe ? 2 : 1; c.stroke();
-    }
-    c.globalAlpha = 1;
-    const view = { minX, minZ, scale, ox, oz, spanX, spanZ, margin, w: Wm, h: Hm };
-    if (expanded) ST.worldMapView = view; else ST.minimapView = view;
-    if (!expanded) {
-      c.save(); c.globalAlpha = 0.92; c.fillStyle = "rgba(5,8,14,.62)"; c.fillRect(7, Hm - 25, Math.min(156, Wm - 14), 18);
-      c.font = "800 9px Outfit, sans-serif"; c.textBaseline = "middle"; const ly = Hm - 16;
-      c.fillStyle = "#fff"; c.beginPath(); c.arc(16, ly, 3, 0, Math.PI * 2); c.fill();
-      c.fillStyle = "#9945ff"; c.fillRect(47, ly - 3, 6, 6); c.fillStyle = "#d3aa63"; c.fillRect(91, ly - 2, 10, 4); c.fillStyle = "#f29c72"; c.beginPath(); c.arc(132, ly, 3, 0, Math.PI * 2); c.fill();
-      c.fillStyle = "rgba(243,234,215,.82)"; c.fillText("you", 22, ly); c.fillText("wonder", 58, ly); c.fillText("road", 104, ly); c.fillText("player", 138, ly); c.restore();
+    const view = renderKnownWorldMap(canvas, data, {
+      me: ST.me,
+      expanded,
+      nowMs: Date.now(),
+      districtRoads: districtRoadsForMap(data.buildings),
+      wonderDistrictRadius: (w) => wonderMapDistrictRadius(w),
+      wonderDistrictColorHex: (w) => wonderDistrictColorHex(w),
+    });
+    if (view) {
+      if (expanded) ST.worldMapView = view;
+      else ST.minimapView = view;
     }
     return view;
   }
@@ -1149,11 +1084,9 @@ export default function mount() {
     const view = ST.worldMapView;
     const cv = ev?.target?.closest?.("canvas");
     if (!view || !cv || !ST.me) return;
-    const r = cv.getBoundingClientRect();
-    const sx = cv.width / Math.max(1, r.width), sy = cv.height / Math.max(1, r.height);
-    const x = Math.round(view.minX + ((ev.clientX - r.left) * sx - view.ox) / view.scale);
-    const z = Math.round(view.minZ + ((ev.clientY - r.top) * sy - view.oz) / view.scale);
-    if (!Number.isFinite(x) || !Number.isFinite(z)) return;
+    const tile = tileFromCanvasEvent(view, cv, ev);
+    if (!tile) return;
+    const { x, z } = tile;
     if (isAdminPlayer()) {
       act("adminMapTeleport", { x, z }).then((res) => {
         if (res && res.ok) { ST.modal = null; world.hardSnapMe(res.x ?? x, res.z ?? z); world.refreshWindow?.(true); pollSoon(); paint(true); }
@@ -1550,6 +1483,7 @@ export default function mount() {
       if (ST.tool === "wood") return "axe";
       if (ST.tool === "stone") return "pickaxe";
       if (ST.tool === "build" || ST.tool === "craft" || ST.tool === "spawn" || ST.tool === "siege") return "hammer";
+      if (ST.tool === "demolish" || ST.mode === "demolish") return "shovel";
       if (ST.tool === "claim") return "spear";
       if (ST.tool === "use" || ST.tool === "home") return "staff";
       return "none";
@@ -2149,6 +2083,24 @@ export default function mount() {
       const dt = Math.max(0, performance.now() - Number(m.energyAt || performance.now())) / 1000;
       return Math.min(Number(m.maxE || base || 0), base + regen * dt);
     }
+    const FOOD_ENERGY_CLIENT = 3;
+    function applyClientFoodEnergyBoost(cost) {
+      const m = ST.me;
+      if (!m || !m.inv) return false;
+      let energy = clientEnergyNow();
+      const maxE = Number(m.maxE || energy || 0);
+      let food = Math.floor(Number(m.inv.f || 0));
+      let used = 0;
+      while (energy < cost && food > 0 && energy < maxE) {
+        energy = Math.min(maxE, energy + FOOD_ENERGY_CLIENT);
+        food--; used++;
+      }
+      if (!used) return false;
+      m.inv = { ...(m.inv || {}), f: Math.max(0, Number(m.inv.f || 0) - used) };
+      m.energy = energy;
+      m.energyAt = performance.now();
+      return true;
+    }
     let lowEnergyToastAt = 0;
     function travelStepDuration() {
       // Low energy no longer slows the client. The server still spends/rebuilds
@@ -2175,7 +2127,11 @@ export default function mount() {
       const from = { x: me.x, z: me.z };
       const freeRoadStep = freeRoadTravelCellClient(from.x, from.z) || freeRoadTravelCellClient(x, z);
       if (!freeRoadStep && clientEnergyNow() < clientMoveCost()) {
-        say("Out of energy. Roads and World Wonder districts are free to travel.", 2200);
+        const ate = applyClientFoodEnergyBoost(clientMoveCost());
+        if (ate) say("Ate food for quick energy.", 900);
+      }
+      if (!freeRoadStep && clientEnergyNow() < clientMoveCost()) {
+        say("Out of energy. Roads and World Wonder districts are free to travel. Farms produce food for quick recovery.", 2400);
         walkQueue.length = 0; pendingWalk = null; return false;
       }
       const hopDur = travelStepDuration();
@@ -2702,13 +2658,14 @@ export default function mount() {
   function claimTile(x = world.me.x, z = world.me.z) {
     act("claim", { x, z }).then((r) => { if (r && r.ok) { sfx.claim(); world.shockwave(x, z); completeWalkthroughAction("claim"); pollSoon(); } updateHints(); paint(); });
   }
-  function doClaim() {
-    if (ST.tool === "claim") { closeTools(); say("Claim flag tucked away. Very tidy.", 1100); paint(); return; }
-    ST.tool = "claim"; ST.mode = "explore"; ST.placing = null;
+  function selectCaptureTool() {
+    if (ST.tool === "claim") { closeTools(); say("Capture flag tucked away.", 1100); paint(); return; }
+    ST.tool = "claim"; ST.mode = "explore"; ST.placing = null; ST.modal = null; ST.panel = null;
     updateHints();
-    if (claimableHere(world.me.x, world.me.z)) claimTile(world.me.x, world.me.z);
-    else { say("Claim selected — each tile costs 2 stone.", 1400); paint(); }
+    say("Capture selected — click a highlighted frontier tile. Each tile costs 2 stone.", 1500);
+    paint();
   }
+  function doClaim() { return selectCaptureTool(); }
   function doHome() { ST.tool = "home"; updateHints(); paint(); startHomeCast(); }
   function doFight() { if (!ST.near.g) return; act("fight", { target: ST.near.g.id }).then((r) => { if (r && r.ok) sfx.hit(); }); }
   function doRaid(uid) { const target = uid != null ? uid : (ST.near.r && ST.near.r.uid); if (target == null) return; act("raid", { uid: target }).then((r) => { if (r && r.ok) sfx.raid(); }); }
@@ -2922,7 +2879,9 @@ export default function mount() {
       if (captureTargetHere(c.x, c.z)) return tipText("Claimable frontier", "Stand on this open tile to claim it.");
     }
     if (ST.tool === "use" && b && b.kind === GOLD_MINE_KIND) return tipText("Coin Mint", "Click to walk beside it and exchange purse coins at fixed rate.");
-    return tipText(biomeAt(c.x, c.z).name, "Explore farther to find NPC camps, keeps, resources, and places for new World Wonders.");
+    // Empty terrain hover tooltips were noisy; keep the hover marker, but only
+    // show tooltips for actionable/contextual cells.
+    return "";
   }
 
   function onPointerMove(ev) {
@@ -2975,7 +2934,7 @@ export default function mount() {
       const d = world.doodadVisible(c.x, c.z);
       if (d && !world.buildPoolAt(c.x, c.z)) {
         sfx.err();
-        say(d === "rock" ? "Select the stone pick first (3)." : "Select the wood axe first (2).");
+        say(d === "rock" ? "Select the pickaxe first (2)." : "Select the axe first (1).");
         return;
       }
     }
@@ -3036,7 +2995,7 @@ export default function mount() {
 
   const heldMoveKeys = new Set();
   let lastKeyboardStepAt = 0;
-  const KEYBOARD_STEP_MIN_MS = 92;
+  const KEYBOARD_STEP_MIN_MS = DEFAULT_KEYBOARD_STEP_MS;
   function clearHeldMoveKeys() { heldMoveKeys.clear(); }
   function keyboardMovementAllowed() {
     if (ST.screen !== "playing" || ST.updateRequired || ST.modal) return false;
@@ -3048,7 +3007,7 @@ export default function mount() {
     const v = movementVectorFromKeys(heldMoveKeys);
     if (!v.x && !v.z) return false;
     const nowStep = performance.now();
-    if (ev?.repeat && nowStep - lastKeyboardStepAt < KEYBOARD_STEP_MIN_MS) return true;
+    if (!canIssueKeyboardStep({ nowMs: nowStep, lastStepMs: lastKeyboardStepAt, minStepMs: KEYBOARD_STEP_MIN_MS })) return true;
     lastKeyboardStepAt = nowStep;
     world.tryMoveDelta(v.x, v.z);
     return true;
@@ -3073,13 +3032,11 @@ export default function mount() {
     if (k === "-" || k === "_") stepCameraZoom(CAMERA_ZOOM_STEP);
     else if (k === "+" || k === "=") stepCameraZoom(-CAMERA_ZOOM_STEP);
     else if (k === "0") resetCameraView();
-    else if (k === "1") { closeTools(); clearHeldMoveKeys(); paint(); }
-    else if (k === "2") doGather("wood");
-    else if (k === "3") doGather("stone");
-    else if (k === "4" || k === "c" || k === " ") doClaim();
-    else if (k === "5" || k === "b") selectBuildTool();
-    else if (k === "6") doUseTool();
-    else if (k === "7") openOptions();
+    else if (k === "1") doGather("wood");
+    else if (k === "2") doGather("stone");
+    else if (k === "3" || k === "b") selectBuildTool();
+    else if (k === "4") selectDemolishTool();
+    else if (k === "5" || k === "c" || k === " ") selectCaptureTool();
     else if (k === "e" || k === "t") doUseTool();
     else if (k === "i") { ST.panel = ST.panel === "bank" ? null : "bank"; ST.tradeTab = "bank"; loadBankStatus(); paint(true); }
     else if (k === "r") { ST.modal = ST.modal === "craft" ? null : "craft"; closeTools(); paint(true); }
@@ -3269,14 +3226,17 @@ export default function mount() {
     const visiblePlayers = Array.isArray(ST.players) ? ST.players.length : 0;
     const activePlayers = Array.isArray(ST.map?.players) ? ST.map.players.length : visiblePlayers;
     const hint = ST.channel ? (ST.channel.kind === "home" ? "Casting return to flag — stand still" : ST.channel.kind === "redeem" ? "Withdrawing at trade post — hold your nerve" : ST.channel.kind === "tree" ? "Chopping wood — stay close until the logs drop" : "Mining stone — stay close until the chunks drop")
-      : ST.tool === "spawn" ? "6 — choose a crafted tool · yellow tiles are valid deploy spots"
-      : ST.mode === "place" ? `5 — place ${LIB_BY_ID[ST.placing]?.name || "building"} · green tile only`
-      : ST.mode === "build" ? "5 — choose a building · scroll sideways"
-      : ST.tool === "wood" ? "2 — trees are highlighted · drops become pickups"
-      : ST.tool === "stone" ? "3 — rocks are highlighted · drops become pickups"
-      : ST.tool === "claim" ? "4 — highlighted tiles can be captured"
-      : ST.tool === "siege" ? "6 — siege enemy buildings and destroy tools"
-      : ST.tool === "use" ? "6 — interact with nearby mines, buildings, offers, and elixirs"
+      : ST.tool === "spawn" ? "Deploy · choose a crafted deployable · yellow tiles are valid deploy spots"
+      : ST.mode === "place" ? `3 — hammer · place ${LIB_BY_ID[ST.placing]?.name || "building"} · green tile only`
+      : ST.mode === "build" ? "3 — hammer · choose a building from the top ribbon"
+      : ST.mode === "tools" ? "Tools · choose axe, pickaxe, use, craft, or deploy"
+      : ST.mode === "teleport" ? "Teleport · choose home base or an unlocked World Wonder"
+      : ST.mode === "demolish" ? "4 — shovel · click one of your own buildings to demolish"
+      : ST.tool === "wood" ? "1 — axe selected · trees are highlighted"
+      : ST.tool === "stone" ? "2 — pickaxe selected · rocks are highlighted"
+      : ST.tool === "claim" ? "5 — capture selected · highlighted tiles can be claimed"
+      : ST.tool === "siege" ? "2 — siege enemy buildings and destroy tools"
+      : ST.tool === "use" ? "2 — use/interact with nearby mines, buildings, offers, and elixirs"
       : ST.near.i ? `6 — ${ST.near.i.label}` : "Goal: claim territory · collect taxed coins · build a Coin Mint to redeem";
     return <PlayerHudView
       player={m}
@@ -3407,6 +3367,21 @@ export default function mount() {
     else { ST.mode = "spawn"; ST.tool = "spawn"; ST.placing = null; ST.destroying = ST.destroying || DESTROY_TOOLS[0]?.id || "popper"; }
     updateHints(); paint(); syncBuildScrollSoon();
   }
+  function toggleToolsRibbon() {
+    if (ST.mode === "tools" || ST.tool === "wood" || ST.tool === "stone" || ST.tool === "use") closeTools();
+    else { ST.mode = "tools"; ST.tool = "none"; ST.placing = null; ST.modal = null; ST.panel = null; }
+    updateHints(); paint(true); syncBuildScrollSoon();
+  }
+  function selectDemolishTool() {
+    if (ST.mode === "demolish" || ST.tool === "demolish") closeTools();
+    else { ST.mode = "demolish"; ST.tool = "demolish"; ST.placing = null; ST.modal = null; ST.panel = null; say("Demolish selected — click one of your own buildings, or use Inspect for details.", 1800); }
+    updateHints(); paint(true);
+  }
+  function toggleTeleportRibbon() {
+    if (ST.mode === "teleport" || ST.tool === "teleport") closeTools();
+    else { ST.mode = "teleport"; ST.tool = "teleport"; ST.placing = null; ST.modal = null; ST.panel = null; }
+    updateHints(); paint(true); syncBuildScrollSoon();
+  }
   function selectDeploy(id) {
     const spec = DESTROY_BY_ID[id];
     if (spec && craftedToolCount(id) <= 0) { sfx.err(); say(`Craft a ${spec.name} first, then place it from Siege.`, 2600); return; }
@@ -3481,14 +3456,13 @@ export default function mount() {
     const action = (num, ico, lbl, run, opts = {}) => {
       const info = opts.info || `${num}: ${lbl}`;
       return (
-        <button className={actionSlotClass({ primary: opts.primary, on: opts.on, danger: opts.danger, disabled: opts.disabled })} disabled={!!opts.disabled} aria-label={info} data-tip-title={`${num} · ${lbl}`} data-tip-body={info} data-click={run} data-core-action={run}>
-          <span className="num">{num}</span><span className="ico"><UiIcon name={String(lbl).toLowerCase()} fallback={ico} /></span><span className="lbl">{lbl}</span>{opts.cd ? <span className="cd" style={`--cd:${opts.cd}%`} /> : null}
+        <button className={actionSlotClass({ primary: opts.primary, on: opts.on, danger: opts.danger, disabled: opts.disabled }) + " ui2-toolbelt-slot"} disabled={!!opts.disabled} aria-label={info} data-tip-title={`${num} · ${lbl}`} data-tip-body={info} data-click={run} data-core-action={run} data-tool-cursor={opts.cursor || String(lbl).toLowerCase()}>
+          <span className="num">{num}</span><span className="ico"><UiIcon name={opts.iconName || String(lbl).toLowerCase()} fallback={ico} /></span><span className="lbl">{lbl}</span>{opts.cd ? <span className="cd" style={`--cd:${opts.cd}%`} /> : null}
         </button>
       );
     };
     const admin = isAdminPlayer();
     const ribbonMode = ribbonModeForState({ mode: ST.mode, tool: ST.tool, placing: ST.placing });
-    const adminOpen = admin && ribbonMode === "admin";
     const ribbon = <ActionRibbon
       mode={ribbonMode}
       admin={admin}
@@ -3514,19 +3488,22 @@ export default function mount() {
       wonderModeChoices={WONDER_MODE_CHOICES}
       wonderPalettes={WONDER_PALETTES}
     />;
+    const actions = (() => {
+      const active = actionBarActive({ mode: ST.mode, tool: ST.tool, panel: ST.panel });
+      return CORE_ACTIONS.map((a) => action(a.key, a.icon, a.label, a.click, {
+        on: !!active[a.click],
+        info: a.help,
+        iconName: a.atlas || String(a.label).toLowerCase(),
+        cursor: a.cursor,
+      }));
+    })();
     return (
-      <div className={actionStackClass({ hasRibbon: !!ribbonMode })}>
-        {ribbon}
-        <div className="action-bar">
-          {(() => {
-            const active = actionBarActive({ mode: ST.mode, tool: ST.tool, panel: ST.panel });
-            return CORE_ACTIONS.map((a) => action(a.key, a.icon, a.label, a.click, {
-              primary: a.click === "explore-mode",
-              on: !!active[a.click],
-              info: a.help,
-            }));
-          })()}
-          {admin ? action(8, "⚙", "Admin", "admin-toggle", { danger: true, on: adminOpen, info: "Admin world ops: demolish objects, clear broken cells, spawn neutral Keeps, and open world map jump." }) : null}
+      <div className="ui2-action-layer ui2-toolbelt-layer">
+        {ribbonMode ? <div className="ui2-top-ribbon-host" data-ribbon-mode={ribbonMode}>{ribbon}</div> : null}
+        <div className={actionStackClass({ hasRibbon: !!ribbonMode }) + " ui2-toolbelt-stack"}>
+          <div className="action-bar ui2-toolbelt-bar">
+            {actions}
+          </div>
         </div>
       </div>
     );
@@ -3801,27 +3778,7 @@ export default function mount() {
   function PlayerModal() {
     const q = ST.inspectPlayer;
     if (!q) { ST.modal = null; return <div />; }
-    const siege = gearStat(q.equip || {}, "atk");
-    const def = gearStat(q.equip || {}, "def");
-    const adj = ST.me && cheb(q.x, q.z, world.me.x, world.me.z) <= 2;
-    return (
-      <div className="modal" style={{ width: "min(440px,94vw)" }}>
-        <h2 style={{ display: "flex", alignItems: "center", gap: 8 }}>
-          <span style={{ width: 16, height: 16, borderRadius: 99, background: hex(q.body), display: "inline-block", border: "2px solid #fff" }} />
-          {q.name} <span className="lvlchip">Lv {q.level || 1}</span>
-        </h2>
-        <div className="row" style={{ margin: "8px 0" }}>
-          <span className="stat">♥ {Math.ceil(q.hp)}/{MAX_HP}</span>
-          <span className="stat">💥 Siege {siege}</span>
-        </div>
-        <h3>Worn gear</h3>
-        {SLOTS.map((s) => { const id = q.equip?.[s]; const g = id ? GEAR_BY_ID[id] : null; return <div className="slot"><span><b>{SLOT_LABEL[s]}</b> — {g ? `${g.glyph} ${g.name}` : <span className="tiny">—</span>}</span></div>; })}
-        <div className="row" style={{ marginTop: 12 }}>
-          <button className="btn" data-click="player-walk">Walk toward</button>
-          <button className="btn" data-click="player-close">Close</button>
-        </div>
-      </div>
-    );
+    return <PlayerModalView target={q} player={ST.me} worldPlayer={world.me} />;
   }
 
   function TradeModal() {
@@ -3947,10 +3904,14 @@ export default function mount() {
       case "open-bank": advanceWalkthroughAction("bank"); return openBankPanel();
       case "select-wonder": advanceWalkthroughAction("wonder"); return selectWonderTool();
       case "select-craft": return selectCraftTool();
+      case "tools-toggle": return toggleToolsRibbon();
       case "gather-wood": return doGather("wood");
       case "gather-stone": return doGather("stone");
-      case "claim": return doClaim();
+      case "claim":
+      case "capture-tool": return selectCaptureTool();
       case "select-build": advanceWalkthroughAction("build"); return selectBuildTool();
+      case "demolish-tool": return selectDemolishTool();
+      case "teleport-toggle": return toggleTeleportRibbon();
       case "siege-tool": return doAttackTool();
       case "select-spawn-tool": return selectDeployTool();
       case "use-tool": advanceWalkthroughAction("use"); return doUseTool();
@@ -4867,7 +4828,7 @@ export default function mount() {
     /* chat panel visibility is imperative */
     updateHints();
     chatEl.style.display = ST.screen === "playing" ? "flex" : "none";
-    minimapEl.style.display = ST.screen === "playing" ? "block" : "none";
+    minimapEl.style.display = (ST.screen === "playing" && !ST.panel && !ST.modal) ? "block" : "none";
     vignetteEl.style.display = ST.screen === "playing" ? "block" : "none";
     if (ST.screen !== "playing" || ST.modal) hideCtx();
     for (let i = 0; i < regions.length; i++) {

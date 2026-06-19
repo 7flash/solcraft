@@ -43,6 +43,8 @@ export function ActionRibbon(props: any) {
   const buildOpen = mode === "build";
   const craftOpen = mode === "craft";
   const spawnOpen = mode === "spawn";
+  const toolsOpen = mode === "tools";
+  const teleportOpen = mode === "teleport";
   const useOpen = mode === "use";
 
   const wonderQuick = showWonderQuick ? <div className="wonder-inline-planner wonder-action-ribbon">
@@ -74,6 +76,48 @@ export function ActionRibbon(props: any) {
   </div>;
 
   if (showWonderQuick) return <div className="build-ribbon wonder-only-ribbon">{wonderQuick}</div>;
+
+
+  if (toolsOpen) return <div className="build-ribbon tools-ribbon ui2-top-ribbon">
+    <div id="sc-build-strip" className="build-strip" data-build-strip="1">
+      <div className="build-sep"><b>Tools</b><small>choose what your click does</small></div>
+      <button className={"build-tile" + (state.tool === "wood" ? " on" : "")} aria-label="Axe — chop trees" data-tip-title="🪓 Axe" data-tip-body="Highlight trees and click one to chop. Lumber Camps create more trees." data-click="gather-wood">
+        <span className="bg">🪓</span><span className="bn">Axe</span><span className="bc">Chop trees</span>
+      </button>
+      <button className={"build-tile" + (state.tool === "stone" ? " on" : "")} aria-label="Pickaxe — mine rocks" data-tip-title="⛏ Pickaxe" data-tip-body="Highlight rocks and click one to mine. Quarries expose fresh stone." data-click="gather-stone">
+        <span className="bg">⛏</span><span className="bn">Pickaxe</span><span className="bc">Mine rocks</span>
+      </button>
+      <button className={"build-tile" + (state.tool === "use" ? " on" : "")} aria-label="Use — interact with buildings and supplies" data-tip-title="✦ Use" data-tip-body="Click nearby buildings, consume usable items, or interact with trade posts." data-click="use-tool">
+        <span className="bg">✦</span><span className="bn">Use</span><span className="bc">Interact</span>
+      </button>
+      <button className="build-tile" aria-label="Craft — make tools and supplies" data-tip-title="🧪 Craft" data-tip-body="Craft gear, elixirs, and deployable tools." data-click="select-craft">
+        <span className="bg">🧪</span><span className="bn">Craft</span><span className="bc">Supplies</span>
+      </button>
+      <button className="build-tile" aria-label="Deploy — place crafted tools" data-tip-title="⚒ Deploy" data-tip-body="Select crafted deployables, then click a valid tile." data-click="select-spawn-tool">
+        <span className="bg">⚒</span><span className="bn">Deploy</span><span className="bc">Crafted tools</span>
+      </button>
+    </div>
+    <div className="build-scroll-track"><i id="sc-build-scroll-thumb" /></div>
+  </div>;
+
+  if (teleportOpen) {
+    const wonders = Array.isArray(m?.wonders) ? m.wonders : [];
+    return <div className="build-ribbon teleport-ribbon ui2-top-ribbon">
+      <div id="sc-build-strip" className="build-strip" data-build-strip="1">
+        <div className="build-sep"><b>Teleport</b><small>settlement and unlocked wonders</small></div>
+        <button className="build-tile on" aria-label="Home base — return to your settlement flag" data-tip-title="✦ Home base" data-tip-body="Cast briefly, then return to your settlement flag. Moving cancels the cast." data-click="home-cast">
+          <span className="bg">✦</span><span className="bn">Home Base</span><span className="bc">Settlement flag</span>
+        </button>
+        {wonders.map((w: any) => <button className="build-tile" aria-label={`Teleport to ${w.name || `Wonder ${w.x},${w.z}`}`} data-tip-title="★ World Wonder" data-tip-body="Travel to an explored/unlocked Wonder. Wonder taxes can be balanced server-side later." data-click="wonder-teleport" data-uid={w.uid}>
+          <span className="bg">★</span><span className="bn">{w.name || `Wonder ${w.x},${w.z}`}</span><span className="bc">Wonder travel</span>
+        </button>)}
+        {!wonders.length ? <button className="build-tile" disabled aria-label="No World Wonders unlocked yet">
+          <span className="bg">◇</span><span className="bn">No Wonders yet</span><span className="bc">Explore/found one</span>
+        </button> : null}
+      </div>
+      <div className="build-scroll-track"><i id="sc-build-scroll-thumb" /></div>
+    </div>;
+  }
 
   if (buildOpen) return <div className="build-ribbon">
     <div id="sc-build-strip" className="build-strip" data-build-strip="1">

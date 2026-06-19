@@ -917,3 +917,183 @@ input:focus,select:focus{border-color:var(--line2);box-shadow:0 0 0 3px rgba(20,
 .ui2-worldmap-legend .worldmap-dot.wonders{background:#9945ff;}
 .ui2-worldmap-legend .worldmap-dot.coins{background:#ffd76e;}
 .ui2-worldmap-actions{margin-top:12px;}
+
+/* Stage 14: extracted player modal and map canvas helper seams. */
+.ui2-player-modal{
+  width:min(440px,94vw);
+}
+.ui2-player-modal-title{
+  display:flex;
+  align-items:center;
+  gap:8px;
+}
+.ui2-player-color-dot{
+  width:16px;
+  height:16px;
+  border-radius:999px;
+  display:inline-block;
+  border:2px solid #fff;
+  box-shadow:0 0 0 3px rgba(255,255,255,.08),0 8px 18px rgba(0,0,0,.28);
+}
+.ui2-player-modal-stats{
+  margin:8px 0;
+}
+.ui2-player-gear-list{
+  display:grid;
+  gap:6px;
+}
+.ui2-player-modal-actions{
+  margin-top:12px;
+}
+
+/* Stage 15: interaction repair — CSS lives in this route file. */
+.scv-tabs{grid-template-columns:repeat(4,38px)!important;justify-content:start!important;gap:7px!important;margin-top:10px!important;}
+.scv-tab{min-height:38px!important;width:38px!important;padding:5px!important;border-radius:13px!important;}
+.scv-tab span:not(.ui-ico){display:none!important;}
+.scv-tab .ui-ico{width:26px!important;height:26px!important;}
+
+.action-bar{grid-template-columns:repeat(6,minmax(42px,1fr))!important;max-width:min(440px,calc(100vw - 12px))!important;margin:0 auto!important;}
+.action-slot{height:52px!important;min-width:0!important;padding:5px!important;display:grid!important;place-items:center!important;}
+.action-slot .num,.action-slot .lbl{display:none!important;}
+.action-slot .ico{font-size:20px!important;line-height:1!important;}
+.action-slot .ui-ico{width:32px!important;height:32px!important;}
+.action-slot:after{content:attr(aria-label);position:absolute;left:50%;bottom:calc(100% + 7px);transform:translateX(-50%) translateY(4px);opacity:0;pointer-events:none;white-space:nowrap;max-width:220px;overflow:hidden;text-overflow:ellipsis;border:1px solid rgba(243,234,215,.16);background:rgba(5,8,14,.94);color:var(--paper);border-radius:999px;padding:5px 8px;font:800 10px/1 var(--f-body);box-shadow:0 10px 24px rgba(0,0,0,.34);transition:opacity .12s,transform .12s;}
+.action-slot:hover:after,.action-slot:focus-visible:after{opacity:1;transform:translateX(-50%) translateY(0);}
+
+.ui2-action-stack.has-ribbon{padding-top:0!important;}
+.ui2-action-stack>.build-ribbon{position:fixed!important;left:calc(var(--safe-x) + var(--hud-w) + 12px)!important;right:calc(var(--safe-x) + 210px)!important;top:calc(var(--safe-y) + 12px)!important;width:auto!important;max-width:none!important;z-index:27!important;}
+.ui2-action-stack>.tools-ribbon,.ui2-action-stack>.teleport-ribbon{right:calc(var(--safe-x) + 210px)!important;}
+.ui2-action-stack>.build-ribbon .build-tile{flex-basis:126px!important;width:126px!important;min-width:126px!important;}
+
+.utility-pop,.inspect-pop,.quest-pop{left:auto!important;right:calc(var(--safe-x) + 10px)!important;top:calc(var(--safe-y) + 72px)!important;width:min(390px,calc(100vw - 24px))!important;max-height:calc(100dvh - 166px)!important;transform-origin:top right!important;z-index:28!important;}
+.utility-pop.character-pop{right:calc(var(--safe-x) + 10px)!important;left:auto!important;top:calc(var(--safe-y) + 72px)!important;bottom:auto!important;width:min(390px,calc(100vw - 24px))!important;max-height:calc(100dvh - 166px)!important;}
+
+@media(max-width:900px){
+  .ui2-action-stack>.build-ribbon{left:8px!important;right:8px!important;top:calc(var(--safe-y) + 120px)!important;}
+  .utility-pop,.inspect-pop,.quest-pop,.utility-pop.character-pop{left:8px!important;right:8px!important;top:calc(var(--safe-y) + 112px)!important;width:auto!important;max-height:calc(100dvh - 198px)!important;transform-origin:top right!important;}
+  .action-bar{grid-template-columns:repeat(6,minmax(40px,1fr))!important;}
+  .action-slot{height:46px!important;}
+  .action-slot .ui-ico{width:28px!important;height:28px!important;}
+}
+@media(max-width:520px),(max-height:640px){
+  .ui2-action-stack>.build-ribbon{top:calc(var(--safe-y) + 104px)!important;}
+  .ui2-action-stack>.build-ribbon .build-tile{flex-basis:104px!important;width:104px!important;min-width:104px!important;}
+  .utility-pop,.inspect-pop,.quest-pop,.utility-pop.character-pop{top:calc(var(--safe-y) + 98px)!important;max-height:calc(100dvh - 174px)!important;}
+}
+
+/* Stage 15.1 hotfix: keep build/tool/teleport ribbons outside the transformed bottom action stack.
+   A transformed parent can make position:fixed children resolve against the parent instead of the viewport,
+   which caused the Build selection strip to disappear on some browsers/layouts. */
+.ui2-action-layer{position:static!important;}
+.ui2-top-ribbon-host{
+  position:fixed!important;
+  left:calc(var(--safe-x) + var(--hud-w) + 12px)!important;
+  right:calc(var(--safe-x) + 210px)!important;
+  top:calc(var(--safe-y) + 12px)!important;
+  width:auto!important;
+  max-width:none!important;
+  z-index:27!important;
+  pointer-events:auto!important;
+}
+.ui2-top-ribbon-host>.build-ribbon{
+  position:relative!important;
+  left:auto!important;
+  right:auto!important;
+  top:auto!important;
+  bottom:auto!important;
+  width:100%!important;
+  max-width:none!important;
+  margin:0!important;
+}
+.ui2-top-ribbon-host>.build-ribbon .build-tile{
+  flex-basis:126px!important;
+  width:126px!important;
+  min-width:126px!important;
+}
+@media(max-width:900px){
+  .ui2-top-ribbon-host{
+    left:8px!important;
+    right:8px!important;
+    top:calc(var(--safe-y) + 120px)!important;
+  }
+}
+@media(max-width:520px),(max-height:640px){
+  .ui2-top-ribbon-host{top:calc(var(--safe-y) + 104px)!important;}
+  .ui2-top-ribbon-host>.build-ribbon .build-tile{
+    flex-basis:104px!important;
+    width:104px!important;
+    min-width:104px!important;
+  }
+}
+
+/* ============================================================
+   Stage 16: bottom toolbelt contract.
+   Bottom HUD is five direct tools only: axe, pickaxe, hammer,
+   shovel, capture. Tool names stay available to screen readers and
+   tooltips, but visual affordance is icon/atlas-first.
+   ============================================================ */
+.ui2-toolbelt-stack{
+  width:min(420px,calc(100vw - 24px))!important;
+}
+.ui2-toolbelt-bar{
+  display:grid!important;
+  grid-template-columns:repeat(5,minmax(0,1fr))!important;
+  gap:7px!important;
+  padding:7px!important;
+  border-radius:24px!important;
+}
+.ui2-toolbelt-slot{
+  width:auto!important;
+  min-width:0!important;
+  height:58px!important;
+  aspect-ratio:1/1!important;
+  padding:0!important;
+  display:grid!important;
+  place-items:center!important;
+  border-radius:19px!important;
+}
+.ui2-toolbelt-slot .ico{
+  width:31px!important;
+  height:31px!important;
+  margin:0!important;
+  transform:translateY(1px);
+}
+.ui2-toolbelt-slot .ico .ui-ico{
+  width:31px!important;
+  height:31px!important;
+}
+.ui2-toolbelt-slot .lbl{
+  position:absolute!important;
+  width:1px!important;
+  height:1px!important;
+  overflow:hidden!important;
+  clip:rect(0 0 0 0)!important;
+  clip-path:inset(50%)!important;
+  white-space:nowrap!important;
+}
+.ui2-toolbelt-slot .num{
+  left:5px!important;
+  top:5px!important;
+  min-width:17px!important;
+  height:17px!important;
+  font-size:9px!important;
+  opacity:.82!important;
+}
+.ui2-toolbelt-slot.on{
+  border-color:rgba(20,241,149,.54)!important;
+  background:linear-gradient(150deg,rgba(20,241,149,.30),rgba(153,69,255,.16))!important;
+  box-shadow:0 0 0 1px rgba(20,241,149,.16),0 0 24px rgba(20,241,149,.18),inset 0 1px 0 rgba(255,255,255,.12)!important;
+}
+.ui2-toolbelt-slot[data-tool-cursor="axe"].on .ico{filter:drop-shadow(0 0 8px rgba(20,241,149,.28));}
+.ui2-toolbelt-slot[data-tool-cursor="pickaxe"].on .ico{filter:drop-shadow(0 0 8px rgba(125,207,232,.28));}
+.ui2-toolbelt-slot[data-tool-cursor="hammer"].on .ico{filter:drop-shadow(0 0 8px rgba(255,215,110,.30));}
+.ui2-toolbelt-slot[data-tool-cursor="shovel"].on .ico{filter:drop-shadow(0 0 8px rgba(224,96,76,.30));}
+.ui2-toolbelt-slot[data-tool-cursor="capture"].on .ico{filter:drop-shadow(0 0 8px rgba(255,226,168,.32));}
+.ui2-toolbelt-stack.has-ribbon .action-bar{border-radius:24px!important;}
+@media(max-width:520px),(max-height:560px){
+  .ui2-toolbelt-stack{width:min(360px,calc(100vw - 12px))!important;}
+  .ui2-toolbelt-bar{gap:5px!important;padding:6px!important;}
+  .ui2-toolbelt-slot{height:50px!important;border-radius:17px!important;}
+  .ui2-toolbelt-slot .ico,.ui2-toolbelt-slot .ico .ui-ico{width:28px!important;height:28px!important;}
+  .ui2-toolbelt-slot .num{display:grid!important;}
+}

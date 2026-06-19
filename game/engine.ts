@@ -1927,6 +1927,24 @@ export function snapshot(p: Player, q: { rev: number; ax: number; az: number; ch
 /* ============================================================
    ACTIONS
    ============================================================ */
+const FOOD_TO_ENERGY = 3;
+function autoEatFoodForEnergy(p: Player, neededEnergy: number) {
+  const live = settleEnergy(p);
+  const maxE = derived(p).maxE;
+  let energy = live.energy;
+  let food = Math.floor(Number(p.inv?.f || 0));
+  let eaten = 0;
+  while (energy < neededEnergy && food > 0 && energy < maxE) {
+    energy = Math.min(maxE, energy + FOOD_TO_ENERGY);
+    food--; eaten++;
+  }
+  if (!eaten) return { energy: live.energy, eaten: 0 };
+  p.inv.f = Math.max(0, Number(p.inv.f || 0) - eaten);
+  p.energy = energy;
+  p.energyAt = now();
+  return { energy, eaten };
+}
+
 export function move(p: Player, x: number, z: number) {
   if (!Number.isFinite(x) || !Number.isFinite(z)) return err("Bad destination.");
   if (!Number.isInteger(x) || !Number.isInteger(z)) return err("bad coords");
@@ -1937,9 +1955,11 @@ export function move(p: Player, x: number, z: number) {
   }
   const e = settleEnergy(p);
   const moveCost = moveEnergyCostFor(p, p.x, p.z, x, z);
-  if (moveCost > 0 && e.energy < moveCost) return err("Out of energy. Build roads or travel inside a World Wonder district for free movement.", "NO_ENERGY_ROAD_REQUIRED");
-  const spendNow = Math.min(moveCost, Math.max(0, e.energy));
-  p.energy = Math.max(0, e.energy - spendNow);
+  const foodBoost = moveCost > 0 && e.energy < moveCost ? autoEatFoodForEnergy(p, moveCost) : { energy: e.energy, eaten: 0 };
+  const usableEnergy = foodBoost.energy;
+  if (moveCost > 0 && usableEnergy < moveCost) return err("Out of energy. Build roads or travel inside a World Wonder district for free movement. Farms produce food for quick recovery.", "NO_ENERGY_ROAD_REQUIRED");
+  const spendNow = Math.min(moveCost, Math.max(0, usableEnergy));
+  p.energy = Math.max(0, usableEnergy - spendNow);
   p.energyAt = now();
   p.x = x; p.z = z;
   clearChannel(p.id); // moving away cancels any in-progress channel
@@ -1950,7 +1970,7 @@ export function move(p: Player, x: number, z: number) {
     const r = collectLoot(p, l) as any;
     return r && r.ok ? { ...r, energy: p.energy, x: p.x, z: p.z, inv: p.inv, xp: p.xp, level: p.level } : r;
   }
-  return ok({ energy: p.energy, x: p.x, z: p.z, inv: p.inv, xp: p.xp, level: p.level });
+  return ok({ energy: p.energy, x: p.x, z: p.z, inv: p.inv, xp: p.xp, level: p.level, foodEaten: foodBoost.eaten || 0 });
 }
 
 const MAX_MOVE_PATH_STEPS = Math.max(1, Math.min(32, Number(process.env.SOLCRAFT_MAX_MOVE_PATH_STEPS || 18) || 18));
