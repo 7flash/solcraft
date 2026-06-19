@@ -221,7 +221,7 @@ export function buildWonderTemplateRecipe(id: any = "school", opts: any = {}): W
   const palette = wonderPaletteColors(paletteId);
   const recipe: WonderRecipe = {
     v: WORLD_WONDER_SCHEMA_VERSION,
-    name: String(opts.name || meta.name).replace(/[<>`{}]/g, " ").replace(/\s+/g, " ").trim().slice(0, 42) || meta.name,
+    name: String(opts.name || meta.name).replace(/[<>`{}]/g, " ").replace(/s+/g, " ").trim().slice(0, 42) || meta.name,
     prompt,
     palette,
     aura: paletteId === "arcane" || paletteId === "royal" ? "violet" : paletteId === "frost" ? "blue" : paletteId === "emerald" ? "mint" : "gold",

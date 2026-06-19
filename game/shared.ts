@@ -497,10 +497,10 @@ for (const r of RECIPES as any[]) {
   delete r.needAlchemy;
   delete r.reqSkill;
   const cleaned = String(r.blurb || "")
-    .replace(/\s*Needs[^.]*\./g, ".")
-    .replace(/\s*Brew in an Alchemy Shop,?\s*/g, "")
-    .replace(/\s*Prepared materials for structure repairs\.\s*/g, "")
-    .replace(/\.\s*\./g, ".")
+    .replace(/s*Needs[^.]*./g, ".")
+    .replace(/s*Brew in an Alchemy Shop,?s*/g, "")
+    .replace(/s*Prepared materials for structure repairs.s*/g, "")
+    .replace(/.s*./g, ".")
     .trim();
   r.blurb = `${cleaned}${cleaned.endsWith(".") ? "" : "."} Science-only craft.`;
 }

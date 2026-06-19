@@ -83,8 +83,8 @@ export function wonderBuildMsFor(recipeOrSize: any): number {
 function cleanWonderName(value: any, fallback: string) {
   return String(value || fallback || "World Wonder")
     .replace(/[<>`{}]/g, " ")
-    .replace(/[^\w\s'’\-]/g, "")
-    .replace(/\s+/g, " ")
+    .replace(/[^ws'’-]/g, "")
+    .replace(/s+/g, " ")
     .trim()
     .slice(0, 42) || fallback || "World Wonder";
 }
@@ -151,8 +151,8 @@ function pick<T>(arr: T[], h: number, offset = 0): T {
 
 function prettyName(prompt: string) {
   const words = cleanWonderPrompt(prompt)
-    .replace(/[^a-z0-9\s'-]/gi, " ")
-    .split(/\s+/)
+    .replace(/[^a-z0-9s'-]/gi, " ")
+    .split(/s+/)
     .filter(Boolean)
     .slice(0, 5);
   if (!words.length) return "Frontier Wonder";
@@ -162,7 +162,7 @@ function prettyName(prompt: string) {
 export function cleanWonderPrompt(prompt: any) {
   return String(prompt || "")
     .replace(/[<>`{}]/g, " ")
-    .replace(/\s+/g, " ")
+    .replace(/s+/g, " ")
     .trim()
     .slice(0, WORLD_WONDER_PROMPT_MAX);
 }
@@ -199,8 +199,8 @@ export function validateWonderRecipe(raw: any, prompt: string): WonderRecipe {
   });
 
   const name = String(raw?.name || fallback.name)
-    .replace(/[^\w\s'’-]/g, "")
-    .replace(/\s+/g, " ")
+    .replace(/[^ws'’-]/g, "")
+    .replace(/s+/g, " ")
     .trim()
     .slice(0, 42) || fallback.name;
 

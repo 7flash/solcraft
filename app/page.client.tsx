@@ -1184,9 +1184,9 @@ export default function mount() {
   function currentWonderSize() { return normalizeWonderFootprintClient(ST.wonderFootprint || ST.wonderRecipe?.footprint || 9); }
   function currentWonderMode() { return ["single", "district"].includes(String(ST.wonderMode || ST.wonderRecipe?.mode)) ? String(ST.wonderMode || ST.wonderRecipe?.mode) : "district"; }
   function currentWonderPalette() { return WONDER_PALETTES.find((p) => p.id === (ST.wonderPaletteId || ST.wonderRecipe?.paletteId)) || WONDER_PALETTES[0]; }
-  function currentWonderNameFallback() { return cleanWonderPromptClient(ST.wonderName || ST.wonderPrompt || "World Wonder").replace(/[^\w\s'’\-]/g, " ").replace(/\s+/g, " ").trim().slice(0, 42) || "World Wonder"; }
+  function currentWonderNameFallback() { return cleanWonderPromptClient(ST.wonderName || ST.wonderPrompt || "World Wonder").replace(/[^ws'’-]/g, " ").replace(/s+/g, " ").trim().slice(0, 42) || "World Wonder"; }
   function setWonderName(value) {
-    ST.wonderName = String(value || "").replace(/[<>`{}]/g, " ").replace(/\s+/g, " ").slice(0, 42);
+    ST.wonderName = String(value || "").replace(/[<>`{}]/g, " ").replace(/s+/g, " ").slice(0, 42);
     invalidateWonderPlan(ST.wonderName ? `Wonder name set to ${ST.wonderName}. Click a valid map tile to generate and found it there.` : "Wonder name cleared. Type a prompt, then click a valid map tile to generate and found it.");
   }
   function setWonderFootprint(value) {
@@ -1955,7 +1955,7 @@ export default function mount() {
 
 
   function cleanWonderPromptClient(value) {
-    return String(value || "").replace(/\s+/g, " ").trim().slice(0, 180);
+    return String(value || "").replace(/s+/g, " ").trim().slice(0, 180);
   }
   function wonderFactsLine() {
     const size = currentWonderSize();

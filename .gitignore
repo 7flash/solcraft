@@ -4,3 +4,4 @@ data
 *.json
 !package.json
 *.db*
+*.temp.ts

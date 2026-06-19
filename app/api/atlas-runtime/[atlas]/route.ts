@@ -46,7 +46,7 @@ export async function GET(req: Request, ctx: any) {
     const published = safeJson<Record<string, any>>(metaGet(META_PUBLISHED, "{}"), {});
     const pub = published[atlas] || {};
     const fileName = cleanFileName(pub.fileName || "");
-    const id = cleanFileName(pub.id || pub.versionId || "").replace(/\.png$/i, "");
+    const id = cleanFileName(pub.id || pub.versionId || "").replace(/.png$/i, "");
     const runtimeFile = def.runtimeFile;
 
     const candidates = [
