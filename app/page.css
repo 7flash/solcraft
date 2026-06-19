@@ -1097,3 +1097,40 @@ input:focus,select:focus{border-color:var(--line2);box-shadow:0 0 0 3px rgba(20,
   .ui2-toolbelt-slot .ico,.ui2-toolbelt-slot .ico .ui-ico{width:28px!important;height:28px!important;}
   .ui2-toolbelt-slot .num{display:grid!important;}
 }
+
+/* ============================================================
+   Stage 17: 60fps performance safety pass.
+   Keep route-specific styling in page.css and avoid GPU-expensive
+   filters on the WebGL canvas / always-visible toolbelt.
+   ============================================================ */
+.sc-world canvas{
+  filter:none!important;
+}
+.ui2-toolbelt-slot,
+.ui2-toolbelt-slot .ico,
+.ui2-toolbelt-slot .ico .ui-ico{
+  filter:none!important;
+  contain:layout paint;
+}
+.ui2-toolbelt-slot.on{
+  box-shadow:inset 0 0 0 1px rgba(20,241,149,.46)!important;
+}
+.ui2-toolbelt-slot[data-tool-cursor="axe"].on .ico,
+.ui2-toolbelt-slot[data-tool-cursor="pickaxe"].on .ico,
+.ui2-toolbelt-slot[data-tool-cursor="hammer"].on .ico,
+.ui2-toolbelt-slot[data-tool-cursor="shovel"].on .ico,
+.ui2-toolbelt-slot[data-tool-cursor="capture"].on .ico{
+  filter:none!important;
+}
+.sc-perf-fast .build-ribbon,
+.sc-perf-fast .action-bar,
+.sc-perf-fast .ui2-player-card,
+.sc-perf-fast .utility-pop,
+.sc-perf-fast .modal,
+.sc-perf-fast .panel{
+  backdrop-filter:none!important;
+}
+.sc-perf-fast .action-slot,
+.sc-perf-fast .btn{
+  transition:none!important;
+}

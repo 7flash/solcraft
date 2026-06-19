@@ -31,6 +31,7 @@ import { loadAtlasRuntimeConfig, terrainMats, tickVisualTextures, setTerrainVisu
 import { loadCharacterProfile, saveCharacterProfile, type CharacterProfile } from "../client/dollProfile";
 import { isMoveKey, movementVectorFromKeys, normalizeMoveKey } from "../client/game/directionalInput";
 import { canIssueKeyboardStep, DEFAULT_KEYBOARD_STEP_MS } from "../client/game/keyboardStepper";
+import { frameThrottleMsForMotion, shouldEnterPerfMode } from "../client/game/renderBudget";
 import { CORE_ACTIONS } from "../client/ui/coreActions";
 import { actionBarActive } from "../client/ui/actionBarState";
 import { MORE_MENU_GROUPS } from "../client/ui/moreMenu";
@@ -140,7 +141,9 @@ function visualPerfFor(visual, lowEnd = false) {
     motion,
     antialias: quality === "crisp" || (!lowEnd && quality === "balanced"),
     pixelRatioCap,
-    frameMs: motion === "classic" ? 22 : motion === "low" ? 33 : 0,
+    // Stage 17 perf: classic should change camera feel only, not cap the render loop.
+    // A 22ms cap makes the game feel like ~45fps, especially during horizontal movement.
+    frameMs: frameThrottleMsForMotion(motion),
     decorStep: quality === "fast" ? 0.14 : quality === "balanced" ? 0.085 : 0.055,
     envStep: quality === "fast" ? 0.40 : quality === "balanced" ? 0.28 : 0.18,
     cameraMode: motion,
@@ -2211,12 +2214,29 @@ export default function mount() {
     }
 
     const clock = new THREE.Clock(); let mmT = 0, decorT = 0, envT = 0, lastRenderAt = 0;
+    let perfSlowFrames = 0, perfTotalFrames = 0, perfFastMode = false;
+    function enterPerfFastMode() {
+      if (perfFastMode) return;
+      perfFastMode = true;
+      visualPerf = { ...visualPerf, quality: "fast", pixelRatioCap: Math.min(visualPerf.pixelRatioCap || 1, 0.88), decorStep: Math.max(visualPerf.decorStep || 0, 0.18), envStep: Math.max(visualPerf.envStep || 0, 0.42), frameMs: 0 };
+      renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, visualPerf.pixelRatioCap));
+      try { for (const c of clouds || []) c.visible = false; } catch {}
+      try { document.documentElement.classList.add("sc-perf-fast"); } catch {}
+      setFrustum?.();
+    }
     renderer.setAnimationLoop((frameNow = performance.now()) => {
       const nowMs = typeof frameNow === "number" ? frameNow : performance.now();
       if (visualPerf.frameMs && nowMs - lastRenderAt < visualPerf.frameMs) return;
       lastRenderAt = nowMs;
-      const dt = Math.min(clock.getDelta(), 0.05), t = clock.elapsedTime;
-      tickVisualTextures(t);
+      const rawDt = clock.getDelta();
+      const dt = Math.min(rawDt, 0.05), t = clock.elapsedTime;
+      perfTotalFrames++;
+      if (rawDt > 0.022) perfSlowFrames++;
+      if (!perfFastMode && perfTotalFrames >= 150) {
+        if (shouldEnterPerfMode({ slowFrames: perfSlowFrames, totalFrames: perfTotalFrames })) enterPerfFastMode();
+        perfSlowFrames = 0; perfTotalFrames = 0;
+      }
+      if (decorT === 0 || decorT > visualPerf.decorStep) tickVisualTextures(t);
       envT += dt; if (envT > visualPerf.envStep) { envT = 0; updateEnvironment(t); }
       decorT += dt; const decorStep = decorT > visualPerf.decorStep; if (decorStep) decorT = 0;
       for (let i = anims.length - 1; i >= 0; i--) {
@@ -2272,12 +2292,15 @@ export default function mount() {
       camTarget.z += (player.position.z - camTarget.z) * camEase;
       camera.position.copy(camTarget).add(camOffset); camera.lookAt(camTarget);
       sun.position.set(camTarget.x + sunOffset.x, sunOffset.y, camTarget.z + sunOffset.z); sun.target.position.copy(camTarget);
-      mmT += dt; if (mmT > 1.05) { mmT = 0; drawMinimap(); }
+      mmT += dt; if (mmT > 1.25) { mmT = 0; drawMinimap(); }
       renderer.render(scene, camera);
     });
 
     function drawMinimap() {
       if (!ST.me || ST.screen !== "playing") return;
+      if (ST.modal || ST.panel || !minimapEl?.isConnected) return;
+      const rect = minimapEl.getBoundingClientRect?.();
+      if (!rect || rect.width <= 0 || rect.height <= 0) return;
       drawKnownWorldMap(minimapEl, false);
     }
 
