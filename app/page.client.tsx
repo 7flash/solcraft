@@ -35,6 +35,7 @@ import { actionBarActive } from "../client/ui/actionBarState";
 import { MORE_MENU_GROUPS } from "../client/ui/moreMenu";
 import { ribbonModeForState } from "../client/ui/ribbonMode";
 import { ActionRibbon } from "../client/ui/actionRibbons";
+import { InspectPanelView } from "../client/ui/inspectPanel";
 
 const AUTH_KEY = "solcraft:auth";
 const FACE_KEY = "solcraft:face.v1";
@@ -5164,84 +5165,19 @@ export default function mount() {
     const b = (world.buildPool.get(ST.inspect)) || null;
     if (!b || !ST.me) { ST.panel = null; ST.inspect = null; return <div />; }
     const def = LIB_BY_ID[b.kind];
-    const mine = b.owner === ST.me.id;
-    const face = mine ? ST.faceImage : (b.ownerFace || null);
-    const hasDraftColor = !!(ST.inspectDraft && ST.inspectDraft.uid === ST.inspect && Object.prototype.hasOwnProperty.call(ST.inspectDraft, "cl"));
-    const liveCl = hasDraftColor ? ST.inspectDraft.cl : b.cl;
-    const accent = inspectAccent(b, def);
-    const defaultAccent = hex(def?.baseC ?? 0x999999);
-    const accentLabel = liveCl ? safeHex(liveCl) : "default";
-    const accentSoft = rgba(accent, 0.16);
-    const accentLine = rgba(accent, 0.54);
-    const cdLeft = Math.max(0, Math.ceil(((b.cdUntil || 0) - Date.now()) / 1000));
-    const constructing = constructionStateForBuilding(b);
-    const level = b.level || 1, maxLvl = level >= MAX_LEVEL;
-    const upCost = maxLvl ? {} : upgradeCost(def, level);
-    const missingHp = (b.maxHp || 0) - (b.hp || 0);
-    const repCost = repairCost(missingHp);
-    const hpPct = b.maxHp ? Math.max(0, Math.min(1, b.hp / b.maxHp)) : 1;
-    return (
-      <div className="utility-pop inspect-pop" data-stop-pointerdown="1" style={{ borderColor: accentLine, boxShadow: `0 18px 48px rgba(0,0,0,.46), inset 0 1px 0 rgba(255,255,255,.05), 0 0 0 3px ${rgba(accent, 0.08)}` }}>
-        <button className="utility-close" data-click="inspect-close">×</button>
-        <div className="inspect-head">
-          <span className="accent-orb" style={{ background: accent, boxShadow: `0 0 0 3px ${accentSoft}, 0 0 18px ${rgba(accent, 0.24)}` }} />
-          <div className="inspect-name">{def?.glyph} {b.nm || def?.name}</div>
-          <span className="stat">Lv {level}</span>
-        </div>
-        <div className="owner-card" style={{ borderColor: rgba(accent, 0.26), background: `linear-gradient(135deg, ${rgba(accent, 0.13)}, rgba(255,255,255,.045))` }}>
-          {face ? <img className="face-preview small" src={face} /> : <div className="face-preview small empty" />}
-          <div>
-            <div className="card-title">{mine ? "Your building" : `${b.ownerName}'s building`}</div>
-            <div className="tiny">{def?.blurb || "City structure"}</div>
-          </div>
-        </div>
-        <div className="row" style={{ margin: "8px 0", gap: 8 }}>
-          <span className="tiny">HP {Math.ceil(b.hp)}/{b.maxHp}</span>
-          <span className="hpbar"><i style={{ width: `${(hpPct * 100).toFixed(0)}%` }} /></span>
-        </div>
-        {constructing ? <div className="recipe-req">
-          <b>Construction:</b> {Math.max(1, Math.round(constructing.progress * 100))}% · about {Math.ceil(constructing.left / 1000)}s left
-          <span className="hpbar" style={{ marginTop: 6 }}><i style={{ width: `${Math.max(1, constructing.progress * 100).toFixed(0)}%` }} /></span>
-        </div> : null}
-        {b.kind === "worldwonder" ? <div className="recipe-req"><b>District:</b> roads connect nearby settlements to this Wonder. Open View 3D to inspect the finished monument.</div> : null}
-        {mine ? <div>
-          <div className="utility-field"><label>Building name</label><div className="utility-row">
-            <input id="sc-rename" maxLength={16} placeholder={def?.name} defaultValue={b.nm || ""} style={{ flex: 1 }} />
-            <button className="btn" data-click="inspect-rename">Rename</button>
-          </div></div>
-          <div className="utility-field"><label>Building color combinations</label>
-            <div className="combo-grid building-combos">
-              {BUILDING_COLOR_PRESETS.map((preset) => {
-                const p1 = preset.primary ? safeHex(preset.primary) : defaultAccent;
-                const p2 = safeHex(preset.secondary || p1);
-                const on = preset.primary ? safeHex(liveCl || "") === p1 : !liveCl;
-                return <button type="button" aria-pressed={on} className={"combo-card" + (on ? " on" : "")} style={{ "--p1": p1, "--p2": p2, "--choice-glow": rgba(p2, 0.30) }} aria-label={`${preset.name} building colors`} data-inspect-preset-id={preset.id}>
-                  {on ? <span className="combo-check">✓</span> : null}
-                  <b>{preset.name}</b>
-                  <span className="combo-dots"><i className="combo-dot" style={{ background: p1 }} /><i className="combo-dot" style={{ background: p2 }} /></span>
-                </button>;
-              })}
-            </div>
-            <div className="tiny" style={{ marginTop: 6 }}>Selected: <b style={{ color: accent }}>{accentLabel}</b>{hasDraftColor ? <span> · saving…</span> : null}. Themes apply a safe accent and matching trim.</div>
-          </div>
-        </div> : null}
-        <div className="utility-row tiny" style={{ margin: "8px 0" }}>
-          <span className="stat">+{(def?.regen * lvlMul(level)).toFixed(2)}/s</span>
-          {def?.maxE ? <span className="stat">+{def.maxE} cap</span> : null}
-          {def?.prod ? <span className="stat">bin {Math.floor(estAcc(b))}/60</span> : null}
-          {cdLeft ? <span className="stat">⏳ {cdLeft}s</span> : null}
-        </div>
-        {territoryUpgradeHint(b.kind, level) ? <div className="tiny" style={{ margin: "0 0 8px", color: "#d8cfb7" }}><b>Upgrade bonus:</b> {territoryUpgradeHint(b.kind, level).replace(/^Upgrade effect: /, "")}</div> : null}
-        <div className="inspect-actions">
-          {b.kind === "worldwonder" ? <button className="btn primary" data-click="inspect-wonder-view">View 3D</button> : <button className="btn primary" data-click="inspect-use">Use</button>}
-          {b.kind === "worldwonder" ? <button className="btn" data-click="inspect-walk-near">Walk near</button> : null}
-          {mine && b.kind !== "worldwonder" ? <button className="btn" disabled={maxLvl} data-click="inspect-upgrade">{maxLvl ? "Max level" : `Upgrade (${costStr(upCost)})`}</button> : null}
-          {mine ? <button className="btn" disabled={missingHp <= 0} data-click="inspect-repair">{missingHp <= 0 ? "Full HP" : `Repair (${costStr(repCost)})`}</button> : null}
-          {mine ? <button className="btn danger" data-click="inspect-demolish">Demolish</button> : null}
-          {!mine && b.kind !== "worldwonder" ? <button className="btn" data-click="inspect-walk-near">Walk closer</button> : null}
-        </div>
-      </div>
-    );
+    return <InspectPanelView
+      building={b}
+      player={ST.me}
+      def={def}
+      inspectUid={ST.inspect}
+      inspectDraft={ST.inspectDraft}
+      faceImage={ST.faceImage}
+      buildingColorPresets={BUILDING_COLOR_PRESETS}
+      construction={constructionStateForBuilding(b)}
+      territoryHint={territoryUpgradeHint(b.kind, b.level || 1)}
+      estimatedBin={estAcc(b)}
+      costStr={costStr}
+    />;
   }
 
   function WonderViewModal() {
