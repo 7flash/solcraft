@@ -1,5 +1,15 @@
+export function normalizePreviewAccent(accent: any = ""): string {
+  const raw = String(accent ?? "").trim();
+  if (!raw) return "";
+  const hex = raw.match(/^#?([0-9a-f]{6})$/i);
+  if (hex) return `#${hex[1].toLowerCase()}`;
+  const n = Number(raw);
+  if (Number.isFinite(n)) return `#${Math.max(0, Math.min(0xffffff, Math.trunc(n))).toString(16).padStart(6, "0")}`;
+  return raw.toLowerCase();
+}
+
 export function miniPreviewKey(kind: any, buildingKind: any = "", accent: any = ""): string {
-  return `${String(kind || "tile")}|${String(buildingKind || "")}|${String(accent || "")}`;
+  return `${String(kind || "tile")}|${String(buildingKind || "")}|${normalizePreviewAccent(accent)}`;
 }
 
 export function miniPreviewLabel(kind: any, buildingKind: any = ""): string {

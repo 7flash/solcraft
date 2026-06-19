@@ -981,15 +981,22 @@ export default function mount() {
     const loot = expanded ? allLoot : allLoot.filter((l) => dist(l) <= localRadius);
     const players = expanded ? allPlayers : allPlayers.filter((p) => activePlayer(p) && dist(p) <= localRadius * 1.25);
     if (ST.me && !players.some((p) => p.id === ST.me.id)) players.unshift(ST.me);
+    if (!expanded) {
+      // The pocket minimap is a local instrument, not a world overview. Keeping
+      // its bounds centered on the player prevents far-away bases/keeps from
+      // collapsing local tiles into unreadable pixels. Use the expanded map for
+      // global coordination and far travel.
+      const r = 42;
+      return { tiles, buildings, loot, players, minX: meX - r, maxX: meX + r, minZ: meZ - r, maxZ: meZ + r, totalBuildings: allBuildings.length, totalPlayers: allPlayers.length };
+    }
     let minX = Number(ST.me?.x || 0), maxX = minX, minZ = Number(ST.me?.z || 0), maxZ = minZ;
     const add = (x, z) => { x = Number(x); z = Number(z); if (!Number.isFinite(x) || !Number.isFinite(z)) return; minX = Math.min(minX, x); maxX = Math.max(maxX, x); minZ = Math.min(minZ, z); maxZ = Math.max(maxZ, z); };
     for (const t of tiles) add(t.x, t.z);
     for (const b of buildings) add(b.x, b.z);
     for (const l of loot) add(l.x, l.z);
     for (const p of players) add(p.x, p.z);
-    if (!expanded) { add(meX - 28, meZ - 28); add(meX + 28, meZ + 28); }
-    const span = Math.max(maxX - minX + 1, maxZ - minZ + 1, expanded ? 12 : 58);
-    const pad = Math.max(expanded ? 6 : 10, Math.min(expanded ? 30 : 18, Math.ceil(span * (expanded ? 0.08 : 0.05))));
+    const span = Math.max(maxX - minX + 1, maxZ - minZ + 1, 12);
+    const pad = Math.max(6, Math.min(30, Math.ceil(span * 0.08)));
     return { tiles, buildings, loot, players, minX: minX - pad, maxX: maxX + pad, minZ: minZ - pad, maxZ: maxZ + pad, totalBuildings: allBuildings.length, totalPlayers: allPlayers.length };
   }
 
@@ -4888,6 +4895,7 @@ export default function mount() {
     minimapEl.style.display = (ST.screen === "playing" && !ST.panel && !ST.modal) ? "block" : "none";
     vignetteEl.style.display = ST.screen === "playing" ? "block" : "none";
     if (ST.screen !== "playing" || ST.modal) hideCtx();
+    let utilityRendered = false;
     for (let i = 0; i < regions.length; i++) {
       const r = regions[i];
       const sigStart = performance.now();
@@ -4900,11 +4908,12 @@ export default function mount() {
       const regionMs = performance.now() - regionStart;
       perf.record("ui.region", regionMs, r.name);
       perf.record(`ui.region.${r.name}`, regionMs);
+      if (r.name === "utility") utilityRendered = true;
       changed++;
     }
     if (ST.screen === "playing" && (ST.mode === "build" || ST.mode === "place")) syncBuildScrollSoon();
     mountWonderViewerSoon();
-    syncMiniPreviewPanels(utilityRoot);
+    if (force || utilityRendered) syncMiniPreviewPanels(utilityRoot);
     perf.record("ui.paint", performance.now() - paintStart, { force, changed });
   }
 

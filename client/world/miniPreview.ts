@@ -1,6 +1,7 @@
 // @ts-nocheck
 import * as THREE from "three";
-import { miniPreviewKey, miniPreviewLabel } from "./miniPreviewModel";
+import { makeBuildingGroup } from "../meshes";
+import { miniPreviewKey, miniPreviewLabel, normalizePreviewAccent } from "./miniPreviewModel";
 
 export type MiniPreviewKind = "building" | "tree" | "rock" | "food" | "trade" | "npc" | "tile" | "foundation";
 
@@ -18,7 +19,7 @@ type PreviewState = {
 const active = new Set<PreviewState>();
 const byEl = new WeakMap<HTMLElement, PreviewState>();
 
-export { miniPreviewKey, miniPreviewLabel } from "./miniPreviewModel";
+export { miniPreviewKey, miniPreviewLabel, normalizePreviewAccent } from "./miniPreviewModel";
 
 function mat(color: number, roughness = 0.82) {
   return new THREE.MeshStandardMaterial({ color, roughness, metalness: 0.04 });
@@ -44,10 +45,9 @@ function cyl(g: THREE.Group, r1: number, r2: number, h: number, color: number, x
 }
 
 function parseAccent(value: any, fallback = 0x14f195) {
-  const s = String(value || "").trim();
+  const s = normalizePreviewAccent(value);
   if (/^#[0-9a-f]{6}$/i.test(s)) return parseInt(s.slice(1), 16);
-  const n = Number(value);
-  return Number.isFinite(n) ? n : fallback;
+  return fallback;
 }
 
 function buildBuildingPreview(kind: string, accent: number) {
@@ -85,7 +85,18 @@ function buildBuildingPreview(kind: string, accent: number) {
 }
 
 function buildObjectPreview(kind: string, buildingKind: string, accent: number) {
-  if (kind === "building") return buildBuildingPreview(buildingKind || "house", accent);
+  if (kind === "building") {
+    try {
+      const built = makeBuildingGroup(buildingKind || "house", { cl: `#${Math.max(0, Math.min(0xffffff, accent || 0x14f195)).toString(16).padStart(6, "0")}` });
+      const g = built?.group || null;
+      if (g) {
+        g.scale.setScalar(0.92);
+        g.rotation.y = Math.PI * 0.12;
+        return g;
+      }
+    } catch {}
+    return buildBuildingPreview(buildingKind || "house", accent);
+  }
   const g = new THREE.Group();
   box(g, 1.18, 0.06, 1.18, 0x26313b, 0, 0.02, 0);
   if (kind === "tree") {
@@ -142,8 +153,9 @@ function fitCamera(camera: THREE.PerspectiveCamera, group: THREE.Group) {
 function createPreview(el: HTMLElement): PreviewState | null {
   const kind = String(el.dataset.previewKind || "tile");
   const buildingKind = String(el.dataset.buildingKind || "");
-  const accent = parseAccent(el.dataset.previewAccent || "");
-  const key = miniPreviewKey(kind, buildingKind, accent);
+  const rawAccent = normalizePreviewAccent(el.dataset.previewAccent || "");
+  const accent = parseAccent(rawAccent);
+  const key = miniPreviewKey(kind, buildingKind, rawAccent);
   let renderer: THREE.WebGLRenderer;
   try {
     renderer = new THREE.WebGLRenderer({ alpha: true, antialias: true, powerPreference: "low-power" });
@@ -152,6 +164,7 @@ function createPreview(el: HTMLElement): PreviewState | null {
     return null;
   }
   renderer.setClearColor(0x000000, 0);
+  renderer.autoClear = true;
   renderer.setPixelRatio(Math.min(1.5, window.devicePixelRatio || 1));
   const scene = new THREE.Scene();
   const camera = new THREE.PerspectiveCamera(35, 1, 0.05, 40);

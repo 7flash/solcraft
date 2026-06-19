@@ -51,13 +51,14 @@ export function InspectPanelView(props: any) {
         <span className="hpbar" style={{ marginTop: 6 }}><i style={{ width: `${Math.max(1, construction.progress * 100).toFixed(0)}%` }} /></span>
       </div> : null}
       {b.kind === "worldwonder" ? <div className="recipe-req"><b>District:</b> roads connect nearby settlements to this Wonder. Open View 3D to inspect the finished monument.</div> : null}
-      {vm.mine ? <div>
-        <div className="utility-field"><label>Building name</label><div className="utility-row">
-          <input id="sc-rename" maxLength={16} placeholder={def?.name} defaultValue={b.nm || ""} style={{ flex: 1 }} />
+      {vm.mine ? <details className="inspect-advanced">
+        <summary>Customize</summary>
+        <div className="utility-field"><label>Building name</label><div className="utility-row inspect-rename-row">
+          <input id="sc-rename" maxLength={16} placeholder={def?.name} defaultValue={b.nm || ""} />
           <button className="btn" data-click="inspect-rename">Rename</button>
         </div></div>
-        <div className="utility-field"><label>Building color combinations</label>
-          <div className="combo-grid building-combos">
+        <div className="utility-field"><label>Building colors</label>
+          <div className="combo-grid building-combos compact">
             {buildingColorPresets.map((preset: any) => {
               const p1 = preset.primary ? safeHex(preset.primary) : vm.defaultAccent;
               const p2 = safeHex(preset.secondary || p1);
@@ -69,9 +70,9 @@ export function InspectPanelView(props: any) {
               </button>;
             })}
           </div>
-          <div className="tiny" style={{ marginTop: 6 }}>Selected: <b style={{ color: vm.accent }}>{vm.accentLabel}</b>{vm.hasDraftColor ? <span> · saving…</span> : null}. Themes apply a safe accent and matching trim.</div>
+          <div className="tiny inspect-selected-color">Selected: <b style={{ color: vm.accent }}>{vm.accentLabel}</b>{vm.hasDraftColor ? <span> · saving…</span> : null}</div>
         </div>
-      </div> : null}
+      </details> : null}
       <div className="utility-row tiny" style={{ margin: "8px 0" }}>
         <span className="stat">+{(def?.regen * lvlMul(level)).toFixed(2)}/s</span>
         {def?.maxE ? <span className="stat">+{def.maxE} cap</span> : null}

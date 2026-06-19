@@ -1233,3 +1233,71 @@ input:focus,select:focus{border-color:var(--line2);box-shadow:0 0 0 3px rgba(20,
 
 /* Cursor atlas contract: CSS SVGs are fallback art until cursor_atlas_clean.png is published. */
 .sc-root{--cursor-atlas:url('/api/atlas-runtime/cursor');}
+
+/* Stage 28 — inspect panel stability and minimap readability. */
+.utility-pop.inspect-pop,
+.utility-pop.object-preview-pop{
+  width:min(430px,calc(100vw - 24px))!important;
+  max-height:calc(100dvh - 92px)!important;
+  top:calc(var(--safe-y) + 72px)!important;
+  right:calc(var(--safe-x) + 12px)!important;
+  left:auto!important;
+  padding:12px!important;
+  display:grid;
+  gap:10px;
+  overflow:auto!important;
+  background:linear-gradient(180deg,rgba(10,17,28,.98),rgba(4,8,14,.98))!important;
+}
+.inspect-pop .object-preview-stage,
+.object-preview-pop .object-preview-stage{
+  height:150px!important;
+  margin:0 28px 8px 0!important;
+  background:radial-gradient(circle at 50% 34%,rgba(20,241,149,.16),transparent 58%),linear-gradient(180deg,rgba(18,30,42,.98),rgba(8,13,22,.98))!important;
+}
+.inspect-pop .owner-card,
+.object-preview-pop .owner-card{
+  margin:0!important;
+  padding:10px!important;
+  min-height:0!important;
+}
+.inspect-pop .owner-card .face-preview,
+.object-preview-pop .owner-card .face-preview{
+  width:42px!important;
+  height:42px!important;
+  border-radius:14px!important;
+}
+.inspect-pop .inspect-head,
+.object-preview-pop .inspect-head{
+  min-height:32px!important;
+  margin:0!important;
+}
+.inspect-pop .inspect-actions,
+.object-preview-pop .inspect-actions{
+  display:flex!important;
+  gap:8px!important;
+  flex-wrap:wrap!important;
+  margin-top:2px!important;
+}
+.inspect-advanced{
+  border:1px solid rgba(243,234,215,.12);
+  border-radius:16px;
+  background:rgba(255,255,255,.035);
+  padding:8px 10px;
+}
+.inspect-advanced summary{
+  cursor:pointer;
+  color:#9bffd9;
+  font:900 11px/1.2 var(--f-body);
+  letter-spacing:.08em;
+  text-transform:uppercase;
+}
+.inspect-rename-row input{flex:1;min-width:0;}
+.building-combos.compact{grid-template-columns:repeat(2,minmax(0,1fr))!important;gap:7px!important;}
+.building-combos.compact .combo-card{min-height:54px!important;padding:8px!important;border-radius:14px!important;}
+.inspect-selected-color{margin-top:6px;}
+@media(max-width:720px){
+  .utility-pop.inspect-pop,
+  .utility-pop.object-preview-pop{left:8px!important;right:8px!important;top:calc(var(--safe-y) + 84px)!important;width:auto!important;max-height:calc(100dvh - 160px)!important;}
+  .inspect-pop .object-preview-stage,
+  .object-preview-pop .object-preview-stage{height:128px!important;}
+}

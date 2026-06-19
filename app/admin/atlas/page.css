@@ -261,3 +261,14 @@
   .heroActions { align-items: stretch; }
   .heroActions .btn { flex: 1 1 auto; }
 }
+
+/* Stage 28 — admin pages must always scroll, even when opened in app shells that lock body overflow. */
+html, body { min-height:100%; height:auto!important; overflow:auto!important; }
+#melina-page-content { min-height:100dvh; height:auto!important; overflow:visible!important; }
+#solcraft-atlas-forge { height:auto!important; min-height:100dvh; overflow:visible!important; }
+.af4 { min-height:100dvh!important; height:auto!important; overflow:visible!important; padding-bottom:64px!important; }
+@media(max-width:980px){
+  .previewTargetLayout{grid-template-columns:1fr!important;}
+  .targetStack{position:static!important;max-height:none!important;overflow:visible!important;}
+  .sourceWrap,.sheetWrap{max-height:none!important;}
+}

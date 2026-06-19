@@ -87,6 +87,8 @@ async function previewProd() {
   await run(async () => {
     const j = await requestProductionExport();
     exportPreview = j;
+    const warning = previewWarning(j);
+    if (warning) err = warning;
     msg = `Production export ready: ${formatWorldSyncCounts(j.counts)}.`;
   });
 }
@@ -135,6 +137,15 @@ async function loginAs(id: number) {
 }
 
 function fmt(n: any) { return Math.floor(Number(n || 0)).toLocaleString(); }
+function previewWarning(snapshot: any) {
+  const c = snapshot?.counts || {};
+  const players = Number(c.players ?? snapshot?.players?.length ?? 0) || 0;
+  const tables = snapshot?.tables && typeof snapshot.tables === "object" ? Object.keys(snapshot.tables).length : 0;
+  if (!snapshot) return "";
+  if (!tables && !players) return "Export has no tables and no players. Check the production origin, admin key, and that /api/admin/world-sync is deployed on production.";
+  if (!players) return "Export returned zero players. If production has players, the admin key/scope/origin is probably wrong or production is serving an old route.";
+  return "";
+}
 function shortWallet(w: any) {
   const s = String(w || "");
   return s ? `${s.slice(0, 6)}…${s.slice(-4)}` : "no wallet";
@@ -165,7 +176,7 @@ function SyncPanel() {
     <div className="ws-field"><label>Production origin</label><input value={prodUrl} onInput={(e: any) => { prodUrl = e.currentTarget.value; exportPreview = null; try { localStorage.setItem(PROD_ORIGIN_KEY, prodUrl); } catch {} paint(); }} placeholder="https://your-production-domain.com" />{prodUrl ? <small className={originState.ok ? "ws-hint ok" : "ws-hint bad"}>{originState.ok ? `Will request ${originState.origin}` : originState.msg}</small> : null}</div>
     <div className="ws-field"><label>Scope</label><select value={scope} onInput={(e: any) => { scope = e.currentTarget.value; exportPreview = null; load(); }}><option value="world">World only: players, map, buildings, chat, meta</option><option value="all">All: includes wallet challenges + token queues</option></select></div>
     <div className="ws-actions"><button className="ws-btn" disabled={busy} onClick={load}>Reload local</button><button className="ws-btn warn" disabled={busy} onClick={previewProd}>Preview production export</button><button className="ws-btn primary" disabled={busy || !exportPreview} onClick={importProd}>Import preview into local DB</button></div>
-    {exportPreview ? <div className="ws-preview"><p className="ws-kicker">Preview payload</p><CountGrid counts={exportPreview.counts} /><pre className="ws-mono">{JSON.stringify({ scope: exportPreview.scope, generatedAt: exportPreview.generatedAt, players: (exportPreview.players || []).slice(0, 6) }, null, 2)}</pre></div> : null}
+    {exportPreview ? <div className="ws-preview"><p className="ws-kicker">Preview payload</p>{previewWarning(exportPreview) ? <p className="ws-warning">{previewWarning(exportPreview)}</p> : null}<CountGrid counts={exportPreview.counts} /><pre className="ws-mono">{JSON.stringify({ scope: exportPreview.scope, generatedAt: exportPreview.generatedAt, counts: exportPreview.counts, players: (exportPreview.players || []).slice(0, 6) }, null, 2)}</pre></div> : null}
   </section>;
 }
 
