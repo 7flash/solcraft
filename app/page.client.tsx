@@ -36,6 +36,7 @@ import { MORE_MENU_GROUPS } from "../client/ui/moreMenu";
 import { ribbonModeForState } from "../client/ui/ribbonMode";
 import { ActionRibbon } from "../client/ui/actionRibbons";
 import { InspectPanelView } from "../client/ui/inspectPanel";
+import { CharacterPanelView } from "../client/ui/characterPanel";
 
 const AUTH_KEY = "solcraft:auth";
 const FACE_KEY = "solcraft:face.v1";
@@ -5447,43 +5448,8 @@ export default function mount() {
 
   function CharacterPanel() {
     const cp = ST.characterProfile || loadCharacterProfile();
-    const parts = cp.parts || {};
-    const partRows = [
-      ["head", "Head", "face / species"],
-      ["torso", "Body", "outfit shape"],
-      ["back", "Back", Number(parts.back || 0) === 0 ? "none" : "item"],
-      ["legs", "Feet", "legs / boots"],
-    ];
     return <UtilityShell className="character-pop" title="Character" sub="Choose your body parts and colors.">
-      <div className="utility-field"><label>Body parts</label>
-        <div className="char-part-list">
-          {partRows.map(([key, label, hint]) => {
-            const v = Math.max(0, Math.min(7, Math.trunc(Number(parts[key] || 0))));
-            return <div className="char-part-row">
-              <button type="button" className="mini" data-char-part-step="1" data-key={key} data-delta="-1" aria-label={`Previous ${label}`}>−</button>
-              <div className="char-part-mid">
-                <div><b>{label}</b><span>{hint}</span></div>
-                <input type="range" min="0" max="7" value={v} data-input="char-part" data-key={key} aria-label={label} />
-              </div>
-              <button type="button" className="mini" data-char-part-step="1" data-key={key} data-delta="1" aria-label={`Next ${label}`}>+</button>
-              <strong>{v}</strong>
-            </div>;
-          })}
-        </div>
-      </div>
-      <div className="utility-field"><label>Color combos</label>
-        <div className="combo-grid character-combos">
-          {CHARACTER_COLOR_PRESETS.map((preset) => {
-            const on = characterPresetActive(cp, preset);
-            return <button type="button" className={"combo-card" + (on ? " on" : "")} data-char-preset-id={preset.id} aria-pressed={on} aria-label={`${preset.name} colors`} style={{ "--p1": preset.primaryCloth, "--p2": preset.secondaryCloth, "--choice-glow": rgba(preset.secondaryCloth, 0.28) }}>
-              {on ? <span className="combo-check">✓</span> : null}
-              <b>{preset.name}</b>
-              <small className="combo-look">Colors</small>
-              <span className="combo-dots"><i className="combo-dot" style={{ background: preset.skin }} /><i className="combo-dot" style={{ background: preset.primaryCloth }} /><i className="combo-dot" style={{ background: preset.secondaryCloth }} /><i className="combo-dot" style={{ background: preset.leather }} /><i className="combo-dot" style={{ background: preset.metal }} /></span>
-            </button>;
-          })}
-        </div>
-      </div>
+      <CharacterPanelView profile={cp} presets={CHARACTER_COLOR_PRESETS} rgba={rgba} />
     </UtilityShell>;
   }
 
