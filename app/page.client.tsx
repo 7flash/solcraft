@@ -40,6 +40,11 @@ import { CharacterPanelView } from "../client/ui/characterPanel";
 import { InventoryPanelView } from "../client/ui/inventoryPanel";
 import { SkillsPanelView } from "../client/ui/skillsPanel";
 import { QuestPanelView } from "../client/ui/questPanel";
+import { UtilityShell } from "../client/ui/utilityShell";
+import { MorePanelView } from "../client/ui/morePanel";
+import { SettingsPanelView } from "../client/ui/settingsPanel";
+import { OptionsModalView } from "../client/ui/optionsModal";
+import { HelpModalView } from "../client/ui/helpModal";
 
 const AUTH_KEY = "solcraft:auth";
 const FACE_KEY = "solcraft:face.v1";
@@ -5387,66 +5392,15 @@ export default function mount() {
   }
 
   function OptionsModal() {
-    return <div className="modal" style={{ width: "min(560px,94vw)" }}>
-      <h2>⚙ Options</h2>
-      <div className="grid" style={{ gridTemplateColumns: "repeat(auto-fit,minmax(210px,1fr))" }}>
-        <div className="card"><div className="card-title">Sound</div><div className="tiny">Music and UI sounds are controlled separately.</div><button className="btn primary" data-click="start-music">Start uploaded music</button><button className="btn" data-click="toggle-music">{ST.musicMuted ? "Turn music on" : "Turn music off"}</button><button className="btn" data-click="toggle-ui-sound">{ST.uiMuted ? "Turn UI sound on" : "Turn UI sound off"}</button></div>
-        <div className="card"><div className="card-title">Terrain feel</div><div className="tiny">Tune procedural terrain until the island feels warm and readable.</div>
-          <label className="tiny">Warmth <input type="range" min="0" max="1" step="0.05" value={ST.visual.warmth} data-input="visual-warmth" /></label>
-          <label className="tiny">Texture detail <input type="range" min="0" max="1" step="0.05" value={ST.visual.texture} data-input="visual-texture" /></label>
-          <label className="tiny">Visual quality <select data-input="visual-quality" value={ST.visual.quality || "fast"}><option value="auto">Auto</option><option value="crisp">Crisp</option><option value="balanced">Balanced</option><option value="fast">Fast</option></select></label>
-          <label className="tiny">Motion feel <select data-input="motion-feel" value={ST.visual.motion || "classic"}><option value="smooth">Smooth</option><option value="classic">Classic hop</option><option value="low">Low-power</option></select></label>
-          <button className="btn" data-click="visual-comfort">Comfort preset</button>
-        </div>
-        <div className="card"><div className="card-title">Atlas refresh</div><div className="tiny">Reload published atlases for terrain, buildings, UI icons, and character layers.</div><button className="btn" data-click="reload-atlases-silent">Reload atlases</button></div>
-        <div className="card"><div className="card-title">Character</div><div className="tiny">Use the character nearby panel to edit your doll live on the map.</div><button className="btn" data-click="open-character-panel">Open character panel</button></div>
-        <div className="card"><div className="card-title">Help</div><div className="tiny">Controls and mechanics reference.</div><button className="btn" data-click="open-help">Open help</button></div>
-      </div>
-      <div className="row" style={{ marginTop: 12 }}><button className="btn" data-click="modal-close">Close</button></div>
-    </div>;
+    return <OptionsModalView visual={ST.visual} musicMuted={ST.musicMuted} uiMuted={ST.uiMuted} />;
   }
 
   function HelpModal() {
-    return (
-      <div className="modal" style={{ width: "min(560px,94vw)" }}>
-        <h2>How to play</h2>
-        <p className="tiny">Use the bottom bar like a city-builder hotbar: craft, gather with separate tools, capture, build, deploy crafted tools, and interact. Movement works in every action mode by clicking the world or using WASD, and each tile costs a tiny bit of energy that refills quickly. Tutorial objectives live in Quests.</p>
-        <p><span className="kbd">1</span> craft · <span className="kbd">2</span> wood · <span className="kbd">3</span> stone · <span className="kbd">4</span> capture · <span className="kbd">5</span> build · <span className="kbd">6</span> deploy · <span className="kbd">7</span> use/scroll</p>
-        <div className="grid" style={{ gridTemplateColumns: "repeat(auto-fit,minmax(180px,1fr))" }}>
-          <div className="card"><div className="card-title">Gather</div><div className="tiny">Select Wood or Stone, then click the matching highlighted resource. Drops become pickups on the ground instead of teleporting into your bag.</div></div>
-          <div className="card"><div className="card-title">Build</div><div className="tiny">Press 5, scroll the row, read exact cost/purpose, then click a valid owned pad.</div></div>
-          <div className="card"><div className="card-title">Coin Economy Goal</div><div className="tiny">Claim more territory to increase coin opportunities, tax visitors on your land, and defend your Coin Mint.</div></div>
-          <div className="card"><div className="card-title">Redeem</div><div className="tiny">Your Phantom wallet is the account and payout wallet.</div></div>
-        </div>
-      </div>
-    );
-  }
-
-
-  function UtilityShell({ title, sub, children, className = "" }: any) {
-    return <div className={"utility-pop" + (className ? " " + className : "")} data-stop-pointerdown="1">
-      <button className="utility-close" data-click="panel-close">×</button>
-      <h3>{title}</h3>
-      {sub ? <p className="utility-sub">{sub}</p> : null}
-      {children}
-    </div>;
+    return <HelpModalView />;
   }
 
   function MorePanel() {
-    return <UtilityShell className="more-pop" title="More" sub="Secondary features stay here so the primary bar remains focused on move, gather, claim, build, and use.">
-      {MORE_MENU_GROUPS.map((group) => <div className="more-group" data-group={group.id}>
-        <div className="more-group-head"><b>{group.title}</b><span>{group.text}</span></div>
-        <div className="more-grid">
-          {group.items.map((item) => {
-            const on = item.panel ? ST.panel === item.panel : false;
-            return <button className={"more-tile" + (on ? " on" : "")} data-click={item.click} data-panel={item.panel || ""} data-tip-title={item.label} data-tip-body={item.text}>
-              <span className="more-glyph">{item.glyph}</span>
-              <span className="more-copy"><b>{item.label}</b><small>{item.text}</small></span>
-            </button>;
-          })}
-        </div>
-      </div>)}
-    </UtilityShell>;
+    return <MorePanelView groups={MORE_MENU_GROUPS} activePanel={ST.panel} />;
   }
 
   function CharacterPanel() {
@@ -5538,99 +5492,22 @@ export default function mount() {
       </div>
     </UtilityShell>;
   }
-  function ScaleControl({ kind, title, note }: any) {
-    const key = kind === "menu" ? "menuScale" : "uiScale";
-    const value = clampUiScale(ST.ui?.[key] ?? 1, 1);
-    const presets = [0.75, 1, 1.25, 1.5];
-    return <div className="settings-card">
-      <div className="settings-card-head"><b>{title}</b><span>{uiScalePct(value)}</span></div>
-      <div className="settings-scale-row">
-        <button className="btn" data-click="ui-scale-step" data-kind={kind} data-delta={-UI_SCALE_STEP} aria-label={`${title} smaller`}>−</button>
-        <input type="range" min={UI_SCALE_MIN} max={UI_SCALE_MAX} step="0.02" value={value} data-input="ui-scale" data-kind={kind} aria-label={title} />
-        <button className="btn" data-click="ui-scale-step" data-kind={kind} data-delta={UI_SCALE_STEP} aria-label={`${title} larger`}>+</button>
-      </div>
-      <div className="settings-presets">
-        {presets.map((preset) => <button className={"btn" + (Math.abs(value - preset) < 0.01 ? " primary" : "")} data-click="ui-scale-set" data-kind={kind} data-value={preset}>{uiScalePct(preset)}</button>)}
-      </div>
-      {kind === "ui" ? <div className="settings-scale-preview"><span>Aa</span><div><b>Live interface preview</b><small> HUD/buttons scale immediately after you click or drag.</small></div></div> : null}
-      <button className="btn" data-click="ui-scale-reset" data-kind={kind}>Reset {kind === "menu" ? "menu" : "interface"}</button>
-      <p className="settings-note">{note}</p>
-    </div>;
-  }
   function SettingsPanel() {
-    const uiPct = uiScalePct(ST.ui?.uiScale || 1);
-    const menuPct = uiScalePct(ST.ui?.menuScale || 1);
-    return <div className="settings-layer">
-      <button className="settings-scrim" data-click="panel-close" aria-label="Close settings" />
-      <section className="settings-panel" data-stop-pointerdown="1" role="dialog" aria-modal="true" aria-label="Settings">
-        <button className="settings-close" data-click="panel-close" aria-label="Close settings">×</button>
-        <div className="settings-top">
-          <div>
-            <p className="settings-kicker">Client settings</p>
-            <h3>Settings</h3>
-            <p>Readable controls for this device. These settings are saved locally, apply instantly, and are separate from browser zoom.</p>
-          </div>
-        </div>
-        <div className="settings-grid">
-          <ScaleControl kind="ui" title={`Interface size · ${uiPct}`} note="HUD, minimap, action bar, tooltips, walkthrough callouts, and game panels." />
-          <ScaleControl kind="menu" title={`Menu size · ${menuPct}`} note="Login/menu screen size, tuned separately from the in-game interface." />
-          <div className="settings-card wide">
-            <div className="settings-card-head"><b>Sound and visuals</b><span>{ST.musicMuted && ST.uiMuted ? "Muted" : "On"}</span></div>
-            <p className="settings-note">Quick toggles that used to live in the cramped settings popover.</p>
-            <div className="settings-actions">
-              <button className="btn primary" data-click="start-music"><UiIcon name="sound" fallback="♪" /> Start music</button><button className="btn" data-click="toggle-music"><UiIcon name="sound" fallback="♪" /> {ST.musicMuted ? "Turn music on" : "Turn music off"}</button>
-              <button className="btn" data-click="toggle-ui-sound"><UiIcon name="sound" fallback="♪" /> {ST.uiMuted ? "Turn UI sounds on" : "Turn UI sounds off"}</button>
-              <button className="btn" data-click="reload-art">Reload art</button>
-              <button className="btn" data-click="ui-scale-reset" data-kind="all">Reset all scale</button>
-            </div>
-          </div>
-          <div className="settings-card">
-            <div className="settings-card-head"><b>Visual quality</b><span>{ST.visual.quality || "fast"}</span></div>
-            <p className="settings-note">Controls pixel sharpness and decoration cost. Movement is controlled separately.</p>
-            <select className="settings-select" data-input="visual-quality" value={ST.visual.quality || "fast"}>
-              <option value="auto">Auto</option>
-              <option value="crisp">Crisp</option>
-              <option value="balanced">Balanced</option>
-              <option value="fast">Fast</option>
-            </select>
-          </div>
-          <div className="settings-card">
-            <div className="settings-card-head"><b>Motion feel</b><span>{ST.visual.motion || "classic"}</span></div>
-            <p className="settings-note">Classic hop is the default arcade feel. Smooth is fluid. Low-power saves battery.</p>
-            <select className="settings-select" data-input="motion-feel" value={ST.visual.motion || "classic"}>
-              <option value="smooth">Smooth</option>
-              <option value="classic">Classic hop</option>
-              <option value="low">Low-power</option>
-            </select>
-          </div>
-          <div className="settings-card wide">
-            <div className="settings-card-head"><b>Camera view</b><span>{cameraZoomPct(ST.visual?.cameraZoom || 1)}</span></div>
-            <p className="settings-note">This is a light local zoom for play. Use World Map for whole-map overview so the 3D scene stays fast.</p>
-            <div className="settings-scale-row">
-              <button className="btn" data-click="camera-zoom-in" aria-label="Camera closer">＋</button>
-              <input type="range" min={CAMERA_ZOOM_MIN} max={CAMERA_ZOOM_MAX} step="0.01" value={ST.visual?.cameraZoom || 1} data-input="camera-zoom" aria-label="Camera view" />
-              <button className="btn" data-click="camera-zoom-out" aria-label="Camera farther">−</button>
-            </div>
-            <div className="settings-presets">
-              {[0.85, 1, 1.35, 1.7, 2.05].map((preset) => <button className={"btn" + (Math.abs((ST.visual?.cameraZoom || 1) - preset) < 0.02 ? " primary" : "")} data-click="camera-zoom-set" data-value={preset}>{preset === 1 ? "Default" : cameraZoomPct(preset)}</button>)}
-            </div>
-            <button className="btn" data-click="open-world-map">Open World Map</button>
-            <button className="btn" data-click="camera-zoom-reset">Reset camera</button>
-          </div>
-          <div className="settings-card wide">
-            <div className="settings-card-head"><b>Tutorial</b><span>Walkthrough</span></div>
-            <p className="settings-note">Restart the first-time walkthrough from Character → Guide → Chop → Mine → Capture → Build → Use → Bank.</p>
-            <div className="settings-actions">
-              <button className="btn primary" data-click="tutorial-restart">Restart tutorial</button>
-            </div>
-          </div>
-        </div>
-        <div className="settings-danger">
-          <div className="settings-divider" />
-          <button className="btn warn" data-click="forget-session"><UiIcon name="logout" fallback="↩" /> Logout</button>
-        </div>
-      </section>
-    </div>;
+    return <SettingsPanelView
+      ui={ST.ui}
+      visual={ST.visual}
+      musicMuted={ST.musicMuted}
+      uiMuted={ST.uiMuted}
+      clampUiScale={clampUiScale}
+      uiScalePct={uiScalePct}
+      cameraZoomPct={cameraZoomPct}
+      uiScaleMin={UI_SCALE_MIN}
+      uiScaleMax={UI_SCALE_MAX}
+      uiScaleStep={UI_SCALE_STEP}
+      cameraZoomMin={CAMERA_ZOOM_MIN}
+      cameraZoomMax={CAMERA_ZOOM_MAX}
+      UiIcon={UiIcon}
+    />;
   }
 
   function UtilityPanel() {
