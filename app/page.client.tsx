@@ -34,6 +34,7 @@ import { CORE_ACTIONS } from "../client/ui/coreActions";
 import { actionBarActive } from "../client/ui/actionBarState";
 import { MORE_MENU_GROUPS } from "../client/ui/moreMenu";
 import { ribbonModeForState } from "../client/ui/ribbonMode";
+import { ActionRibbon } from "../client/ui/actionRibbons";
 
 const AUTH_KEY = "solcraft:auth";
 const FACE_KEY = "solcraft:face.v1";
@@ -4317,105 +4318,32 @@ export default function mount() {
     };
     const admin = isAdminPlayer();
     const ribbonMode = ribbonModeForState({ mode: ST.mode, tool: ST.tool, placing: ST.placing });
-    const spawnOpen = ribbonMode === "spawn";
-    const craftOpen = ribbonMode === "craft";
-    const useOpen = ribbonMode === "use";
-    const buildOpen = ribbonMode === "build";
     const adminOpen = admin && ribbonMode === "admin";
-    const showWonderQuick = ribbonMode === "wonder";
-    const wonderQuick = showWonderQuick ? <div className="wonder-inline-planner wonder-action-ribbon">
-      <div className="wonder-inline-head"><b>★ World Wonder</b><span>{currentWonderSize()}×{currentWonderSize()} · {wonderTilesClient(currentWonderSize())} tiles · ~{Math.round(wonderBuildMsClient(currentWonderSize(), currentWonderMode()) / 1000)}s</span></div>
-      <div className="wonder-line-row">
-        <input className="wonder-prompt-line" maxlength="180" value={ST.wonderPrompt || ""} data-input="wonder-prompt" placeholder="Describe the landmark: school, dish, observatory, market..." />
-        <span className={"wonder-live-status" + (ST.wonderBusy || ST.wonderPlacing ? " busy" : "")}>{ST.wonderPlacing ? "Founding…" : ST.wonderBusy ? "Generating…" : cleanWonderPromptClient(ST.wonderPrompt) ? "Click map to found" : "Type prompt first"}</span>
-      </div>
-      <div className="wonder-line-row small">
-        <span className="usetag">Size</span>{WONDER_FOOTPRINT_CHOICES.map((sz) => <button className={"btn mini" + (currentWonderSize() === sz ? " primary" : "")} data-click="wonder-footprint" data-size={sz}>{sz}×{sz}</button>)}
-        <span className="usetag">Mode</span>{WONDER_MODE_CHOICES.map((mo) => <button className={"btn mini" + (currentWonderMode() === mo.id ? " primary" : "")} data-click="wonder-mode" data-mode={mo.id}>{mo.id === "single" ? "Single" : "District"}</button>)}
-        <span className="usetag">Colors</span>{WONDER_PALETTES.map((pal) => <button className={"btn mini swatch-btn" + (currentWonderPalette().id === pal.id ? " primary" : "")} data-click="wonder-palette" data-palette={pal.id} title={pal.name}>{pal.name.replace(/ .*/, "")}</button>)}
-      </div>
-      <div className="tiny"><b>{currentWonderNameFallback()}</b> · {WORLD_WONDER_GOLD_COST}🪙 · click a valid tile to found. {ST.wonderMsg ? ` ${ST.wonderMsg}` : ""}</div>
-    </div> : null;
-    const adminRibbon = adminOpen ? <div className="build-ribbon admin-ribbon">
-      <div className="build-sep"><b>Admin world ops</b><small>server-authoritative cleanup and event spawning</small></div>
-      <div className="wonder-line-row small">
-        <button className={"btn" + (ST.adminTool === "demolish" ? " primary" : "")} data-click="admin-tool" data-tool="demolish">Demolish clicked object</button>
-        <button className={"btn" + (ST.adminTool === "spawnKeep" ? " primary" : "")} data-click="admin-tool" data-tool="spawnKeep">Spawn Keep on click</button>
-        <button className="btn" data-click="admin-demolish-here">Clear object here</button>
-        <button className="btn danger" data-click="admin-clear-tile-here">Clear tile here</button>
-        <button className="btn primary" data-click="admin-spawn-keep" data-mode="here">Keep here</button>
-        <button className="btn" data-click="admin-spawn-keep" data-mode="ring">4 Keeps around me</button>
-        <button className="btn" data-click="open-world-map">World map / jump</button>
-      </div>
-      <div className="tiny">{ST.adminMsg || "Click Admin, choose demolish or spawn, then click the map. Small minimap ignores far outlier Keeps; expanded World Map still shows everything."}</div>
-    </div> : null;
-    const ribbon = adminOpen ? adminRibbon : showWonderQuick ? <div className="build-ribbon wonder-only-ribbon">
-      {wonderQuick}
-    </div> : buildOpen ? <div className="build-ribbon">
-      <div id="sc-build-strip" className="build-strip" data-build-strip="1">
-        {BUILDABLES.filter((b) => b.id !== "worldwonder").map((b) => {
-          const locked = (m?.territory || 0) < (b.unlock || 0);
-          const miss = Object.entries(b.cost).filter(([res, amt]) => (res === "e" ? liveE() : (m?.inv?.[res] || 0)) < amt);
-          const active = ST.placing === b.id;
-          const wonderMissing = b.id === "worldwonder" && (m?.inv?.g || 0) < WORLD_WONDER_GOLD_COST;
-          const missingLine = wonderMissing ? `Need ${WORLD_WONDER_GOLD_COST - (m?.inv?.g || 0)}🪙 more` : missingCostLine(b.cost, m);
-          const lockLine = locked ? `Unlocks at ${b.unlock} claimed tiles. You have ${m?.territory || 0}.` : "";
-          return (
-            <button className={"build-tile" + (active ? " on" : "") + (locked || miss.length || wonderMissing ? " locked" : "")} aria-disabled={locked || miss.length > 0 || wonderMissing} aria-label={`${b.name} — ${buildingStatsLine(b)}`} data-tip-title={`${b.glyph} ${b.name}`} data-tip-body={`${b.blurb || "Decoration"} · ${buildingStatsLine(b)} · ${padRequirementLine(b)}${lockLine ? ` · ${lockLine}` : ""}${missingLine ? ` · ${missingLine}` : ""}`} data-click="select-building" data-id={b.id}>
-              <span className="bg">{b.glyph}</span><span className="bn">{b.name}</span><span className="bc">{b.id === "worldwonder" ? `${WORLD_WONDER_GOLD_COST}🪙 · AI Wonder` : locked ? `${b.unlock} tiles` : miss.length ? missingLine : `${costStr(b.cost) || "Free"} · ${b.hp || 220}HP`}</span><span className="bc">{b.id === "worldwonder" ? `Planner · ${currentWonderSize()}×${currentWonderSize()} · ${Math.round(wonderBuildMsClient(currentWonderSize(), currentWonderMode()) / 1000)}s` : `${buildingRoleLine(b)} · ${Math.round(normalBuildMsClient(b) / 1000)}s build`}</span>
-            </button>
-          );
-        })}
-      </div>
-      <div className="build-scroll-track"><i id="sc-build-scroll-thumb" /></div>
-    </div> : craftOpen ? <div className="build-ribbon craft-ribbon">
-      <div id="sc-build-strip" className="build-strip" data-build-strip="1">
-        <div className="build-sep"><b>Craft deployables</b><small>science-only siege tools</small></div>
-        {DESTROY_TOOLS.map((b) => {
-          const miss = Object.entries(b.cost).filter(([res, amt]) => (res === "e" ? liveE() : (m?.inv?.[res] || 0)) < amt);
-          return <button className={"build-tile" + (miss.length > 0 ? " locked" : "")} aria-disabled={miss.length > 0} aria-label={`Craft ${b.name} — ${b.blurb}`} data-tip-title={`Craft ${b.glyph} ${b.name}`} data-tip-body={`${b.blurb} · Science-only · Cost: ${costStr(b.cost)} · Owned ${craftedToolCount(b.id)}`} data-click="make-bomb" data-id={b.id}>
-            <span className="bg">{b.glyph}</span><span className="bn">Craft {b.name}</span><span className="bc">{miss.length ? "Need " + miss.map(([r]) => COSTI[r]).join(" ") : `Science: ${costStr(b.cost)} · You: ${craftedToolCount(b.id)}`}</span>
-          </button>;
-        })}
-        <div className="build-sep"><b>Craft gear & supplies</b><small>science-only loadout</small></div>
-        {RECIPES.map((r) => {
-          const miss = Object.entries(r.cost).filter(([res, amt]) => (res === "e" ? liveE() : (m?.inv?.[res] || 0)) < amt);
-          return <button className={"build-tile" + (miss.length > 0 ? " locked" : "")} aria-disabled={miss.length > 0} aria-label={`Craft ${r.name} — ${r.blurb}`} data-tip-title={`${r.glyph} ${r.name}`} data-tip-body={`${r.blurb} · Science-only · Cost: ${costStr(r.cost)}`} data-click="craft-recipe" data-id={r.id}>
-            <span className="bg">{r.glyph}</span><span className="bn">{r.name}</span><span className="bc">{miss.length ? "Need " + miss.map(([k]) => COSTI[k]).join(" ") : `Science: ${costStr(r.cost)}`}</span>
-          </button>;
-        })}
-      </div>
-      <div className="build-scroll-track"><i id="sc-build-scroll-thumb" /></div>
-    </div> : spawnOpen ? <div className="build-ribbon destroy-ribbon">
-      <div id="sc-build-strip" className="build-strip" data-build-strip="1">
-        {DESTROY_TOOLS.map((b) => {
-          const owned = craftedToolCount(b.id);
-          const active = ST.destroying === b.id;
-          return <button className={"build-tile" + (active ? " on" : "") + (owned <= 0 ? " locked" : "")} aria-disabled={owned <= 0} aria-label={`${b.name} — ${b.blurb}`} data-tip-title={`Deploy ${b.glyph} ${b.name}`} data-tip-body={`${b.blurb} · Target: ${(b as any).target || "territory"} · Owned ${owned} · ${Math.round(b.fuseMs / 1000)}s fuse`} data-click="select-spawn" data-id={b.id}>
-            <span className="bg">{b.glyph}</span><span className="bn">{b.name}</span><span className="bc">{owned > 0 ? `Owned: ${owned} · ${Math.round(b.fuseMs / 1000)}s` : "Craft first"}</span>
-          </button>;
-        })}
-      </div>
-      <div className="build-scroll-track"><i id="sc-build-scroll-thumb" /></div>
-    </div> : useOpen ? <div className="build-ribbon use-ribbon">
-      <div id="sc-build-strip" className="build-strip" data-build-strip="1">
-        <div className="build-sep"><b>Use</b><small>scrolls & supplies</small></div>
-        <button className="build-tile on" aria-label="Return Scroll — infinite teleport to your flag after casting" data-tip-title="✦ Return Scroll" data-tip-body="Infinite use. Stand still through the cast to return to your flag." data-click="home-cast">
-          <span className="bg">✦</span><span className="bn">Return Scroll</span><span className="bc">Infinite · cast delay</span>
-        </button>
-        {(m?.pack || []).map((item, i) => {
-          if (!item || item.t !== "use") return null;
-          const u = USE_ITEMS[item.id];
-          return <button className="build-tile" aria-label={`${u?.name || item.id} — ${u?.blurb || "Usable item"}`} data-tip-title={`${u?.glyph || "✦"} ${u?.name || item.id}`} data-tip-body={u?.blurb || "Use this crafted item."} data-click="use-pack-slot" data-idx={i}>
-            <span className="bg">{u?.glyph || "✦"}</span><span className="bn">{u?.name || item.id}</span><span className="bc">Backpack slot {i + 1}</span>
-          </button>;
-        })}
-        {!(m?.pack || []).some((item) => item && item.t === "use") ? <button className="build-tile" disabled aria-label="Craft elixirs from Craft">
-          <span className="bg">🧪</span><span className="bn">No crafted items</span><span className="bc">Craft elixirs first</span>
-        </button> : null}
-      </div>
-      <div className="build-scroll-track"><i id="sc-build-scroll-thumb" /></div>
-    </div> : null;
+    const ribbon = <ActionRibbon
+      mode={ribbonMode}
+      admin={admin}
+      m={m}
+      state={ST}
+      buildables={BUILDABLES}
+      liveE={liveE}
+      costStr={costStr}
+      craftedToolCount={craftedToolCount}
+      currentWonderSize={currentWonderSize}
+      currentWonderMode={currentWonderMode}
+      currentWonderPalette={currentWonderPalette}
+      currentWonderNameFallback={currentWonderNameFallback}
+      wonderBuildMsClient={wonderBuildMsClient}
+      wonderTilesClient={wonderTilesClient}
+      cleanWonderPromptClient={cleanWonderPromptClient}
+      normalBuildMsClient={normalBuildMsClient}
+      buildingStatsLine={buildingStatsLine}
+      padRequirementLine={padRequirementLine}
+      buildingRoleLine={buildingRoleLine}
+      missingCostLine={missingCostLine}
+      wonderFootprintChoices={WONDER_FOOTPRINT_CHOICES}
+      wonderModeChoices={WONDER_MODE_CHOICES}
+      wonderPalettes={WONDER_PALETTES}
+    />;
     return (
       <div className="action-stack">
         {ribbon}
