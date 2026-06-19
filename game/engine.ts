@@ -1957,7 +1957,7 @@ export function move(p: Player, x: number, z: number) {
   const e = settleEnergy(p);
   const moveCost = moveEnergyCostFor(p, p.x, p.z, x, z);
   const usableEnergy = e.energy;
-  if (moveCost > 0 && usableEnergy < moveCost) return err("Out of energy. Build roads or travel inside a World Wonder district for free movement. Rest to recover energy; food now restores health.", "NO_ENERGY_ROAD_REQUIRED");
+  if (moveCost > 0 && usableEnergy < moveCost) return err("Out of energy. Rest for a moment before moving farther.", "NO_ENERGY_REQUIRED");
   const spendNow = Math.min(moveCost, Math.max(0, usableEnergy));
   p.energy = Math.max(0, usableEnergy - spendNow);
   p.energyAt = now();
@@ -2085,7 +2085,7 @@ function adjacentEnemyTile(p: Player, x: number, z: number) {
   return null;
 }
 function buildPadRadius(kind = "") { if (kind === ROAD_KIND) return 0; return kind === "worldwonder" ? WORLD_WONDER_PLAZA_RADIUS : 1; }
-function buildPadName(kind = "") { if (kind === ROAD_KIND) return "road tile"; return kind === "worldwonder" ? `${WORLD_WONDER_PLAZA_SIZE}×${WORLD_WONDER_PLAZA_SIZE} Wonder plaza` : "3×3 street ring"; }
+function buildPadName(kind = "") { return kind === "worldwonder" ? `${WORLD_WONDER_PLAZA_SIZE}×${WORLD_WONDER_PLAZA_SIZE} Wonder plaza` : "building foundation"; }
 function buildPadOffsets(kind = ""): [number, number][] {
   const r = buildPadRadius(kind);
   const out: [number, number][] = [];
@@ -2115,15 +2115,7 @@ function buildPadProblem(p: Player, x: number, z: number, kind = "", recipeLike:
   const def = buildingDef(kind);
   const pad = buildPadName(kind);
   if (tradePostAt(x, z)) return "The trade post refuses to be redecorated.";
-  if (kind === ROAD_KIND) {
-    const center = tileAt(x, z) as any;
-    if (!center || Number(center.owner || 0) !== Number(p.id)) return "Roads must be built on your claimed land or Wonder district.";
-    const b = buildingAt(x, z) as any;
-    if (b && String(b.kind || "") !== ROAD_KIND) return "Another building already occupies that road tile.";
-    if (b && String(b.kind || "") === ROAD_KIND && Number(b.owner || 0) === Number(p.id)) return "Road already exists here.";
-    if (doodadAt(x, z)) return "Clear the tree or rock before paving a road.";
-    return null;
-  }
+  if (kind === ROAD_KIND) return "Road building is disabled in this build.";
   if (kind === "worldwonder") {
     if (buildingAt(x, z)) return "Occupied.";
     const size = wonderSizeForRecipe(recipeLike);
@@ -2520,7 +2512,7 @@ export function place(p: Player, kind: string, x: number, z: number, prompt = ""
   addXp(p, def.decor ? 2 : XP.build);
   autoTrainSkill(p, "mason", def.decor ? 2 : 6);
   refreshMilestones(p);
-  return ok({ uid: (b as any).id, buildMs, note: kind === ROAD_KIND ? "Road paved. Movement on roads and inside Wonder districts is free." : `${def.name} foundation placed. Construction finishes in about ${Math.round(buildMs / 1000)}s.` });
+  return ok({ uid: (b as any).id, buildMs, note: `${def.name} foundation placed. Construction finishes in about ${Math.round(buildMs / 1000)}s.` });
 }
 
 
@@ -2703,7 +2695,7 @@ export function harvestFinish(p: Player, x: number, z: number) {
   } else if (d === "food") {
     const amt = 4 + Math.floor(bonus / 2);
     gain(p, { f: amt });
-    note = `Harvested! +${amt}🌾 food. Food now restores health instead of movement energy.`;
+    note = `Harvested crops. +${amt}🌾 food.`;
   } else {
     const ownerId = Number(tileAt(x, z)?.owner || 0);
     const raw = ECONOMY_RULES.rockStone + bonus;

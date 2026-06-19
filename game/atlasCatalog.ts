@@ -1,5 +1,5 @@
 
-export type AtlasId = "terrain" | "building" | "fx" | "ui" | "doll" | "tool";
+export type AtlasId = "terrain" | "building" | "fx" | "ui" | "doll" | "tool" | "cursor";
 
 export type AtlasCatalogEntry = {
   id: AtlasId;
@@ -23,6 +23,9 @@ const BASE_CELL_SLOTS = {
 
 export const TOOL_IDS = ["axe", "pickaxe", "hammer", "shovel", "capture"] as const;
 export type ToolId = (typeof TOOL_IDS)[number];
+
+export const CURSOR_IDS = ["default", "walk", "inspect", "interact", "denied", "select", "axe", "pickaxe", "hammer", "shovel", "capture", "wait"] as const;
+export type CursorId = (typeof CURSOR_IDS)[number];
 
 export const TOOL_ATLAS_ROWS = [
   { id: "bar", label: "Bottom toolbelt icons", slots: TOOL_IDS.map((id) => `bar.${id}`) },
@@ -48,7 +51,18 @@ export const ATLAS_CATALOG: Record<AtlasId, AtlasCatalogEntry> = {
     runtimeFile: "tool_atlas_clean.png",
     defaultMode: "atlas",
     slots: TOOL_ATLAS_SLOTS,
-    notes: "Dedicated atlas for bottom toolbelt icons, in-hand overlays, cursor sprites, and target affordances. Tool art no longer belongs in the doll atlas.",
+    notes: "Dedicated atlas for bottom toolbelt icons, in-hand overlays, cursor fallbacks, and target affordances. Tool art no longer belongs in the doll atlas.",
+  },
+  cursor: {
+    id: "cursor",
+    label: "Cursors",
+    cols: 6,
+    rows: 2,
+    cells: 6,
+    runtimeFile: "cursor_atlas_clean.png",
+    defaultMode: "atlas",
+    slots: CURSOR_IDS,
+    notes: "Dedicated atlas for browser/world cursors: neutral movement, inspect/interact, denied/select, and active tool cursors. This replaces CSS-only cursor SVGs once art is generated.",
   },
 };
 

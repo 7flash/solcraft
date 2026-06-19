@@ -472,7 +472,6 @@ export default function mount() {
   }
   function normalBuildMsClient(def) {
     if (!def) return 0;
-    if (def.id === "road") return 0;
     if (def.id === "worldwonder") return wonderBuildMsClient(currentWonderSize(), currentWonderMode());
     if (def.decor) return DECOR_BUILDING_BUILD_MS || 10000;
     if (["townhall", "goldmine", "academy", "workshop", "vault"].includes(String(def.id))) return (NORMAL_BUILDING_BUILD_MS || 18000) + 8000;
@@ -548,8 +547,8 @@ export default function mount() {
   }, { passive: true });
 
   function toggleUiSound() { ST.uiMuted = !ST.uiMuted; saveSoundPrefs(); }
-  function toggleMusicSound() { ST.musicMuted = !ST.musicMuted; saveSoundPrefs(); if (!ST.musicMuted) { sfx.resume(); say("Music on. If your browser blocked autoplay, this click starts the uploaded track.", 1800); } }
-  function startMusicNow() { ST.musicMuted = false; saveSoundPrefs(); sfx.resume(); say("Music started. Uploaded track will play if /api/audio-runtime has a background URL.", 2200); }
+  function toggleMusicSound() { ST.musicMuted = !ST.musicMuted; saveSoundPrefs(); if (!ST.musicMuted) { loadBackgroundMusicSetting().finally(() => { sfx.resume(); say("Music on.", 1200); }); } }
+  function startMusicNow() { ST.musicMuted = false; saveSoundPrefs(); loadBackgroundMusicSetting().finally(() => { sfx.resume(); say("Music started.", 1200); }); }
 
   function walkthroughStorageKey() {
     return `${WALKTHROUGH_KEY}:${ST.auth?.pid || ST.profile.wallet || "local"}`;
@@ -1108,7 +1107,7 @@ export default function mount() {
       return;
     }
     ST.modal = null; paint(true);
-    if (!world.pathTo(x, z)) say("That point is too far to walk from here. Normal players use roads, Return Scroll, or Wonder teleports.", 2600);
+    if (!world.pathTo(x, z)) say("That point is too far to walk from here. Try moving in smaller steps or use a discovered travel point.", 2600);
   }
 
   async function act(type, payload = {}) {
@@ -2164,7 +2163,7 @@ export default function mount() {
       const from = { x: me.x, z: me.z };
       const freeRoadStep = freeRoadTravelCellClient(from.x, from.z) || freeRoadTravelCellClient(x, z);
       if (!freeRoadStep && clientEnergyNow() < clientMoveCost()) {
-        say("Out of energy. Roads and World Wonder districts are free to travel. Food now restores health, not movement energy.", 2400);
+        say("Out of energy. Rest a moment before moving farther.", 1800);
         walkQueue.length = 0; pendingWalk = null; return false;
       }
       const hopDur = travelStepDuration(from, { x, z });
@@ -2685,8 +2684,8 @@ export default function mount() {
   function touchesOwnLand(x, z) {
     return N4.some(([dx, dz]) => world.tileOwner.get(key(x + dx, z + dz))?.owner === ST.me?.id);
   }
-  function padRadiusForDef(def) { if (def?.id === "road") return 0; return def?.id === "worldwonder" ? wonderRadiusClient(currentWonderSize()) : 1; }
-  function padNameForDef(def) { if (def?.id === "road") return "road tile"; return def?.id === "worldwonder" ? `${currentWonderSize()}×${currentWonderSize()} Wonder plaza` : "3×3 street ring"; }
+  function padRadiusForDef(def) { return def?.id === "worldwonder" ? wonderRadiusClient(currentWonderSize()) : 1; }
+  function padNameForDef(def) { return def?.id === "worldwonder" ? `${currentWonderSize()}×${currentWonderSize()} Wonder plaza` : "building foundation"; }
   function padOffsetsForDef(def) {
     const r = padRadiusForDef(def);
     const out = [];
@@ -2697,7 +2696,6 @@ export default function mount() {
   }
   function padRequirementLine(def) {
     if (def?.id === "worldwonder") return `Costs ${WORLD_WONDER_GOLD_COST}🪙. Needs a clear ${currentWonderSize()}×${currentWonderSize()} plaza (${wonderTilesClient(currentWonderSize())} tiles): center plus ${wonderTilesClient(currentWonderSize()) - 1} surrounding cells. ${wonderFactsLine()}.`;
-    if (def?.id === "road") return "Roads go on a single claimed tile and are walkable. Moving on roads and inside Wonder districts spends no energy.";
     return "Needs a clear claimed 3×3 street ring: the eight surrounding tiles must be yours and empty.";
   }
   function canPlaceAt(x, z) {
@@ -2720,14 +2718,7 @@ export default function mount() {
       return null;
     }
     if (!t || !ST.me || t.owner !== ST.me.id) return "Build on YOUR claimed land.";
-    if (def?.id === "road") {
-      if (tradePostAt(x, z)) return "A trade post occupies this tile.";
-      const b = world.buildPoolAt(x, z);
-      if (b && b.kind === "road") return "Road already exists here.";
-      if (b) return "Another building already occupies that road tile.";
-      if (world.doodadVisible(x, z)) return "Clear the tree or rock before paving a road.";
-      return null;
-    }
+    if (def?.id === "road") return "Road building is disabled in this build.";
     if (tradePostAt(x, z)) return "A trade post occupies this tile.";
     if (world.buildPoolAt(x, z)) return "Occupied.";
     if (world.doodadVisible(x, z)) return "Clear the tree or rock on the center tile first.";
@@ -3085,7 +3076,14 @@ export default function mount() {
     else if (k === "o") openOptions();
     else if (k === "k") togglePanel("skills");
     else if (k === "h" || k === "?") { ST.modal = ST.modal === "help" ? null : "help"; paint(); }
-    else if (ev.key === "Escape") { cancelChop(); ST.modal = null; ST.panel = null; ST.inspect = null; ST.inspectPlayer = null; ST.wonderViewUid = null; ST.mode = "explore"; ST.placing = null; ST.tool = "none"; world.walkQueueClear(); clearHeldMoveKeys(); world.hideBuildGhost(); updateHints(); paint(); }
+    else if (ev.key === "Escape") {
+      cancelChop();
+      const hadOverlay = !!(ST.modal || ST.panel || ST.inspect || ST.inspectPlayer || ST.wonderViewUid);
+      ST.modal = null; ST.inspect = null; ST.inspectPlayer = null; ST.wonderViewUid = null;
+      ST.panel = hadOverlay ? null : "settings";
+      ST.mode = "explore"; ST.placing = null; ST.tool = "none";
+      world.walkQueueClear(); clearHeldMoveKeys(); world.hideBuildGhost(); updateHints(); paint(true);
+    }
   }
   worldEl.addEventListener("pointermove", onPointerMove);
   worldEl.addEventListener("pointerleave", () => { ST.hoverIntent = "walk"; syncToolCursor(); hideTip(); world.hoverMarker.visible = false; world.hideBuildGhost(); });
@@ -3269,15 +3267,13 @@ export default function mount() {
       : ST.tool === "spawn" ? "Deploy · choose a crafted deployable · yellow tiles are valid deploy spots"
       : ST.mode === "place" ? `3 — hammer · place ${LIB_BY_ID[ST.placing]?.name || "building"} · green tile only`
       : ST.mode === "build" ? "3 — hammer · choose a building from the top ribbon"
-      : ST.mode === "tools" ? "Tools · choose axe, pickaxe, use, craft, or deploy"
-      : ST.mode === "teleport" ? "Teleport · choose home base or an unlocked World Wonder"
       : ST.mode === "demolish" ? "4 — shovel · click one of your own buildings to demolish"
       : ST.tool === "wood" ? "1 — axe selected · trees are highlighted"
       : ST.tool === "stone" ? "2 — pickaxe selected · rocks are highlighted"
       : ST.tool === "claim" ? "5 — capture selected · highlighted tiles can be claimed"
       : ST.tool === "siege" ? "2 — siege enemy buildings and destroy tools"
       : ST.tool === "use" ? "2 — use/interact with nearby mines, buildings, offers, and elixirs"
-      : ST.near.i ? `6 — ${ST.near.i.label}` : "Goal: claim territory · collect taxed coins · build a Coin Mint to redeem";
+      : ST.near.i ? `${ST.near.i.label}` : "Explore, gather, capture land, and grow your settlement.";
     return <PlayerHudView
       player={m}
       panel={ST.panel}
@@ -3301,7 +3297,7 @@ export default function mount() {
   }
 
 
-  const BUILDABLES = LIBRARY.filter((b) => !["bomb", "barbcamp", "wall", "gate", "keep"].includes(b.id));
+  const BUILDABLES = LIBRARY.filter((b) => !["road", "bomb", "barbcamp", "wall", "gate", "keep"].includes(b.id));
   const ADMIN_KEEP_BUILDING = {
     id: "admin_keep",
     name: "Admin Keep",
@@ -3320,7 +3316,6 @@ export default function mount() {
     return "";
   }
   function buildingRoleLine(b) {
-    if (b.id === "road") return `Road · walkable city path · travelling on roads and inside Wonder districts spends no energy`;
     if (b.id === "cottage") return `House · expands tile capacity so your borders can grow`;
     if (b.id === "warehouse") return `Warehouse · expands storage for long frontier builds`;
     if (b.id === "academy") return `Academy · passively generates 🔬 science for bombs and inventions`;

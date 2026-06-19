@@ -1,7 +1,7 @@
 
 import assert from "node:assert/strict";
 import test from "node:test";
-import { ATLAS_CATALOG, TOOL_ATLAS_ROWS, TOOL_ATLAS_SLOTS, atlasEntry, atlasRuntimeDefaults } from "./atlasCatalog.ts";
+import { ATLAS_CATALOG, CURSOR_IDS, TOOL_ATLAS_ROWS, TOOL_ATLAS_SLOTS, atlasEntry, atlasRuntimeDefaults } from "./atlasCatalog.ts";
 
 test("tool atlas has bottom bar, hand, cursor, and affordance rows", () => {
   assert.equal(ATLAS_CATALOG.tool.cols, 5);
@@ -16,4 +16,14 @@ test("tool atlas has bottom bar, hand, cursor, and affordance rows", () => {
 test("runtime defaults include the new tool atlas", () => {
   assert.equal(atlasEntry("tool")?.runtimeFile, "tool_atlas_clean.png");
   assert.equal(atlasRuntimeDefaults().tool, "atlas");
+});
+
+
+test("cursor atlas covers neutral and tool cursors", () => {
+  assert.equal(ATLAS_CATALOG.cursor.cols, 6);
+  assert.equal(ATLAS_CATALOG.cursor.rows, 2);
+  assert.equal(atlasEntry("cursor")?.runtimeFile, "cursor_atlas_clean.png");
+  assert.deepEqual(CURSOR_IDS.slice(0, 4), ["default", "walk", "inspect", "interact"]);
+  assert.ok(CURSOR_IDS.includes("axe"));
+  assert.ok(CURSOR_IDS.includes("capture"));
 });

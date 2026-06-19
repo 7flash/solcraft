@@ -1217,3 +1217,19 @@ input:focus,select:focus{border-color:var(--line2);box-shadow:0 0 0 3px rgba(20,
 .object-preview-pop .inspect-actions{align-items:center;}
 .object-preview-pop .owner-card .tiny{line-height:1.32;}
 .ctx{display:none!important;}
+
+/* Stage 27 — cleaner game chrome and pause/settings menu */
+.chrome-actions.is-empty{display:none!important;pointer-events:none!important;}
+.minimap{top:10px!important;right:10px!important;}
+.pause-layer{z-index:70;}
+.pause-panel{width:min(760px,calc(100vw - 24px));}
+.pause-top{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;}
+.pause-grid{grid-template-columns:repeat(auto-fit,minmax(230px,1fr));}
+.settings-card.compact{min-height:auto;}
+.settings-actions.stacked{display:grid;grid-template-columns:1fr;align-items:stretch;}
+.settings-field{display:grid;gap:6px;color:#b8c2cc;font:800 11px/1.3 var(--f-body);}
+.settings-field span{color:#f3ead7;text-transform:uppercase;letter-spacing:.08em;font:900 10px/1 ui-monospace,monospace;}
+@media(max-width:720px){.minimap{top:8px!important;right:8px!important}.pause-top{display:grid}.pause-panel{max-height:92dvh}}
+
+/* Cursor atlas contract: CSS SVGs are fallback art until cursor_atlas_clean.png is published. */
+.sc-root{--cursor-atlas:url('/api/atlas-runtime/cursor');}
