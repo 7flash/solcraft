@@ -2034,8 +2034,8 @@ function collectLoot(p: Player, l: any) {
   db.loot.delete(l.id);
   bump();
   let note = "";
-  if (l.kind === "wood") { const amt = Math.max(1, Math.floor(Number(l.gid || 5) || 5)); gain(p, { w: amt }); note = `+${amt}🪵`; }
-  else if (l.kind === "stone") { const amt = Math.max(1, Math.floor(Number(l.gid || 4) || 4)); gain(p, { s: amt }); note = `+${amt}🪨`; }
+  if (l.kind === "wood") { const amt = Math.max(1, Math.floor(Number(l.gid || 5) || 5)); gain(p, { w: amt }); note = `+${amt} wood 🪵`; }
+  else if (l.kind === "stone") { const amt = Math.max(1, Math.floor(Number(l.gid || 4) || 4)); gain(p, { s: amt }); note = `+${amt} stone 🪨`; }
   else if (l.kind === "gold") {
     const baseAmt = Math.max(1, Math.floor(Number(l.gid || 3) || 3));
     const land = tileAt(l.x, l.z) as any;
@@ -2061,13 +2061,13 @@ function collectLoot(p: Player, l: any) {
       if (owner) { gain(owner, { g: tax }); pushEvent(owner.id, "fill", `🪙 Territory tax: +${tax}🪙${mintBonus ? ` (${mintBonus} from Coin Mint upgrades)` : ""} from ${p.name}'s pickup at ${l.x}, ${l.z}.`); }
     }
     p.tradesDone = (p.tradesDone || 0) + 1;
-    if (tax) note = `+${take}🪙 (${tax}🪙 territory tax${mintBonus ? `, +${mintBonus} mint bonus` : ""})`;
-    else note = mintBonus ? `+${take}🪙 (+${mintBonus} from Coin Mint upgrades)` : `+${take}🪙`;
+    if (tax) note = `+${take} coins 🪙 (${tax} tax paid${mintBonus ? `, +${mintBonus} mint bonus` : ""})`;
+    else note = mintBonus ? `+${take} coins 🪙 (+${mintBonus} mint bonus)` : `+${take} coins 🪙`;
   }
   else { note = "old unbacked trinket archived"; }
   addXp(p, 1);
   refreshMilestones(p);
-  return ok({ note: "Picked up " + note, lootGone: l.id, inv: p.inv, xp: p.xp, level: p.level });
+  return ok({ note: `Picked up ${note}.`, lootGone: l.id, inv: p.inv, xp: p.xp, level: p.level });
 }
 
 function touchesOwnLand(p: Player, x: number, z: number): boolean {
@@ -2691,17 +2691,17 @@ export function harvestFinish(p: Player, x: number, z: number) {
     const boost = ownerId === p.id ? territoryYieldBoost(p.id, "lumber", raw) : { base: raw, amount: raw, bonus: 0, stacks: 0, mult: 1 };
     const dropped = dropHarvestLoot(x, z, "wood", boost.amount);
     p.treesChopped++;
-    note = `Chopped! ${dropped}🪵 dropped nearby${territoryYieldNote(boost, "Lumber Camp")}`;
+    note = `Chopped tree: ${dropped} wood 🪵 dropped nearby${territoryYieldNote(boost, "Lumber Camp")}`;
   } else if (d === "food") {
     const amt = 4 + Math.floor(bonus / 2);
     gain(p, { f: amt });
-    note = `Harvested crops. +${amt}🌾 food.`;
+    note = `Harvested crops: +${amt} food 🌾.`;
   } else {
     const ownerId = Number(tileAt(x, z)?.owner || 0);
     const raw = ECONOMY_RULES.rockStone + bonus;
     const boost = ownerId === p.id ? territoryYieldBoost(p.id, "quarry", raw) : { base: raw, amount: raw, bonus: 0, stacks: 0, mult: 1 };
     const dropped = dropHarvestLoot(x, z, "stone", boost.amount);
-    note = `Mined! ${dropped}🪨 dropped nearby${territoryYieldNote(boost, "Quarry")}`;
+    note = `Mined rock: ${dropped} stone 🪨 dropped nearby${territoryYieldNote(boost, "Quarry")}`;
   }
   addXp(p, XP.chop);
   autoTrainSkill(p, "gather", d === "tree" ? 5 : 4);
@@ -2911,7 +2911,7 @@ export function useBuilding(p: Player, uid: number) {
     const resKey = Object.keys(def.prod)[0] as ResKey;
     gain(p, { [resKey]: n });
     markBuildingUsed(b);
-    return ok({ note: `Collected +${n}${COST_GLYPH[resKey] || resKey} from ${b.nm || def.name}` });
+    return ok({ note: `Collected +${n}${COST_GLYPH[resKey] || resKey} from ${b.nm || def.name}.` });
   }
   const u = def.use;
   if (!u) {

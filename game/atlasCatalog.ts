@@ -24,14 +24,13 @@ const BASE_CELL_SLOTS = {
 export const TOOL_IDS = ["axe", "pickaxe", "hammer", "shovel", "capture"] as const;
 export type ToolId = (typeof TOOL_IDS)[number];
 
-export const CURSOR_IDS = ["default", "walk", "inspect", "interact", "denied", "select", "axe", "pickaxe", "hammer", "shovel", "capture", "wait"] as const;
+export const CURSOR_IDS = ["default", "walk", "inspect", "interact", "denied", "select", "wait", "target", "pin", "chat", "drag", "close"] as const;
 export type CursorId = (typeof CURSOR_IDS)[number];
 
 export const TOOL_ATLAS_ROWS = [
   { id: "bar", label: "Bottom toolbelt icons", slots: TOOL_IDS.map((id) => `bar.${id}`) },
   { id: "hand", label: "Character in-hand overlays", slots: TOOL_IDS.map((id) => `hand.${id}`) },
-  { id: "cursor", label: "World cursor sprites", slots: TOOL_IDS.map((id) => `cursor.${id}`) },
-  { id: "affordance", label: "Target/selection affordances", slots: TOOL_IDS.map((id) => `affordance.${id}`) },
+  { id: "cursor", label: "Active tool cursor sprites", slots: TOOL_IDS.map((id) => `cursor.${id}`) },
 ] as const;
 
 export const TOOL_ATLAS_SLOTS = TOOL_ATLAS_ROWS.flatMap((row) => row.slots);
@@ -46,12 +45,12 @@ export const ATLAS_CATALOG: Record<AtlasId, AtlasCatalogEntry> = {
     id: "tool",
     label: "Tools",
     cols: 5,
-    rows: 4,
+    rows: 3,
     cells: 5,
     runtimeFile: "tool_atlas_clean.png",
     defaultMode: "atlas",
     slots: TOOL_ATLAS_SLOTS,
-    notes: "Dedicated atlas for bottom toolbelt icons, in-hand overlays, cursor fallbacks, and target affordances. Tool art no longer belongs in the doll atlas.",
+    notes: "Dedicated atlas for five active tools: bottom toolbelt icons, in-hand character overlays, and active tool cursor sprites. Tool art no longer belongs in the doll atlas.",
   },
   cursor: {
     id: "cursor",
@@ -62,7 +61,7 @@ export const ATLAS_CATALOG: Record<AtlasId, AtlasCatalogEntry> = {
     runtimeFile: "cursor_atlas_clean.png",
     defaultMode: "atlas",
     slots: CURSOR_IDS,
-    notes: "Dedicated atlas for browser/world cursors: neutral movement, inspect/interact, denied/select, and active tool cursors. This replaces CSS-only cursor SVGs once art is generated.",
+    notes: "Dedicated atlas for neutral/non-tool browser cursors: default movement, inspect/interact, denied/select, wait/target/share/chat states. Active axe/pickaxe/hammer/shovel/capture cursor art lives in the tool atlas.",
   },
 };
 
