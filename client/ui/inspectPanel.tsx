@@ -29,7 +29,7 @@ export function InspectPanelView(props: any) {
   return (
     <div className="utility-pop inspect-pop" data-stop-pointerdown="1" style={{ borderColor: vm.accentLine, boxShadow: `0 18px 48px rgba(0,0,0,.46), inset 0 1px 0 rgba(255,255,255,.05), 0 0 0 3px ${rgba(vm.accent, 0.08)}` }}>
       <button className="utility-close" data-click="inspect-close">×</button>
-      <div className="object-preview-stage building-preview-stage" aria-hidden="true"><span>{def?.glyph || "▣"}</span></div>
+      <div className="mini3d-preview object-preview-stage building-preview-stage" data-mini3d-preview="1" data-preview-kind="building" data-building-kind={b.kind} data-preview-accent={vm.accent} aria-label={`${b.nm || def?.name || b.kind} 3D preview`}><span>{def?.glyph || "▣"}</span></div>
       <div className="inspect-head">
         <span className="accent-orb" style={{ background: vm.accent, boxShadow: `0 0 0 3px ${vm.accentSoft}, 0 0 18px ${rgba(vm.accent, 0.24)}` }} />
         <div className="inspect-name">{def?.glyph} {b.nm || def?.name}</div>

@@ -55,6 +55,7 @@ import { toolCursorForState } from "../client/ui/toolCursor";
 import { PlayerHudView } from "../client/ui/playerHud";
 import { TopChromeView } from "../client/ui/topChrome";
 import { configureMinimapCanvas } from "../client/ui/minimapShell";
+import { disposeMiniPreviews, syncMiniPreviewPanels } from "../client/world/miniPreview";
 import { WorldMapModalView } from "../client/ui/worldMapModal";
 import { PlayerModalView } from "../client/ui/playerModal";
 import { renderKnownWorldMap, tileFromCanvasEvent } from "../client/world/mapCanvas";
@@ -2607,74 +2608,20 @@ export default function mount() {
     ctxEl.style.top = Math.max(6, y) + "px";
   }
   function onContext(ev) {
+    // Stage 26: right-click no longer opens a second interaction system.
+    // The game now has one interaction language: selected tool + left click,
+    // or neutral inspect/move mode. Keep native menu suppressed on the canvas
+    // but route right-click to the same top-right inspection affordance.
     if (ST.screen !== "playing") return;
     ev.preventDefault();
+    hideCtx();
     if (ST.modal) return;
-    if (ST.panel) { ST.panel = null; paint(true); }
     const hitB = world.buildingFromEvent(ev);
     const c = world.cellFromEvent(ev);
-    const me = ST.me;
-    /* a building under the cursor */
-    if (hitB && me) {
-      const def = LIB_BY_ID[hitB.b.kind];
-      const adj = cheb(hitB.b.x, hitB.b.z, world.me.x, world.me.z) <= 1;
-      if (hitB.b.owner === me.id) {
-        const items = [{ label: "Inspect / manage", run: () => { ST.inspect = hitB.uid; ST.panel = "inspect"; ST.modal = null; ST.inspectDraft = null; paint(true); } }];
-        items.push({ label: "Use", disabled: !adj, hint: adj ? "trigger building" : "walk closer", run: () => useBuildingClient(hitB.uid) });
-        if (adj) items.push({ label: "Upgrade", hint: `Lv ${hitB.b.level}`, run: () => act("upgrade", { uid: hitB.uid }) });
-        if (adj && hitB.b.hp < hitB.b.maxHp) items.push({ label: "Repair", run: () => act("repair", { uid: hitB.uid }) });
-        items.push({ label: "Demolish", danger: true, run: () => act("demolish", { uid: hitB.uid }).then((r) => r?.ok && sfx.demolish()) });
-        showCtx(ev.clientX, ev.clientY, `${def?.glyph || ""} ${hitB.b.nm || def?.name || hitB.b.kind}`, items);
-      } else {
-        showCtx(ev.clientX, ev.clientY, `${def?.name || hitB.b.kind} — ${hitB.b.ownerName}'s`, [
-          { label: "Inspect base", run: () => { ST.inspect = hitB.uid; ST.panel = "inspect"; ST.modal = null; ST.inspectDraft = null; paint(true); } },
-          { label: "Use", disabled: !adj, hint: adj ? "trigger building" : "walk closer", run: () => useBuildingClient(hitB.uid) },
-          { label: hitB.b.kind === "bomb" ? "Defuse / siege tool" : "Siege structure", danger: true, disabled: !adj, hint: adj ? "in range" : "walk closer", run: () => doRaid(hitB.uid) },
-          { label: "Walk beside", run: () => world.pathToNear(hitB.b.x, hitB.b.z) },
-        ]);
-      }
-      return;
-    }
-    /* a player under the cursor */
+    if (hitB) { openBuildingInspect(hitB); return; }
     if (c) {
-      const q = ST.players.find((p) => p.x === c.x && p.z === c.z);
-      if (q) {
-        const adj = cheb(q.x, q.z, world.me.x, world.me.z) <= 2;
-        showCtx(ev.clientX, ev.clientY, q.name, [
-          { label: "Open bank", hint: "nearby panel", run: () => { ST.panel = "bank"; ST.tradeTab = "bank"; paint(true); } },
-          { label: "Inspect", run: () => { ST.inspectPlayer = q; ST.modal = "player"; paint(); } },
-          { label: "Walk toward", run: () => world.pathTo(q.x, q.z) },
-        ]);
-        return;
-      }
-    }
-    /* public trade post */
-    if (c && tradePostAt(c.x, c.z)) {
-      const adj = cheb(c.x, c.z, world.me.x, world.me.z) <= 1;
-      showCtx(ev.clientX, ev.clientY, "᯼ Trade Post", [
-        { label: "Bank", disabled: !adj, hint: adj ? "nearby panel" : "walk closer", run: () => { ST.panel = "bank"; ST.tradeTab = "bank"; paint(true); } },
-        { label: "Walk beside", run: () => world.pathToNear(c.x, c.z) },
-      ]);
-      return;
-    }
-    /* a tree / rock doodad */
-    if (c) {
-      const d = world.doodadVisible(c.x, c.z);
-      if (d) {
-        const adj = cheb(c.x, c.z, world.me.x, world.me.z) <= 1;
-        showCtx(ev.clientX, ev.clientY, d === "tree" ? "🌳 Tree" : "🪨 Rock", [
-          { label: d === "tree" ? "Select axe + chop (+10🪵)" : "Select pick + mine (+8🪨)", hint: adj ? `${(harvestMs(me?.skills, d) / 1000).toFixed(1)}s` : "select tool + walk closer", run: () => gatherDoodadFromContext(c.x, c.z, d) },
-          { label: "Walk beside", run: () => world.pathToNear(c.x, c.z) },
-        ]);
-        return;
-      }
-      /* empty tile */
-      const t = world.tileOwner.get(key(c.x, c.z));
-      const onTile = world.me.x === c.x && world.me.z === c.z;
-      const items = [{ label: "Walk here", run: () => world.pathTo(c.x, c.z) }];
-      if (me && t && t.owner === me.id) items.push({ label: "Open build bar (5)", run: () => selectBuildTool() });
-      if (me && onTile) items.unshift({ label: "Claim / capture (C)", run: () => claimTile() });
-      showCtx(ev.clientX, ev.clientY, t ? (t.owner === me?.id ? "Your land" : "Claimed land") : "Frontier", items);
+      if (tradePostAt(c.x, c.z) || proceduralNpcAt(c.x, c.z) || world.doodadVisible(c.x, c.z)) openObjectPreview(worldObjectPreviewForCell(c));
+      else world.pathTo(c.x, c.z);
     }
   }
   worldEl.addEventListener("contextmenu", onContext);
@@ -4962,6 +4909,7 @@ export default function mount() {
     }
     if (ST.screen === "playing" && (ST.mode === "build" || ST.mode === "place")) syncBuildScrollSoon();
     mountWonderViewerSoon();
+    syncMiniPreviewPanels(utilityRoot);
     perf.record("ui.paint", performance.now() - paintStart, { force, changed });
   }
 
@@ -5002,6 +4950,7 @@ export default function mount() {
     worldEl.removeEventListener("pointerdown", onPointerDown);
     worldEl.removeEventListener("wheel", onWheel);
     worldEl.removeEventListener("contextmenu", onContext);
+    disposeMiniPreviews();
     document.removeEventListener("contextmenu", preventGameContext, { capture: true });
     window.removeEventListener("keydown", onKey);
     window.removeEventListener("keyup", onKeyUp);

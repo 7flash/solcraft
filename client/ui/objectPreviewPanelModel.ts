@@ -15,15 +15,15 @@ export function objectPreviewTitle(p: ObjectPreview | null | undefined): string 
   if (p.kind === "tree") return "Tree";
   if (p.kind === "rock") return "Rock";
   if (p.kind === "food") return "Crop patch";
-  if (p.kind === "trade") return "Trade post";
+  if (p.kind === "trade") return "Capital exchange";
   if (p.kind === "npc") return "Frontier visitor";
   return "Frontier tile";
 }
 
 export function objectPreviewGlyph(p: ObjectPreview | null | undefined): string {
   if (!p) return "◇";
-  if (p.kind === "tree") return "🪓";
-  if (p.kind === "rock") return "⛏";
+  if (p.kind === "tree") return "🌳";
+  if (p.kind === "rock") return "🪨";
   if (p.kind === "food") return "🌾";
   if (p.kind === "trade") return "↔";
   if (p.kind === "npc") return "☻";
@@ -32,20 +32,31 @@ export function objectPreviewGlyph(p: ObjectPreview | null | undefined): string 
 
 export function objectPreviewDescription(p: ObjectPreview | null | undefined): string {
   if (!p) return "";
-  if (p.kind === "tree") return "A harvestable tree. Select the axe, stand beside it, then chop for wood.";
-  if (p.kind === "rock") return "A harvestable rock. Select the pickaxe, stand beside it, then mine for stone.";
-  if (p.kind === "food") return "A crop patch grown by a nearby farm. Harvest it for food, then food restores health over time.";
-  if (p.kind === "trade") return "A public exchange point. Stand beside it to open exchange and trade actions.";
-  if (p.kind === "npc") return `${p.biome || "Frontier"} visitor. More NPC interactions can attach to this preview panel later.`;
+  if (p.kind === "tree") return "A harvestable tree. Select the axe from the bottom toolbelt if you want to chop it.";
+  if (p.kind === "rock") return "A harvestable rock. Select the pickaxe from the bottom toolbelt if you want to mine it.";
+  if (p.kind === "food") return "A crop patch grown by a nearby farm. Food restores health over time and can be harvested when you stand beside it.";
+  if (p.kind === "trade") return "A public exchange point. In the capital this becomes the natural place for bank, deposit, withdrawal, and trade actions.";
+  if (p.kind === "npc") return `${p.biome || "Frontier"} visitor. NPC services should eventually live in capital/city buildings instead of permanent HUD menus.`;
   return "Open ground. With no tool selected, clicking walkable land moves your character.";
 }
 
 export function objectPreviewPrimaryAction(p: ObjectPreview | null | undefined): string {
   if (!p) return "walk";
-  if (p.kind === "tree") return "select-axe";
-  if (p.kind === "rock") return "select-pickaxe";
   if (p.kind === "food") return "harvest-food";
   if (p.kind === "trade") return "open-trade";
   if (p.kind === "npc") return "walk-near";
+  if (p.kind === "tree" || p.kind === "rock") return "walk-near";
   return "walk";
+}
+
+export function objectPreviewActionLabel(action: string): string {
+  if (action === "harvest-food") return "Harvest food";
+  if (action === "open-trade") return "Open exchange";
+  if (action === "walk-near") return "Walk near";
+  return "Walk here";
+}
+
+export function objectPreviewShouldShowPrimary(p: ObjectPreview | null | undefined): boolean {
+  if (!p) return false;
+  return p.kind === "food" || p.kind === "trade" || p.kind === "npc" || p.kind === "tile";
 }

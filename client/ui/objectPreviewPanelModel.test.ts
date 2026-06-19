@@ -1,19 +1,21 @@
-import assert from "node:assert/strict";
 import test from "node:test";
-import { objectPreviewDescription, objectPreviewPrimaryAction, objectPreviewTitle } from "./objectPreviewPanelModel.ts";
+import assert from "node:assert/strict";
+import { objectPreviewDescription, objectPreviewPrimaryAction, objectPreviewShouldShowPrimary, objectPreviewTitle } from "./objectPreviewPanelModel.ts";
 
-test("object preview titles common world objects", () => {
-  assert.equal(objectPreviewTitle({ kind: "tree", x: 1, z: 2 }), "Tree");
-  assert.equal(objectPreviewTitle({ kind: "food", x: 1, z: 2 }), "Crop patch");
-  assert.equal(objectPreviewTitle({ kind: "npc", x: 1, z: 2, name: "Mira" }), "Mira");
+test("tree preview explains toolbelt instead of selecting axe from the panel", () => {
+  const p = { kind: "tree" as const, x: 1, z: 2 };
+  assert.equal(objectPreviewPrimaryAction(p), "walk-near");
+  assert.equal(objectPreviewShouldShowPrimary(p), false);
+  assert.match(objectPreviewDescription(p), /bottom toolbelt/i);
 });
 
-test("object preview primary actions map to tool semantics", () => {
-  assert.equal(objectPreviewPrimaryAction({ kind: "tree", x: 0, z: 0 }), "select-axe");
-  assert.equal(objectPreviewPrimaryAction({ kind: "rock", x: 0, z: 0 }), "select-pickaxe");
+test("food and trade still expose direct interaction actions", () => {
   assert.equal(objectPreviewPrimaryAction({ kind: "food", x: 0, z: 0 }), "harvest-food");
+  assert.equal(objectPreviewPrimaryAction({ kind: "trade", x: 0, z: 0 }), "open-trade");
+  assert.equal(objectPreviewShouldShowPrimary({ kind: "trade", x: 0, z: 0 }), true);
 });
 
-test("crop description documents food as health recovery", () => {
-  assert.match(objectPreviewDescription({ kind: "food", x: 0, z: 0 }), /health/i);
+test("titles remain stable", () => {
+  assert.equal(objectPreviewTitle({ kind: "rock", x: 0, z: 0 }), "Rock");
+  assert.equal(objectPreviewTitle({ kind: "npc", x: 0, z: 0, name: "Mira" }), "Mira");
 });

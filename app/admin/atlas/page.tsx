@@ -1,1 +1,5 @@
-export default function AtlasForgePage(){return <main id="solcraft-atlas-forge"/>}
+import "./page.css";
+
+export default function AtlasStudioPage() {
+  return <main id="solcraft-atlas-forge" />;
+}
