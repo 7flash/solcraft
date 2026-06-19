@@ -45,6 +45,7 @@ import { MorePanelView } from "../client/ui/morePanel";
 import { SettingsPanelView } from "../client/ui/settingsPanel";
 import { OptionsModalView } from "../client/ui/optionsModal";
 import { HelpModalView } from "../client/ui/helpModal";
+import { actionSlotClass, actionStackClass } from "../client/ui/hudChromeModel";
 
 const AUTH_KEY = "solcraft:auth";
 const FACE_KEY = "solcraft:face.v1";
@@ -1087,6 +1088,74 @@ input:focus,select:focus{border-color:var(--line2);box-shadow:0 0 0 3px rgba(20,
   .build-tile .bc{display:none!important;}
   .chat{display:none!important;}
   .toast{max-width:calc(100vw - 12px)!important;}
+}
+
+/* ============================================================
+   UI Stage 10 — tactile gameplay chrome.
+   Contract-only visual pass: keeps all legacy action data-clicks,
+   but gives the primary loop clearer weight and touch targets.
+   ============================================================ */
+.ui2-action-stack{container-type:inline-size;}
+.ui2-action-stack.has-ribbon .action-bar{border-top-left-radius:18px!important;border-top-right-radius:18px!important;}
+.ui2-action-slot{
+  position:relative!important;
+  isolation:isolate!important;
+  overflow:hidden!important;
+  min-width:0!important;
+  outline:none!important;
+}
+.ui2-action-slot:before{
+  content:"";
+  position:absolute;
+  inset:1px;
+  border-radius:inherit;
+  z-index:-1;
+  background:radial-gradient(circle at 50% 0%,rgba(255,255,255,.13),transparent 58%);
+  opacity:.9;
+  pointer-events:none;
+}
+.ui2-action-slot:after{
+  content:"";
+  position:absolute;
+  left:15%;right:15%;bottom:5px;height:2px;
+  border-radius:99px;
+  background:linear-gradient(90deg,transparent,rgba(20,241,149,.72),transparent);
+  opacity:0;
+  transform:scaleX(.62);
+  transition:opacity .14s ease,transform .14s ease;
+  pointer-events:none;
+}
+.ui2-action-slot.on:after,.ui2-action-slot.primary:after{opacity:1;transform:scaleX(1);}
+.ui2-action-slot:focus-visible{
+  box-shadow:0 0 0 3px rgba(20,241,149,.22),0 0 0 1px rgba(20,241,149,.62),inset 0 1px 0 rgba(255,255,255,.12)!important;
+}
+.ui2-action-slot .num{
+  min-width:18px!important;height:18px!important;
+  display:grid!important;place-items:center!important;
+  border:1px solid rgba(255,255,255,.12)!important;
+  color:#d7e6e3!important;
+}
+.ui2-action-slot .ico{
+  display:grid!important;place-items:center!important;
+  width:24px!important;height:24px!important;
+  margin-inline:auto!important;
+  filter:drop-shadow(0 2px 4px rgba(0,0,0,.34));
+}
+.ui2-action-slot .lbl{
+  width:100%!important;
+  text-align:center!important;
+  white-space:nowrap!important;
+  overflow:hidden!important;
+  text-overflow:ellipsis!important;
+  text-transform:uppercase!important;
+  font-weight:950!important;
+}
+.ui2-action-slot.is-disabled{pointer-events:none!important;}
+@media(pointer:coarse){.ui2-action-slot{min-height:50px!important}.ui2-action-slot:hover{transform:none!important}}
+@media(max-width:520px),(max-height:560px){
+  .ui2-action-slot .num{display:none!important;}
+  .ui2-action-slot .ico{width:22px!important;height:22px!important;}
+  .ui2-action-slot .lbl{font-size:7.5px!important;letter-spacing:.02em!important;}
 }
 `;
 
@@ -4321,7 +4390,7 @@ export default function mount() {
     const action = (num, ico, lbl, run, opts = {}) => {
       const info = opts.info || `${num}: ${lbl}`;
       return (
-        <button className={"action-slot" + (opts.primary ? " primary" : "") + (opts.on ? " on" : "") + (opts.danger ? " danger" : "")} disabled={!!opts.disabled} aria-label={info} data-tip-title={`${num} · ${lbl}`} data-tip-body={info} data-click={run}>
+        <button className={actionSlotClass({ primary: opts.primary, on: opts.on, danger: opts.danger, disabled: opts.disabled })} disabled={!!opts.disabled} aria-label={info} data-tip-title={`${num} · ${lbl}`} data-tip-body={info} data-click={run} data-core-action={run}>
           <span className="num">{num}</span><span className="ico"><UiIcon name={String(lbl).toLowerCase()} fallback={ico} /></span><span className="lbl">{lbl}</span>{opts.cd ? <span className="cd" style={`--cd:${opts.cd}%`} /> : null}
         </button>
       );
@@ -4355,7 +4424,7 @@ export default function mount() {
       wonderPalettes={WONDER_PALETTES}
     />;
     return (
-      <div className="action-stack">
+      <div className={actionStackClass({ hasRibbon: !!ribbonMode })}>
         {ribbon}
         <div className="action-bar">
           {(() => {
