@@ -30,6 +30,9 @@ import {
 import { loadAtlasRuntimeConfig, terrainMats, tickVisualTextures, setTerrainVisualPrefs } from "../client/textures";
 import { loadCharacterProfile, saveCharacterProfile, type CharacterProfile } from "../client/dollProfile";
 import { isMoveKey, movementVectorFromKeys, normalizeMoveKey } from "../client/game/directionalInput";
+import { CORE_ACTIONS } from "../client/ui/coreActions";
+import { actionBarActive } from "../client/ui/actionBarState";
+import { MORE_MENU_GROUPS } from "../client/ui/moreMenu";
 
 const AUTH_KEY = "solcraft:auth";
 const FACE_KEY = "solcraft:face.v1";
@@ -600,6 +603,20 @@ input:focus,select:focus{border-color:var(--line2);box-shadow:0 0 0 3px rgba(20,
 .minimap{position:fixed!important;right:10px!important;top:72px!important;bottom:auto!important;width:174px!important;height:174px!important;z-index:21!important;}
 @media(max-width:720px){.scv-hud{width:min(316px,calc(100vw - 16px));}.chrome-actions{top:8px;right:8px}.chrome-btn{width:40px;height:40px;border-radius:13px}.minimap{width:118px!important;height:118px!important;top:58px!important;right:8px!important}.utility-pop,.quest-pop{left:8px!important;right:8px!important;top:calc(100dvh - min(58dvh,420px) - 62px)!important;width:auto!important;max-height:min(58dvh,420px)!important}.scv-tabs{gap:5px}.scv-tab{min-height:45px;font-size:8px}.scv-tab .ui-ico{width:24px;height:24px}}
 .utility-grid.two{grid-template-columns:repeat(2,minmax(0,1fr));}
+.more-pop{width:min(430px,calc(100vw - 392px));}
+.more-group{display:grid;gap:7px;margin:9px 0 12px;}
+.more-group-head{display:grid;gap:2px;}
+.more-group-head b{font:900 11px/1 var(--f-display);letter-spacing:.08em;text-transform:uppercase;color:#bfffe0;}
+.more-group-head span{font:650 10.5px/1.25 var(--f-body);color:var(--c-muted);}
+.more-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:7px;}
+.more-tile{display:grid;grid-template-columns:30px minmax(0,1fr);gap:8px;align-items:center;min-height:54px;text-align:left;border:1px solid rgba(255,255,255,.10);border-radius:14px;background:rgba(255,255,255,.055);color:var(--paper);cursor:pointer;padding:8px;font-family:inherit;box-shadow:inset 0 1px 0 rgba(255,255,255,.04);}
+.more-tile:hover{filter:brightness(1.12);border-color:rgba(20,241,149,.24);}
+.more-tile.on{background:linear-gradient(135deg,rgba(20,241,149,.16),rgba(153,69,255,.10));border-color:rgba(20,241,149,.34);}
+.more-glyph{display:grid;place-items:center;width:30px;height:30px;border-radius:11px;background:rgba(255,255,255,.08);font-size:15px;}
+.more-copy{display:grid;gap:2px;min-width:0;}
+.more-copy b{font:900 11px/1.1 var(--f-display);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.more-copy small{font:650 9.5px/1.2 var(--f-body);color:#9fb2bd;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;}
+@media(max-width:720px){.more-pop{width:auto!important}.more-grid{grid-template-columns:repeat(2,minmax(0,1fr));}.more-tile{min-height:48px;padding:7px;}}
 .inspect-pop{width:min(410px,calc(100vw - 24px))!important;padding:11px!important;}
 .inspect-head{display:flex;align-items:center;gap:9px;margin:0 30px 8px 0;}
 .inspect-head .accent-orb{width:18px;height:18px;border-radius:999px;display:inline-block;flex:none;}
@@ -4037,7 +4054,7 @@ export default function mount() {
     return rows.map((r) => `${r.title}: ${r.body}`).join(" ");
   }
   function openQuests() { togglePanel("quests"); }
-  function openOptions() { togglePanel("settings"); }
+  function openOptions() { togglePanel("more"); }
   function openCoinGuide() { openQuests(); }
   function Hud() {
     const m = ST.me;
@@ -4087,7 +4104,7 @@ export default function mount() {
           <button className={"scv-tab" + (ST.panel === "char" ? " on" : "")} data-click="toggle-panel" data-panel="char" data-guide-target="char" data-tip-title="Character" data-tip-body="Customize your settler while staying in the world."><UiIcon name="character" fallback="C" /><span>Character</span></button>
           <button className={"scv-tab" + (ST.panel === "quests" ? " on" : "")} data-click="toggle-panel" data-panel="quests" data-guide-target="quests" data-tip-title="Guide" data-tip-body="Guide cards, skills, and claimable rewards."><UiIcon name="quests" fallback="G" /><span>Guide</span></button>
           <button className={"scv-tab" + (ST.panel === "skills" ? " on" : "")} data-click="toggle-panel" data-panel="skills" data-tip-title="Achievements" data-tip-body="Skill tiers and progress."><UiIcon name="skills" fallback="A" /><span>Achievements</span></button>
-          <button className={"scv-tab" + (ST.panel === "bank" ? " on" : "")} data-click="open-bank" data-panel="bank" data-guide-target="bank" data-tip-title="Bank" data-tip-body="Simple exchange: deposit to your personal address or withdraw to your connected wallet."><UiIcon name="bank" fallback="B" /><span>Bank</span></button>
+          <button className={"scv-tab" + (ST.panel === "more" ? " on" : "")} data-click="open-more" data-panel="more" data-tip-title="More" data-tip-body="Bank, craft, siege, wonders, map, settings, and help."><UiIcon name="settings" fallback="☰" /><span>More</span></button>
         </div>
         <div className="scv-hint"><b>{hint.split(" — ")[0]}</b>{hint.includes(" — ") ? " — " + hint.split(" — ").slice(1).join(" — ") : hint}</div>
         {m.spectator ? <div className="scv-hint"><b>Spectator</b> — ghost view; read-only and no coin pickups</div> : null}
@@ -4403,13 +4420,14 @@ export default function mount() {
       <div className="action-stack">
         {ribbon}
         <div className="action-bar">
-          {action(1, "➤", "Move", "explore-mode", { primary: ST.mode === "explore" && ST.tool === "none", on: ST.mode === "explore" && ST.tool === "none", info: "Clear tools. Click the map, use WASD/arrows, or hold two directions for diagonal movement." })}
-          {action(2, "🪓", "Chop", "gather-wood", { on: ST.tool === "wood", info: "Highlight trees only. Chopped wood drops into pickup piles." })}
-          {action(3, "⛏", "Mine", "gather-stone", { on: ST.tool === "stone", info: "Highlight rocks only. Mined stone drops into pickup piles." })}
-          {action(4, "⚑", "Claim", "claim", { on: ST.tool === "claim", info: "Capture open connected frontier tiles. Player bases are protected." })}
-          {action(5, "⌂", "Build", "select-build", { on: buildOpen, info: "Open buildings. Advanced wonders stay inside Build instead of taking the main movement slot." })}
-          {action(6, "✦", "Use", "use-tool", { on: ST.tool === "use", info: "Interact with nearby buildings, offers, scrolls, and supplies." })}
-          {action(7, "☰", "More", "open-options", { on: ST.panel === "settings", info: "Settings, map, guide, bank, character, and advanced panels live outside the core bar." })}
+          {(() => {
+            const active = actionBarActive({ mode: ST.mode, tool: ST.tool, panel: ST.panel });
+            return CORE_ACTIONS.map((a) => action(a.key, a.icon, a.label, a.click, {
+              primary: a.click === "explore-mode",
+              on: !!active[a.click],
+              info: a.help,
+            }));
+          })()}
           {admin ? action(8, "⚙", "Admin", "admin-toggle", { danger: true, on: adminOpen, info: "Admin world ops: demolish objects, clear broken cells, spawn neutral Keeps, and open world map jump." }) : null}
         </div>
       </div>
@@ -4843,7 +4861,8 @@ export default function mount() {
       case "forget-session": return forgetLocalSettler();
       case "toggle-panel": return togglePanel(readStr(el, "panel"));
       case "explore-mode": closeTools(); clearHeldMoveKeys(); ST.panel = null; ST.modal = null; say("Move mode — click the map, use WASD/arrows, or hold two directions for diagonal movement.", 1800); paint(true); return;
-      case "open-options": return openOptions();
+      case "open-options":
+      case "open-more": return openOptions();
       case "open-bank": advanceWalkthroughAction("bank"); return openBankPanel();
       case "select-wonder": advanceWalkthroughAction("wonder"); return selectWonderTool();
       case "select-craft": return selectCraftTool();
@@ -5545,6 +5564,23 @@ export default function mount() {
     </div>;
   }
 
+  function MorePanel() {
+    return <UtilityShell className="more-pop" title="More" sub="Secondary features stay here so the primary bar remains focused on move, gather, claim, build, and use.">
+      {MORE_MENU_GROUPS.map((group) => <div className="more-group" data-group={group.id}>
+        <div className="more-group-head"><b>{group.title}</b><span>{group.text}</span></div>
+        <div className="more-grid">
+          {group.items.map((item) => {
+            const on = item.panel ? ST.panel === item.panel : false;
+            return <button className={"more-tile" + (on ? " on" : "")} data-click={item.click} data-panel={item.panel || ""} data-tip-title={item.label} data-tip-body={item.text}>
+              <span className="more-glyph">{item.glyph}</span>
+              <span className="more-copy"><b>{item.label}</b><small>{item.text}</small></span>
+            </button>;
+          })}
+        </div>
+      </div>)}
+    </UtilityShell>;
+  }
+
   function CharacterPanel() {
     const cp = ST.characterProfile || loadCharacterProfile();
     const parts = cp.parts || {};
@@ -5797,6 +5833,7 @@ export default function mount() {
   function UtilityPanel() {
     if (ST.screen !== "playing" || ST.modal || !ST.panel) return <div />;
     if (ST.panel === "inspect") return <InspectPanel />;
+    if (ST.panel === "more") return <MorePanel />;
     if (ST.panel === "char") return <CharacterPanel />;
     if (ST.panel === "quests") return <QuestPanel />;
     if (ST.panel === "inv" || ST.panel === "inventory") { ST.panel = "bank"; return <BankPanel />; }
@@ -5982,7 +6019,7 @@ export default function mount() {
   function bottomSig() {
     if (ST.screen !== "playing") return "x";
     const m = ST.me;
-    return [ST.near.i && ST.near.i.label, ST.near.g && ST.near.g.id, ST.near.r && ST.near.r.uid, ST.mode, ST.placing, ST.tool, ST.destroying, ST.channel && ST.channel.kind, ST.uiMuted ? 1 : 0, ST.musicMuted ? 1 : 0, m && m.territory, m && JSON.stringify(m.inv), m && JSON.stringify(m.pack), ST.wonderPrompt || "", ST.wonderName || "", ST.wonderFootprint || 9, ST.wonderMode || "", ST.wonderPaletteId || "", ST.wonderRecipe?.name || "", ST.adminTool || "", ST.adminMsg || "", Math.floor(liveE())].join("|");
+    return [ST.near.i && ST.near.i.label, ST.near.g && ST.near.g.id, ST.near.r && ST.near.r.uid, ST.mode, ST.placing, ST.tool, ST.destroying, ST.channel && ST.channel.kind, ST.uiMuted ? 1 : 0, ST.musicMuted ? 1 : 0, m && m.territory, m && JSON.stringify(m.inv), m && JSON.stringify(m.pack), ST.panel === "more" ? "more" : "", ST.wonderPrompt || "", ST.wonderName || "", ST.wonderFootprint || 9, ST.wonderMode || "", ST.wonderPaletteId || "", ST.wonderRecipe?.name || "", ST.adminTool || "", ST.adminMsg || "", Math.floor(liveE())].join("|");
   }
   function modalSig() {
     if (ST.updateRequired) return ["update", ST.updateVersion || "", ST.updateReason || ""].join("|");

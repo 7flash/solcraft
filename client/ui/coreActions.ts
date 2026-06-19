@@ -17,5 +17,5 @@ export const CORE_ACTIONS: CoreAction[] = [
   { key: 4, icon: "⚑", label: "Claim", click: "claim", help: "Capture connected frontier tiles." },
   { key: 5, icon: "⌂", label: "Build", click: "select-build", help: "Open the building ribbon and place structures." },
   { key: 6, icon: "✦", label: "Use", click: "use-tool", help: "Interact with nearby buildings, offers, scrolls, and supplies." },
-  { key: 7, icon: "☰", label: "More", click: "open-options", help: "Settings, map, guide, bank, and advanced panels live outside the core bar." },
+  { key: 7, icon: "☰", label: "More", click: "open-more", help: "Settings, map, guide, bank, and advanced panels live outside the core bar." },
 ];
