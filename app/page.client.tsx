@@ -32,6 +32,7 @@ import { loadCharacterProfile, saveCharacterProfile, type CharacterProfile } fro
 import { isMoveKey, movementVectorFromKeys, normalizeMoveKey } from "../client/game/directionalInput";
 import { canIssueKeyboardStep, DEFAULT_KEYBOARD_STEP_MS } from "../client/game/keyboardStepper";
 import { frameThrottleMsForMotion, shouldEnterPerfMode } from "../client/game/renderBudget";
+import { createPerfOverlay, perfOverlayEnabledFromUrl } from "../client/game/perfOverlay";
 import { CORE_ACTIONS } from "../client/ui/coreActions";
 import { actionBarActive } from "../client/ui/actionBarState";
 import { MORE_MENU_GROUPS } from "../client/ui/moreMenu";
@@ -48,6 +49,7 @@ import { SettingsPanelView } from "../client/ui/settingsPanel";
 import { OptionsModalView } from "../client/ui/optionsModal";
 import { HelpModalView } from "../client/ui/helpModal";
 import { actionSlotClass, actionStackClass } from "../client/ui/hudChromeModel";
+import { toolCursorForState } from "../client/ui/toolCursor";
 import { PlayerHudView } from "../client/ui/playerHud";
 import { TopChromeView } from "../client/ui/topChrome";
 import { configureMinimapCanvas } from "../client/ui/minimapShell";
@@ -385,6 +387,12 @@ export default function mount() {
   const guideRoot = mk("");
   const modalRoot = mk("");
   const menuRoot = mk("");
+
+  const perf = createPerfOverlay(root, {
+    enabled: perfOverlayEnabledFromUrl(window.location.search, window.localStorage),
+    label: "SolCraft client",
+    consoleBudgetMs: 24,
+  });
 
   const sfx = makeSfx();
 
@@ -859,7 +867,7 @@ export default function mount() {
     if (!ST.auth || pollBusy || (!force && ST.screen !== "playing")) return false;
     const a = { ...ST.auth };
     pollBusy = true;
-    const r = await api(`/api/state?pid=${a.pid}&secret=${encodeURIComponent(a.secret)}&rev=${ST.rev}&ax=${ST.ax}&az=${ST.az}&chat=${ST.chatId}&mapRev=${ST.mapRev ?? -1}`);
+    const r = await perf.measureAsync("net.state", () => api(`/api/state?pid=${a.pid}&secret=${encodeURIComponent(a.secret)}&rev=${ST.rev}&ax=${ST.ax}&az=${ST.az}&chat=${ST.chatId}&mapRev=${ST.mapRev ?? -1}`), { rev: ST.rev, mapRev: ST.mapRev ?? -1 });
     pollBusy = false;
     if (!r || !r.ok) {
       if (r && r.msg === "auth") {
@@ -871,7 +879,7 @@ export default function mount() {
       return false;
     }
     if (!ST.auth || ST.auth.pid !== a.pid || ST.auth.secret !== a.secret) return false;
-    applySnap(r.snap);
+    perf.measure("snap.apply", () => applySnap(r.snap), { rev: r.snap?.rev, players: r.snap?.players?.length || 0, buildings: r.snap?.buildings?.length || 0 });
     return true;
   }
   const pollSoon = () => { clearTimeout(pollSoonT); pollSoonT = setTimeout(() => poll(true), 120); };
@@ -2225,11 +2233,13 @@ export default function mount() {
       setFrustum?.();
     }
     renderer.setAnimationLoop((frameNow = performance.now()) => {
+      const frameStart = performance.now();
       const nowMs = typeof frameNow === "number" ? frameNow : performance.now();
       if (visualPerf.frameMs && nowMs - lastRenderAt < visualPerf.frameMs) return;
       lastRenderAt = nowMs;
       const rawDt = clock.getDelta();
       const dt = Math.min(rawDt, 0.05), t = clock.elapsedTime;
+      const worldTickStart = performance.now();
       perfTotalFrames++;
       if (rawDt > 0.022) perfSlowFrames++;
       if (!perfFastMode && perfTotalFrames >= 150) {
@@ -2293,7 +2303,11 @@ export default function mount() {
       camera.position.copy(camTarget).add(camOffset); camera.lookAt(camTarget);
       sun.position.set(camTarget.x + sunOffset.x, sunOffset.y, camTarget.z + sunOffset.z); sun.target.position.copy(camTarget);
       mmT += dt; if (mmT > 1.25) { mmT = 0; drawMinimap(); }
+      perf.record("webgl.tick", performance.now() - worldTickStart);
+      const renderStart = performance.now();
       renderer.render(scene, camera);
+      perf.record("webgl.render", performance.now() - renderStart);
+      perf.record("frame.total", performance.now() - frameStart, { rawDtMs: rawDt * 1000, anims: anims.length, rigs: rigPool.size, builds: buildPool.size, cells: cells.size });
     });
 
     function drawMinimap() {
@@ -2301,7 +2315,7 @@ export default function mount() {
       if (ST.modal || ST.panel || !minimapEl?.isConnected) return;
       const rect = minimapEl.getBoundingClientRect?.();
       if (!rect || rect.width <= 0 || rect.height <= 0) return;
-      drawKnownWorldMap(minimapEl, false);
+      perf.measure("ui.minimap", () => drawKnownWorldMap(minimapEl, false));
     }
 
 
@@ -2381,7 +2395,7 @@ export default function mount() {
       if (b && LIB_BY_ID[b.kind]?.use?.k === "trade") ST.near.m = true;
     }
   }
-  const nearT = setInterval(() => { if (ST.screen !== "playing") return; refreshNear(); updateHints(); paint(); }, 450);
+  const nearT = setInterval(() => { if (ST.screen !== "playing") return; perf.measure("ui.near", () => { refreshNear(); updateHints(); paint(); }); }, 450);
 
   function useBuildingClient(uid) {
     if (uid == null) return;
@@ -3044,6 +3058,7 @@ export default function mount() {
     if (ST.screen !== "playing" || ST.updateRequired) return;
     const tag = document.activeElement?.tagName;
     if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
+    if (ev.key === "F8") { ev.preventDefault(); const on = perf.toggle(); say(on ? "Performance overlay on" : "Performance overlay off", 900); return; }
     const k = ev.key.toLowerCase();
     if (isMoveKey(ev.key)) {
       const mk = normalizeMoveKey(ev.key);
@@ -4801,13 +4816,13 @@ export default function mount() {
      tradjs render() is called against the region root only.
      ============================================================ */
   const regions = [
-    { root: hudRoot, view: Hud, sig: "" },
-    { root: actionsRoot, view: TopActions, sig: "" },
-    { root: utilityRoot, view: UtilityPanel, sig: "" },
-    { root: bottomRoot, view: BottomBar, sig: "" },
-    { root: guideRoot, view: WalkthroughLayer, sig: "" },
-    { root: modalRoot, view: ModalLayer, sig: "" },
-    { root: menuRoot, view: Menu, sig: "" },
+    { name: "hud", root: hudRoot, view: Hud, sig: "" },
+    { name: "top", root: actionsRoot, view: TopActions, sig: "" },
+    { name: "utility", root: utilityRoot, view: UtilityPanel, sig: "" },
+    { name: "bottom", root: bottomRoot, view: BottomBar, sig: "" },
+    { name: "guide", root: guideRoot, view: WalkthroughLayer, sig: "" },
+    { name: "modal", root: modalRoot, view: ModalLayer, sig: "" },
+    { name: "menu", root: menuRoot, view: Menu, sig: "" },
   ];
   function hudSig() {
     const m = ST.me;
@@ -4847,37 +4862,55 @@ export default function mount() {
   }
   const sigFns = [hudSig, actionsSig, utilitySig, bottomSig, guideSig, modalSig, menuSig];
 
+  function syncToolCursor() {
+    const cursor = toolCursorForState({ screen: ST.screen, mode: ST.mode, tool: ST.tool, placing: ST.placing });
+    if (root.dataset.toolCursor !== cursor) root.dataset.toolCursor = cursor;
+  }
+
   function paint(force = false) {
+    syncToolCursor();
+    const paintStart = performance.now();
+    let changed = 0;
     /* chat panel visibility is imperative */
-    updateHints();
+    perf.measure("ui.hints", () => updateHints());
     chatEl.style.display = ST.screen === "playing" ? "flex" : "none";
     minimapEl.style.display = (ST.screen === "playing" && !ST.panel && !ST.modal) ? "block" : "none";
     vignetteEl.style.display = ST.screen === "playing" ? "block" : "none";
     if (ST.screen !== "playing" || ST.modal) hideCtx();
     for (let i = 0; i < regions.length; i++) {
       const r = regions[i];
+      const sigStart = performance.now();
       const s = sigFns[i]();
+      perf.record(`ui.sig.${r.name}`, performance.now() - sigStart);
       if (!force && s === r.sig) continue;
       r.sig = s;
+      const regionStart = performance.now();
       render(r.view(), r.root);
+      const regionMs = performance.now() - regionStart;
+      perf.record("ui.region", regionMs, r.name);
+      perf.record(`ui.region.${r.name}`, regionMs);
+      changed++;
     }
     if (ST.screen === "playing" && (ST.mode === "build" || ST.mode === "place")) syncBuildScrollSoon();
     mountWonderViewerSoon();
+    perf.record("ui.paint", performance.now() - paintStart, { force, changed });
   }
 
   /* ---------- imperative energy/bin ticker: NO vdom ---------- */
   const tick = setInterval(() => {
     if (ST.screen !== "playing" || !ST.me) return;
-    world?.refreshConstructionProgress?.();
-    const m = ST.me, e = liveE();
-    const nowEl = document.getElementById("sc-e-now");
-    if (nowEl) nowEl.textContent = String(Math.floor(e));
-    const fill = document.getElementById("sc-e-fill");
-    if (fill) fill.style.width = `${(100 * e / m.maxE).toFixed(1)}%`;
-    const hpEl = document.getElementById("sc-hp-now");
-    if (hpEl) hpEl.textContent = String(Math.ceil(m.hp || 0));
-    const hpFill = document.getElementById("sc-hp-fill");
-    if (hpFill) hpFill.style.width = `${(100 * Math.max(0, m.hp || 0) / MAX_HP).toFixed(1)}%`;
+    perf.measure("ui.liveTicker", () => {
+      world?.refreshConstructionProgress?.();
+      const m = ST.me, e = liveE();
+      const nowEl = document.getElementById("sc-e-now");
+      if (nowEl) nowEl.textContent = String(Math.floor(e));
+      const fill = document.getElementById("sc-e-fill");
+      if (fill) fill.style.width = `${(100 * e / m.maxE).toFixed(1)}%`;
+      const hpEl = document.getElementById("sc-hp-now");
+      if (hpEl) hpEl.textContent = String(Math.ceil(m.hp || 0));
+      const hpFill = document.getElementById("sc-hp-fill");
+      if (hpFill) hpFill.style.width = `${(100 * Math.max(0, m.hp || 0) / MAX_HP).toFixed(1)}%`;
+    });
   }, 250);
 
   /* ============================================================
@@ -4920,6 +4953,7 @@ export default function mount() {
     hudEl.removeEventListener("dragleave", onDelegatedHudDragLeave, true);
     hudEl.removeEventListener("drop", onDelegatedHudDrop, true);
     world.dispose();
+    perf.dispose();
     for (const r of regions) render(null, r.root);
     root.replaceChildren();
   };

@@ -1134,3 +1134,61 @@ input:focus,select:focus{border-color:var(--line2);box-shadow:0 0 0 3px rgba(20,
 .sc-perf-fast .btn{
   transition:none!important;
 }
+
+/* ============================================================
+   Stage 18: performance overlay / client.measure instrumentation.
+   Route-specific debug UI lives in page.css.
+   ============================================================ */
+.sc-perf-overlay{
+  position:fixed;
+  left:10px;
+  bottom:86px;
+  z-index:80;
+  width:min(360px,calc(100vw - 20px));
+  max-height:44vh;
+  overflow:hidden;
+  white-space:pre-wrap;
+  pointer-events:none;
+  padding:9px 10px;
+  border-radius:14px;
+  border:1px solid rgba(20,241,149,.26);
+  background:rgba(2,8,14,.84);
+  color:#dfffee;
+  font:700 11px/1.38 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+  box-shadow:0 10px 26px rgba(0,0,0,.30),inset 0 1px 0 rgba(255,255,255,.06);
+  contain:layout paint style;
+}
+.sc-perf-overlay.hot{
+  border-color:rgba(224,96,76,.55);
+  color:#ffe3d6;
+  background:rgba(21,6,7,.88);
+}
+.sc-perf-overlay[hidden]{display:none!important;}
+@media(max-width:520px),(max-height:560px){
+  .sc-perf-overlay{
+    left:8px;
+    right:8px;
+    bottom:70px;
+    width:auto;
+    max-height:34vh;
+    font-size:10px;
+  }
+}
+
+/* ============================================================
+   Stage 19: active tool cursor affordance.
+   Cursor art is CSS-only for now, but the data-tool-cursor contract
+   lets us swap these for dedicated atlas cursor slots later.
+   ============================================================ */
+.sc-root[data-tool-cursor="default"] .sc-world,
+.sc-root[data-tool-cursor="default"] .sc-world canvas{cursor:default;}
+.sc-root[data-tool-cursor="axe"] .sc-world,
+.sc-root[data-tool-cursor="axe"] .sc-world canvas{cursor:url("data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIzMiIgaGVpZ2h0PSIzMiIgdmlld0JveD0iMCAwIDMyIDMyIj48cGF0aCBkPSJNNiAyNyAyNCA5IiBzdHJva2U9IiM2YTQxMjQiIHN0cm9rZS13aWR0aD0iNCIgc3Ryb2tlLWxpbmVjYXA9InJvdW5kIi8+PHBhdGggZD0iTTE3IDZjNSAxIDggMyAxMCA3LTQgMS04IDItMTIgMSAxLTMgMS01IDItOHoiIGZpbGw9IiMxNGYxOTUiIHN0cm9rZT0iIzA1MjUxYyIgc3Ryb2tlLXdpZHRoPSIyIi8+PHBhdGggZD0iTTUgMjcgMTAgMjIiIHN0cm9rZT0iI2YzZWFkNyIgc3Ryb2tlLXdpZHRoPSIyIiBzdHJva2UtbGluZWNhcD0icm91bmQiLz48L3N2Zz4=") 6 6, crosshair;}
+.sc-root[data-tool-cursor="pickaxe"] .sc-world,
+.sc-root[data-tool-cursor="pickaxe"] .sc-world canvas{cursor:url("data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIzMiIgaGVpZ2h0PSIzMiIgdmlld0JveD0iMCAwIDMyIDMyIj48cGF0aCBkPSJNNyAyNyAyMyAxMSIgc3Ryb2tlPSIjNmE0MTI0IiBzdHJva2Utd2lkdGg9IjQiIHN0cm9rZS1saW5lY2FwPSJyb3VuZCIvPjxwYXRoIGQ9Ik05IDhjNi00IDEzLTQgMTggMS03LTEtMTMgMS0xOSA1eiIgZmlsbD0iIzdkY2ZlOCIgc3Ryb2tlPSIjMDgyNDMzIiBzdHJva2Utd2lkdGg9IjIiLz48cGF0aCBkPSJNNSAyNyAxMCAyMiIgc3Ryb2tlPSIjZjNlYWQ3IiBzdHJva2Utd2lkdGg9IjIiIHN0cm9rZS1saW5lY2FwPSJyb3VuZCIvPjwvc3ZnPg==") 6 6, crosshair;}
+.sc-root[data-tool-cursor="hammer"] .sc-world,
+.sc-root[data-tool-cursor="hammer"] .sc-world canvas{cursor:url("data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIzMiIgaGVpZ2h0PSIzMiIgdmlld0JveD0iMCAwIDMyIDMyIj48cGF0aCBkPSJNOCAyNiAyMSAxMyIgc3Ryb2tlPSIjNmE0MTI0IiBzdHJva2Utd2lkdGg9IjQiIHN0cm9rZS1saW5lY2FwPSJyb3VuZCIvPjxwYXRoIGQ9Ik0xNSA4IDIxIDMgMjkgMTEgMjQgMTd6IiBmaWxsPSIjZmZkNzZlIiBzdHJva2U9IiMzYjI2MDciIHN0cm9rZS13aWR0aD0iMiIvPjxwYXRoIGQ9Ik02IDI3IDEwIDIzIiBzdHJva2U9IiNmM2VhZDciIHN0cm9rZS13aWR0aD0iMiIgc3Ryb2tlLWxpbmVjYXA9InJvdW5kIi8+PC9zdmc+") 6 6, cell;}
+.sc-root[data-tool-cursor="shovel"] .sc-world,
+.sc-root[data-tool-cursor="shovel"] .sc-world canvas{cursor:url("data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIzMiIgaGVpZ2h0PSIzMiIgdmlld0JveD0iMCAwIDMyIDMyIj48cGF0aCBkPSJNOCAyNiAyMCAxNCIgc3Ryb2tlPSIjNmE0MTI0IiBzdHJva2Utd2lkdGg9IjQiIHN0cm9rZS1saW5lY2FwPSJyb3VuZCIvPjxwYXRoIGQ9Ik0xOSAxMmMzIDAgNiAzIDYgNiAwIDQtNCA3LTcgNy0zLTMtMy0xMCAxLTEzeiIgZmlsbD0iI2UwNjA0YyIgc3Ryb2tlPSIjM2ExMDBiIiBzdHJva2Utd2lkdGg9IjIiLz48cGF0aCBkPSJNNiAyNyAxMCAyMyIgc3Ryb2tlPSIjZjNlYWQ3IiBzdHJva2Utd2lkdGg9IjIiIHN0cm9rZS1saW5lY2FwPSJyb3VuZCIvPjwvc3ZnPg==") 6 6, cell;}
+.sc-root[data-tool-cursor="capture"] .sc-world,
+.sc-root[data-tool-cursor="capture"] .sc-world canvas{cursor:url("data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIzMiIgaGVpZ2h0PSIzMiIgdmlld0JveD0iMCAwIDMyIDMyIj48cGF0aCBkPSJNOCAyOFY1IiBzdHJva2U9IiNmM2VhZDciIHN0cm9rZS13aWR0aD0iNCIgc3Ryb2tlLWxpbmVjYXA9InJvdW5kIi8+PHBhdGggZD0iTTEwIDZoMTVsLTQgNiA0IDZIMTB6IiBmaWxsPSIjMTRmMTk1IiBzdHJva2U9IiMwNTI1MWMiIHN0cm9rZS13aWR0aD0iMiIvPjxwYXRoIGQ9Ik01IDI4aDkiIHN0cm9rZT0iI2ZmZDc2ZSIgc3Ryb2tlLXdpZHRoPSIzIiBzdHJva2UtbGluZWNhcD0icm91bmQiLz48L3N2Zz4=") 6 6, crosshair;}
