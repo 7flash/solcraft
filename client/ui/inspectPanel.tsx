@@ -29,6 +29,7 @@ export function InspectPanelView(props: any) {
   return (
     <div className="utility-pop inspect-pop" data-stop-pointerdown="1" style={{ borderColor: vm.accentLine, boxShadow: `0 18px 48px rgba(0,0,0,.46), inset 0 1px 0 rgba(255,255,255,.05), 0 0 0 3px ${rgba(vm.accent, 0.08)}` }}>
       <button className="utility-close" data-click="inspect-close">×</button>
+      <div className="object-preview-stage building-preview-stage" aria-hidden="true"><span>{def?.glyph || "▣"}</span></div>
       <div className="inspect-head">
         <span className="accent-orb" style={{ background: vm.accent, boxShadow: `0 0 0 3px ${vm.accentSoft}, 0 0 18px ${rgba(vm.accent, 0.24)}` }} />
         <div className="inspect-name">{def?.glyph} {b.nm || def?.name}</div>
@@ -84,6 +85,7 @@ export function InspectPanelView(props: any) {
         {vm.mine && b.kind !== "worldwonder" ? <button className="btn" disabled={maxLvl} data-click="inspect-upgrade">{maxLvl ? "Max level" : `Upgrade (${costText(upCost)})`}</button> : null}
         {vm.mine ? <button className="btn" disabled={missingHp <= 0} data-click="inspect-repair">{missingHp <= 0 ? "Full HP" : `Repair (${costText(repCost)})`}</button> : null}
         {vm.mine ? <button className="btn danger" data-click="inspect-demolish">Demolish</button> : null}
+        {!vm.mine && (b.kind === "keep" || b.kind === "bomb") ? <button className="btn danger" data-click="inspect-raid">Raid</button> : null}
         {!vm.mine && b.kind !== "worldwonder" ? <button className="btn" data-click="inspect-walk-near">Walk closer</button> : null}
       </div>
     </div>

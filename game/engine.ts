@@ -403,7 +403,7 @@ function energyNow(p: Player) {
   return {
     regen, maxE,
     energy: Math.min(maxE, p.energy + regen * dt),
-    hp: Math.min(MAX_HP, p.hp + 0.03 * dt),
+    hp: Math.min(MAX_HP, p.hp),
   };
 }
 /* persist energy/hp — call ONLY right before spending or gaining */
@@ -539,9 +539,9 @@ const packFull = (p: Player) => (p.pack as PackItem[]).every(Boolean);
 /* ---------- world queries (all indexed) ---------- */
 const tileAt = (x: number, z: number) => db.tiles.select().where({ x, z }).first() as any;
 const buildingAt = (x: number, z: number) => db.buildings.select().where({ x, z }).first() as Building | null;
-function doodadAt(x: number, z: number): "tree" | "rock" | null {
+function doodadAt(x: number, z: number): "tree" | "rock" | "food" | null {
   const ex = db.doodads.select().where({ x, z }).first() as any;
-  if (ex) return ex.state === "gone" ? null : (ex.state as "tree" | "rock");
+  if (ex) return ex.state === "gone" ? null : (ex.state as "tree" | "rock" | "food");
   // Claimed land is clean by default; only explicit doodad rows can put nature back there.
   if (tileAt(x, z)) return null;
   return naturalDoodad(x, z);
@@ -1179,7 +1179,7 @@ export function craftDestroyTool(p: Player, variant = "popper") {
 const PRODUCER_CORNER_SPOTS = [[1, 1], [1, -1], [-1, 1], [-1, -1]] as const;
 const PRODUCER_EMPTY_CROSS = [[0, 0], [1, 0], [-1, 0], [0, 1], [0, -1]] as const;
 
-function clearProducerCrossNodes(x: number, z: number, kind: "tree" | "rock") {
+function clearProducerCrossNodes(x: number, z: number, kind: "tree" | "rock" | "food") {
   let cleared = 0;
   for (const [dx, dz] of PRODUCER_EMPTY_CROSS) {
     const row = db.doodads.select().where({ x: x + dx, z: z + dz }).first() as any;
@@ -1191,7 +1191,7 @@ function clearProducerCrossNodes(x: number, z: number, kind: "tree" | "rock") {
   return cleared;
 }
 
-function openNodeSpotNear(x: number, z: number, kind: "tree" | "rock") {
+function openNodeSpotNear(x: number, z: number, kind: "tree" | "rock" | "food") {
   // Producer buildings keep the cross open for walking/reading the board.
   // Only the four diagonal border/corner cells are producer planting slots.
   for (const [dx, dz] of PRODUCER_CORNER_SPOTS) {
@@ -1216,7 +1216,10 @@ function buildingResourceTick() {
       cleaned += clearProducerCrossNodes(b.x, b.z, "rock");
       for (let i = 0; i < attempts; i++) if (openNodeSpotNear(b.x, b.z, "rock")) spawned++;
     }
-    else if (b.kind === "farm") { const owner = playerById(b.owner); if (owner) { const amt = 3 + lvl; gain(owner, { f: amt }); food += amt; spawned++; } }
+    else if (b.kind === "farm") {
+      cleaned += clearProducerCrossNodes(b.x, b.z, "food");
+      for (let i = 0; i < attempts; i++) if (openNodeSpotNear(b.x, b.z, "food")) { food++; spawned++; }
+    }
   }
   if (spawned || food || cleaned) { bump(); logEconomyEvent("buildingResources", { spawned, food, cleaned }); }
 }
@@ -1814,6 +1817,7 @@ function maintain(p: Player) {
   resolveArmedBombs();
   if (t - (mtAt.get(p.id) || 0) < 8000) return;
   mtAt.set(p.id, t);
+  autoEatFoodForHealth(p, t);
   distributeBuildingRewards();
   /* regrow: harvested doodads recover after 4 minutes */
   const dead = db.doodads.select().where({ state: "gone", updatedAt: { $lt: new Date(t - 240000).toISOString() } as any });
@@ -1910,7 +1914,7 @@ export function snapshot(p: Player, q: { rev: number; ax: number; az: number; ch
           wonder: b.kind === "worldwonder" ? readWonderRecipe(Number(b.id)) : null,
         };
       }),
-      doodads: doodads.map((d) => ({ x: d.x, z: d.z, type: d.state === "gone" ? "gone" : (d.state === "rock" ? "rock" : "tree") })),
+      doodads: doodads.map((d) => ({ x: d.x, z: d.z, type: d.state === "gone" ? "gone" : (d.state === "rock" ? "rock" : d.state === "food" ? "food" : "tree") })),
       loot: loot.map((l) => ({ id: l.id, x: l.x, z: l.z, kind: l.kind, gid: l.gid })),
       offers: offers.map((o) => ({ id: o.id, byId: o.byId, byName: o.byName, gRes: o.gRes, gAmt: o.gAmt, wRes: o.wRes, wAmt: o.wAmt })),
       goldSources: sourceInView(ax, az, 1000000),
@@ -1927,22 +1931,19 @@ export function snapshot(p: Player, q: { rev: number; ax: number; az: number; ch
 /* ============================================================
    ACTIONS
    ============================================================ */
-const FOOD_TO_ENERGY = 3;
-function autoEatFoodForEnergy(p: Player, neededEnergy: number) {
-  const live = settleEnergy(p);
-  const maxE = derived(p).maxE;
-  let energy = live.energy;
-  let food = Math.floor(Number(p.inv?.f || 0));
-  let eaten = 0;
-  while (energy < neededEnergy && food > 0 && energy < maxE) {
-    energy = Math.min(maxE, energy + FOOD_TO_ENERGY);
-    food--; eaten++;
-  }
-  if (!eaten) return { energy: live.energy, eaten: 0 };
-  p.inv.f = Math.max(0, Number(p.inv.f || 0) - eaten);
-  p.energy = energy;
-  p.energyAt = now();
-  return { energy, eaten };
+const FOOD_HEAL_AMOUNT = 8;
+const FOOD_HEAL_INTERVAL_MS = 8000;
+function autoEatFoodForHealth(p: Player, t = now()) {
+  const live = energyNow(p);
+  if (live.hp >= MAX_HP - 0.001) return { hp: live.hp, eaten: 0 };
+  if (t - Number((p as any).lastFoodHealAt || 0) < FOOD_HEAL_INTERVAL_MS) return { hp: live.hp, eaten: 0 };
+  const food = Math.floor(Number(p.inv?.f || 0));
+  if (food <= 0) return { hp: live.hp, eaten: 0 };
+  p.inv.f = Math.max(0, Number(p.inv.f || 0) - 1);
+  p.hp = Math.min(MAX_HP, live.hp + FOOD_HEAL_AMOUNT);
+  (p as any).lastFoodHealAt = t;
+  liveTouch(p);
+  return { hp: p.hp, eaten: 1 };
 }
 
 export function move(p: Player, x: number, z: number) {
@@ -1955,9 +1956,8 @@ export function move(p: Player, x: number, z: number) {
   }
   const e = settleEnergy(p);
   const moveCost = moveEnergyCostFor(p, p.x, p.z, x, z);
-  const foodBoost = moveCost > 0 && e.energy < moveCost ? autoEatFoodForEnergy(p, moveCost) : { energy: e.energy, eaten: 0 };
-  const usableEnergy = foodBoost.energy;
-  if (moveCost > 0 && usableEnergy < moveCost) return err("Out of energy. Build roads or travel inside a World Wonder district for free movement. Farms produce food for quick recovery.", "NO_ENERGY_ROAD_REQUIRED");
+  const usableEnergy = e.energy;
+  if (moveCost > 0 && usableEnergy < moveCost) return err("Out of energy. Build roads or travel inside a World Wonder district for free movement. Rest to recover energy; food now restores health.", "NO_ENERGY_ROAD_REQUIRED");
   const spendNow = Math.min(moveCost, Math.max(0, usableEnergy));
   p.energy = Math.max(0, usableEnergy - spendNow);
   p.energyAt = now();
@@ -1970,7 +1970,7 @@ export function move(p: Player, x: number, z: number) {
     const r = collectLoot(p, l) as any;
     return r && r.ok ? { ...r, energy: p.energy, x: p.x, z: p.z, inv: p.inv, xp: p.xp, level: p.level } : r;
   }
-  return ok({ energy: p.energy, x: p.x, z: p.z, inv: p.inv, xp: p.xp, level: p.level, foodEaten: foodBoost.eaten || 0 });
+  return ok({ energy: p.energy, x: p.x, z: p.z, inv: p.inv, xp: p.xp, level: p.level });
 }
 
 const MAX_MOVE_PATH_STEPS = Math.max(1, Math.min(32, Number(process.env.SOLCRAFT_MAX_MOVE_PATH_STEPS || 18) || 18));
@@ -2673,10 +2673,10 @@ export function harvestStart(p: Player, x: number, z: number) {
   if (cheb(x, z, p.x, p.z) > 1) return err("Walk next to it first.");
   const d = doodadAt(x, z);
   if (!d) return err("Nothing to harvest there.");
-  const hCost = d === "tree" ? ECONOMY_RULES.chopEnergy : ECONOMY_RULES.mineEnergy;
-  if (energyNow(p).energy < hCost) return err(`Need ${hCost}⚡. The ${d === "tree" ? "tree" : "rock"} refuses unpaid labor.`);
-  spend(p, { e: hCost });
-  const ms = harvestMs(p.skills as Skills, d);
+  const hCost = d === "food" ? 0 : d === "tree" ? ECONOMY_RULES.chopEnergy : ECONOMY_RULES.mineEnergy;
+  if (energyNow(p).energy < hCost) return err(`Need ${hCost}⚡. The ${d === "tree" ? "tree" : d === "food" ? "crop" : "rock"} refuses unpaid labor.`);
+  if (hCost > 0) spend(p, { e: hCost });
+  const ms = d === "food" ? 900 : harvestMs(p.skills as Skills, d as any);
   channels.set(p.id, { x, z, until: now() + ms, type: "harvest" });
   return ok({ ms, kind: d });
 }
@@ -2700,6 +2700,10 @@ export function harvestFinish(p: Player, x: number, z: number) {
     const dropped = dropHarvestLoot(x, z, "wood", boost.amount);
     p.treesChopped++;
     note = `Chopped! ${dropped}🪵 dropped nearby${territoryYieldNote(boost, "Lumber Camp")}`;
+  } else if (d === "food") {
+    const amt = 4 + Math.floor(bonus / 2);
+    gain(p, { f: amt });
+    note = `Harvested! +${amt}🌾 food. Food now restores health instead of movement energy.`;
   } else {
     const ownerId = Number(tileAt(x, z)?.owner || 0);
     const raw = ECONOMY_RULES.rockStone + bonus;
@@ -3166,7 +3170,14 @@ export function raid(p: Player, uid: number) {
   spend(p, { e: RAID_COST });
   const siegeBonus = gearStat(p.equip as Equip, "atk") + skillAtk(p.skills as Skills);
   const dmg = b.kind === "bomb" ? SIEGE_TOOL_DMG + siegeBonus : (b.owner === 0 && b.kind === "keep" ? 10 + siegeBonus : 1);
+  let backlash = 0;
+  if (b.owner === 0 && b.kind === "keep" && Math.random() < 0.28) {
+    const live = settleEnergy(p);
+    backlash = Math.min(14, Math.max(4, 7 + Math.floor(Math.random() * 5)));
+    p.hp = Math.max(1, live.hp - backlash);
+  }
   const r = damageBuilding(p, b, dmg, "siege");
+  if (r.ok && backlash) (r as any).note = `${(r as any).note || "Raid landed."} The Keep struck back for ${backlash}♥.`;
   if (r.ok) { addXp(p, XP.fight); autoTrainSkill(p, "warrior", b.kind === "bomb" ? 5 : 3); if (b.kind === "bomb") sysChat(`${p.name} damaged a destroy tool.`); }
   return r;
 }

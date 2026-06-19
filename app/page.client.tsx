@@ -40,6 +40,7 @@ import { MORE_MENU_GROUPS } from "../client/ui/moreMenu";
 import { ribbonModeForState } from "../client/ui/ribbonMode";
 import { ActionRibbon } from "../client/ui/actionRibbons";
 import { InspectPanelView } from "../client/ui/inspectPanel";
+import { ObjectPreviewPanelView } from "../client/ui/objectPreviewPanel";
 import { CharacterPanelView } from "../client/ui/characterPanel";
 import { InventoryPanelView } from "../client/ui/inventoryPanel";
 import { SkillsPanelView } from "../client/ui/skillsPanel";
@@ -406,7 +407,7 @@ export default function mount() {
     visual: loadVisualSettings(), ui: loadUiSettings(),
     mode: "explore", placing: null, tool: "none", destroying: DESTROY_TOOLS[0]?.id || "popper",
     near: { i: null, g: null, r: null, m: false },
-    modal: null, panel: null, tradeTab: "market", inspect: null,
+    modal: null, panel: null, tradeTab: "market", inspect: null, objectPreview: null, hoverIntent: "walk",
     muted: false, uiMuted: false, musicMuted: false, joining: false, updateRequired: false, updateReason: "", updateVersion: "", chatOpen: false, needsProfile: false,
     channel: null, // {x,z,until,ms,kind} active chop/mine/teleport
     drag: null,    // backpack idx being dragged
@@ -1594,7 +1595,21 @@ export default function mount() {
       if (have) { scene.remove(have.group); doodadPool.delete(k); }
       if (!want || buildPoolAt(x, z)) return;
       const g = new THREE.Group();
-      if (want === "tree") buildTree(g, 0, 0, 0.9 + hrand(x, z, 11) * 0.5); else buildRock(g);
+      if (want === "tree") buildTree(g, 0, 0, 0.9 + hrand(x, z, 11) * 0.5);
+      else if (want === "food") {
+        const stemMat = M(0x2f6b46);
+        const grainMat = M(0xffd76e);
+        for (let i = 0; i < 7; i++) {
+          const a = (i / 7) * Math.PI * 2;
+          const r = 0.12 + 0.08 * hrand(x + i, z, 17);
+          const stalk = new THREE.Mesh(new THREE.BoxGeometry(0.025, 0.28 + 0.1 * hrand(x, z + i, 19), 0.025), stemMat);
+          stalk.position.set(Math.cos(a) * r, 0.16, Math.sin(a) * r);
+          g.add(stalk);
+          const head = new THREE.Mesh(new THREE.SphereGeometry(0.045, 8, 6), grainMat);
+          head.position.set(stalk.position.x, 0.34, stalk.position.z);
+          g.add(head);
+        }
+      } else buildRock(g);
       g.position.set(x + (hrand(x, z, 5) - 0.5) * 0.3, 0.14, z + (hrand(x, z, 6) - 0.5) * 0.3);
       g.rotation.y = hrand(x, z, 7) * Math.PI * 2; scene.add(g);
       doodadPool.set(k, { group: g, type: want });
@@ -2095,24 +2110,6 @@ export default function mount() {
       const dt = Math.max(0, performance.now() - Number(m.energyAt || performance.now())) / 1000;
       return Math.min(Number(m.maxE || base || 0), base + regen * dt);
     }
-    const FOOD_ENERGY_CLIENT = 3;
-    function applyClientFoodEnergyBoost(cost) {
-      const m = ST.me;
-      if (!m || !m.inv) return false;
-      let energy = clientEnergyNow();
-      const maxE = Number(m.maxE || energy || 0);
-      let food = Math.floor(Number(m.inv.f || 0));
-      let used = 0;
-      while (energy < cost && food > 0 && energy < maxE) {
-        energy = Math.min(maxE, energy + FOOD_ENERGY_CLIENT);
-        food--; used++;
-      }
-      if (!used) return false;
-      m.inv = { ...(m.inv || {}), f: Math.max(0, Number(m.inv.f || 0) - used) };
-      m.energy = energy;
-      m.energyAt = performance.now();
-      return true;
-    }
     let lowEnergyToastAt = 0;
     const moveMeasureA = new THREE.Vector3();
     const moveMeasureB = new THREE.Vector3();
@@ -2166,11 +2163,7 @@ export default function mount() {
       const from = { x: me.x, z: me.z };
       const freeRoadStep = freeRoadTravelCellClient(from.x, from.z) || freeRoadTravelCellClient(x, z);
       if (!freeRoadStep && clientEnergyNow() < clientMoveCost()) {
-        const ate = applyClientFoodEnergyBoost(clientMoveCost());
-        if (ate) say("Ate food for quick energy.", 900);
-      }
-      if (!freeRoadStep && clientEnergyNow() < clientMoveCost()) {
-        say("Out of energy. Roads and World Wonder districts are free to travel. Farms produce food for quick recovery.", 2400);
+        say("Out of energy. Roads and World Wonder districts are free to travel. Food now restores health, not movement energy.", 2400);
         walkQueue.length = 0; pendingWalk = null; return false;
       }
       const hopDur = travelStepDuration(from, { x, z });
@@ -2456,7 +2449,7 @@ export default function mount() {
       if (!r || !r.ok) return;
       sfx.chop();
       ST.channel = { x, z, until: performance.now() + r.ms, ms: r.ms, kind: r.kind || d };
-      showChannel(ST.channel.kind === "tree" ? "Chopping…" : "Mining…");
+      showChannel(ST.channel.kind === "tree" ? "Chopping…" : ST.channel.kind === "food" ? "Harvesting…" : "Mining…");
     });
   }
   function startHomeCast() {
@@ -2574,8 +2567,8 @@ export default function mount() {
       } else {
         act("harvestFinish", { x, z }).then((r) => {
           if (r && r.ok) {
-            world.burst(x, 0.4, z, kind === "tree" ? 0x52ad58 : 0xaaa69a, 12, 0.45);
-            completeWalkthroughAction(kind === "tree" ? "chop" : "mine");
+            world.burst(x, 0.4, z, kind === "tree" ? 0x52ad58 : kind === "food" ? 0xffd76e : 0xaaa69a, 12, 0.45);
+            completeWalkthroughAction(kind === "tree" ? "chop" : kind === "food" ? "farm" : "mine");
             pollSoon();
           }
         });
@@ -2908,7 +2901,43 @@ export default function mount() {
     world.setHintCells(cells);
   }
 
-  /* ---------- input ---------- */
+  /* ---------- inspect / preview intent ---------- */
+  function worldObjectPreviewForCell(c) {
+    if (!c) return null;
+    const d = world.doodadVisible(c.x, c.z);
+    if (d) return { kind: d === "food" ? "food" : d === "rock" ? "rock" : "tree", x: c.x, z: c.z, biome: biomeAt(c.x, c.z).name };
+    if (tradePostAt(c.x, c.z)) return { kind: "trade", x: c.x, z: c.z, name: "Trade Post", biome: biomeAt(c.x, c.z).name };
+    const npc = proceduralNpcAt(c.x, c.z);
+    if (npc) return { kind: "npc", x: c.x, z: c.z, name: npc.name, biome: biomeAt(c.x, c.z).name };
+    return { kind: "tile", x: c.x, z: c.z, biome: biomeAt(c.x, c.z).name };
+  }
+  function openObjectPreview(preview) {
+    if (!preview) return;
+    ST.objectPreview = preview;
+    ST.inspect = null;
+    ST.modal = null;
+    ST.panel = "object";
+    paint(true);
+  }
+  function openBuildingInspect(hitB) {
+    if (!hitB) return;
+    ST.inspect = hitB.uid;
+    ST.objectPreview = null;
+    ST.panel = "inspect";
+    ST.modal = null;
+    ST.inspectDraft = null;
+    paint(true);
+  }
+  function hoverIntentForCell(c) {
+    if (!c) return "walk";
+    const b = world.buildPoolAt(c.x, c.z);
+    if (b) return "building";
+    const d = world.doodadVisible(c.x, c.z);
+    if (d) return d;
+    if (tradePostAt(c.x, c.z)) return "trade";
+    if (proceduralNpcAt(c.x, c.z)) return "npc";
+    return "tile";
+  }
 
   function tileHoverInfo(c) {
     if (!c) return "";
@@ -2935,7 +2964,11 @@ export default function mount() {
       const ownerName = b.owner === 0 && b.kind === "keep" ? "Neutral" : (b.owner === ST.me?.id ? "Your" : `${b.ownerName || "Unknown"}'s`);
       return tipText(`${ownerName} ${def?.name || b.kind}`, `Level ${b.level || 1} · ${Math.ceil(b.hp || 0)}/${b.maxHp || 0} HP${extra}`);
     }
-    if (q) return tipText(q.name || "Settler", `Level ${q.level || "?"} · right-click to inspect or walk toward.`);
+    const d = world.doodadVisible(c.x, c.z);
+    if (d === "tree") return tipText("Tree", "Click to inspect. Select axe to chop for wood.");
+    if (d === "rock") return tipText("Rock", "Click to inspect. Select pickaxe to mine for stone.");
+    if (d === "food") return tipText("Crop patch", "Click to inspect or harvest. Food restores health over time.");
+    if (q) return tipText(q.name || "Settler", `Level ${q.level || "?"} · click to inspect or walk toward.`);
     if (tradePostAt(c.x, c.z)) return tipText("Trade Post", "Stand beside it to withdraw coins into $CRAFTS or open player offers.");
     const npc = proceduralNpcAt(c.x, c.z);
     if (npc) return tipText(npc.name, `${biomeAt(c.x, c.z).name} · a frontier encounter. More interactions coming soon.`);
@@ -2952,7 +2985,9 @@ export default function mount() {
   function onPointerMove(ev) {
     if (ST.screen !== "playing") return;
     const c = world.cellFromEvent(ev);
-    if (!c) { world.hoverMarker.visible = false; world.hideBuildGhost(); hideTip(); return; }
+    if (!c) { ST.hoverIntent = "walk"; syncToolCursor(); world.hoverMarker.visible = false; world.hideBuildGhost(); hideTip(); return; }
+    ST.hoverIntent = hoverIntentForCell(c);
+    syncToolCursor();
     world.hoverMarker.visible = true; world.hoverMarker.position.x = c.x; world.hoverMarker.position.z = c.z;
     const mat = world.hoverMarker.material;
     if (ST.mode === "place" || (ST.placing === "worldwonder" && ST.tool === "wonder")) {
@@ -2996,12 +3031,10 @@ export default function mount() {
       }
     }
     if (ST.tool === "none" && c) {
+      if (hitB) { openBuildingInspect(hitB); return; }
       const d = world.doodadVisible(c.x, c.z);
-      if (d && !world.buildPoolAt(c.x, c.z)) {
-        sfx.err();
-        say(d === "rock" ? "Select the pickaxe first (2)." : "Select the axe first (1).");
-        return;
-      }
+      if (d && !world.buildPoolAt(c.x, c.z)) { openObjectPreview(worldObjectPreviewForCell(c)); return; }
+      if (tradePostAt(c.x, c.z) || proceduralNpcAt(c.x, c.z)) { openObjectPreview(worldObjectPreviewForCell(c)); return; }
     }
     if (ST.tool === "spawn" && c) {
       const bad = canCastBombAt(c.x, c.z, false);
@@ -3038,15 +3071,9 @@ export default function mount() {
       else { sfx.err(); say("Not your building."); }
       return;
     }
-    if (hitB) {
-      world.pathToNear(hitB.b.x, hitB.b.z);
-      say("Right-click a building, then choose Inspect to manage it.", 1200);
-      return;
-    }
+    if (hitB) { openBuildingInspect(hitB); return; }
     if (c) {
-      if (tradePostAt(c.x, c.z)) {
-        world.pathToNear(c.x, c.z);
-      } else if (world.doodadVisible(c.x, c.z)) world.pathToNear(c.x, c.z);
+      if (tradePostAt(c.x, c.z) || proceduralNpcAt(c.x, c.z) || world.doodadVisible(c.x, c.z)) openObjectPreview(worldObjectPreviewForCell(c));
       else world.pathTo(c.x, c.z);
     }
   }
@@ -3114,7 +3141,7 @@ export default function mount() {
     else if (ev.key === "Escape") { cancelChop(); ST.modal = null; ST.panel = null; ST.inspect = null; ST.inspectPlayer = null; ST.wonderViewUid = null; ST.mode = "explore"; ST.placing = null; ST.tool = "none"; world.walkQueueClear(); clearHeldMoveKeys(); world.hideBuildGhost(); updateHints(); paint(); }
   }
   worldEl.addEventListener("pointermove", onPointerMove);
-  worldEl.addEventListener("pointerleave", () => { hideTip(); world.hoverMarker.visible = false; world.hideBuildGhost(); });
+  worldEl.addEventListener("pointerleave", () => { ST.hoverIntent = "walk"; syncToolCursor(); hideTip(); world.hoverMarker.visible = false; world.hideBuildGhost(); });
   worldEl.addEventListener("pointerdown", onPointerDown);
   worldEl.addEventListener("wheel", onWheel, { passive: false });
   window.addEventListener("keydown", onKey);
@@ -4017,6 +4044,7 @@ export default function mount() {
       case "inspect-rename": return customizeInspect({ nm: (document.getElementById("sc-rename") || {}).value || "" });
       case "inspect-wonder-view": { ST.wonderViewUid = ST.inspect; ST.wonderViewError = ""; ST.modal = "wonder-view"; ST.panel = null; paint(true); mountWonderViewerSoon(); return; }
       case "inspect-use": return useBuildingClient(ST.inspect);
+      case "inspect-raid": return doRaid(ST.inspect);
       case "inspect-upgrade": return act("upgrade", { uid: ST.inspect });
       case "inspect-repair": return act("repair", { uid: ST.inspect });
       case "inspect-demolish": return act("demolish", { uid: ST.inspect }).then((r) => { if (r && r.ok) { sfx.demolish(); closeInspectPanel(); } });
@@ -4067,6 +4095,18 @@ export default function mount() {
       case "tutorial-restart": return restartWalkthrough();
       case "copy-text": return copyTextToClipboard(readStr(el, "copy"), readStr(el, "label", "Value"));
       case "reload-page": writeAckedClientVersion(ST.updateVersion); return location.reload();
+      case "object-preview-close": ST.objectPreview = null; if (ST.panel === "object") ST.panel = null; paint(true); return;
+      case "object-preview-walk-near": if (ST.objectPreview) { const p = ST.objectPreview; ST.panel = null; ST.objectPreview = null; world.pathToNear(p.x, p.z); paint(true); } return;
+      case "object-preview-primary": {
+        const p = ST.objectPreview;
+        const action = readStr(el, "objectAction", "");
+        if (!p) return;
+        if (action === "select-axe") { doGather("wood"); if (cheb(p.x, p.z, world.me.x, world.me.z) <= 1) startChop(p.x, p.z); else world.pathToNear(p.x, p.z); return; }
+        if (action === "select-pickaxe") { doGather("stone"); if (cheb(p.x, p.z, world.me.x, world.me.z) <= 1) startChop(p.x, p.z); else world.pathToNear(p.x, p.z); return; }
+        if (action === "harvest-food") { ST.tool = "none"; ST.mode = "explore"; if (cheb(p.x, p.z, world.me.x, world.me.z) <= 1) startChop(p.x, p.z); else world.pathToNear(p.x, p.z); paint(true); return; }
+        if (action === "open-trade") { if (cheb(p.x, p.z, world.me.x, world.me.z) <= 1) openTrade(); else world.pathToNear(p.x, p.z); return; }
+        ST.panel = null; ST.objectPreview = null; world.pathTo(p.x, p.z); paint(true); return;
+      }
       case "modal-backdrop": if (ev.target === el) { ST.modal = null; ST.inspect = null; ST.inspectPlayer = null; ST.wonderViewUid = null; ST.wonderViewError = ""; stopWonderViewer(); paint(); } return;
     }
   }
@@ -4683,6 +4723,7 @@ export default function mount() {
   function UtilityPanel() {
     if (ST.screen !== "playing" || ST.modal || !ST.panel) return <div />;
     if (ST.panel === "inspect") return <InspectPanel />;
+    if (ST.panel === "object") return <ObjectPreviewPanelView preview={ST.objectPreview} />;
     if (ST.panel === "more") return <MorePanel />;
     if (ST.panel === "char") return <CharacterPanel />;
     if (ST.panel === "quests") return <QuestPanel />;
@@ -4864,7 +4905,7 @@ export default function mount() {
     if (ST.screen !== "playing") return "x";
     const m = ST.me;
     const b = ST.panel === "inspect" ? world.buildPool.get(ST.inspect) : null;
-    return [ST.panel, JSON.stringify(ST.visual || {}) || "", ST.questTab || "", ST.inspect || "", ST.inspectDraft && JSON.stringify(ST.inspectDraft), b && [b.level, Math.ceil(b.hp), b.maxHp, b.nm, b.cl, b.constructUntil || 0, Math.floor((constructionStateForBuilding(b)?.progress || 1) * 20)].join(":"), JSON.stringify(ST.characterProfile), m && JSON.stringify(m.inv), m && JSON.stringify(m.pack), m && JSON.stringify(m.skills), m && JSON.stringify(m.skillXp), m && m.wallet, m && m.strongbox, m && m.vaultGold, m && JSON.stringify(m.wonders), ST.wonderPrompt || "", ST.wonderName || "", ST.wonderFootprint || 9, ST.wonderMode || "district", ST.wonderPaletteId || "solar", ST.wonderBusy ? 1 : 0, ST.wonderPlacing ? 1 : 0, ST.wonderRecipe?.name || "", ST.wonderRecipe?.footprint || "", ST.wonderRecipe?.paletteId || "", ST.wonderMsg || "", m && m.biome, m && JSON.stringify(m.guideQuests), m && JSON.stringify(m.guideSummary), ST.uiMuted ? 1 : 0, ST.musicMuted ? 1 : 0, ST.ui?.uiScale || 1, ST.ui?.menuScale || 1, ST.visual?.cameraZoom || 1].join("|");
+    return [ST.panel, ST.objectPreview && JSON.stringify(ST.objectPreview), JSON.stringify(ST.visual || {}) || "", ST.questTab || "", ST.inspect || "", ST.inspectDraft && JSON.stringify(ST.inspectDraft), b && [b.level, Math.ceil(b.hp), b.maxHp, b.nm, b.cl, b.constructUntil || 0, Math.floor((constructionStateForBuilding(b)?.progress || 1) * 20)].join(":"), JSON.stringify(ST.characterProfile), m && JSON.stringify(m.inv), m && JSON.stringify(m.pack), m && JSON.stringify(m.skills), m && JSON.stringify(m.skillXp), m && m.wallet, m && m.strongbox, m && m.vaultGold, m && JSON.stringify(m.wonders), ST.wonderPrompt || "", ST.wonderName || "", ST.wonderFootprint || 9, ST.wonderMode || "district", ST.wonderPaletteId || "solar", ST.wonderBusy ? 1 : 0, ST.wonderPlacing ? 1 : 0, ST.wonderRecipe?.name || "", ST.wonderRecipe?.footprint || "", ST.wonderRecipe?.paletteId || "", ST.wonderMsg || "", m && m.biome, m && JSON.stringify(m.guideQuests), m && JSON.stringify(m.guideSummary), ST.uiMuted ? 1 : 0, ST.musicMuted ? 1 : 0, ST.ui?.uiScale || 1, ST.ui?.menuScale || 1, ST.visual?.cameraZoom || 1].join("|");
   }
   function bottomSig() {
     if (ST.screen !== "playing") return "x";
@@ -4891,7 +4932,7 @@ export default function mount() {
   const sigFns = [hudSig, actionsSig, utilitySig, bottomSig, guideSig, modalSig, menuSig];
 
   function syncToolCursor() {
-    const cursor = toolCursorForState({ screen: ST.screen, mode: ST.mode, tool: ST.tool, placing: ST.placing });
+    const cursor = toolCursorForState({ screen: ST.screen, mode: ST.mode, tool: ST.tool, placing: ST.placing, hover: ST.hoverIntent });
     if (root.dataset.toolCursor !== cursor) root.dataset.toolCursor = cursor;
   }
 

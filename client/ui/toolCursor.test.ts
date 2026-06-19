@@ -1,20 +1,24 @@
-import test from "node:test";
 import assert from "node:assert/strict";
+import test from "node:test";
 import { toolCursorForState } from "./toolCursor.ts";
 
-test("maps bottom toolbelt selections to cursor names", () => {
-  assert.equal(toolCursorForState({ screen: "playing", tool: "wood" }), "axe");
-  assert.equal(toolCursorForState({ screen: "playing", tool: "stone" }), "pickaxe");
-  assert.equal(toolCursorForState({ screen: "playing", tool: "claim" }), "capture");
-  assert.equal(toolCursorForState({ screen: "playing", mode: "demolish", tool: "demolish" }), "shovel");
-  assert.equal(toolCursorForState({ screen: "playing", mode: "build", tool: "build" }), "hammer");
+test("selected tools override hover intent", () => {
+  assert.equal(toolCursorForState({ screen: "playing", tool: "wood", hover: "building" }), "axe");
+  assert.equal(toolCursorForState({ screen: "playing", tool: "stone", hover: "walk" }), "pickaxe");
+  assert.equal(toolCursorForState({ screen: "playing", mode: "place", hover: "walk" }), "hammer");
 });
 
-test("keeps menus and neutral gameplay on default cursor", () => {
+test("neutral play cursor is walk, not system default", () => {
+  assert.equal(toolCursorForState({ screen: "playing", tool: "none" }), "walk");
+  assert.equal(toolCursorForState({ screen: "playing", tool: "none", hover: "tile" }), "walk");
+});
+
+test("hovering objects without a tool changes cursor intent", () => {
+  assert.equal(toolCursorForState({ screen: "playing", tool: "none", hover: "building" }), "inspect");
+  assert.equal(toolCursorForState({ screen: "playing", tool: "none", hover: "tree" }), "inspect");
+  assert.equal(toolCursorForState({ screen: "playing", tool: "none", hover: "npc" }), "interact");
+});
+
+test("non-playing screens use default", () => {
   assert.equal(toolCursorForState({ screen: "menu", tool: "wood" }), "default");
-  assert.equal(toolCursorForState({ screen: "playing", mode: "explore", tool: "none" }), "default");
-});
-
-test("placing any building keeps hammer cursor even when mode data is partial", () => {
-  assert.equal(toolCursorForState({ screen: "playing", placing: "farm" }), "hammer");
 });

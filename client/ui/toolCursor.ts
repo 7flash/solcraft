@@ -1,10 +1,11 @@
-export type ToolCursorName = "default" | "axe" | "pickaxe" | "hammer" | "shovel" | "capture";
+export type ToolCursorName = "default" | "walk" | "inspect" | "interact" | "axe" | "pickaxe" | "hammer" | "shovel" | "capture";
 
 export type ToolCursorState = {
   screen?: string | null;
   mode?: string | null;
   tool?: string | null;
   placing?: string | null;
+  hover?: string | null;
 };
 
 /**
@@ -23,5 +24,10 @@ export function toolCursorForState(s: ToolCursorState): ToolCursorName {
   if (tool === "demolish" || mode === "demolish") return "shovel";
   if (tool === "build" || mode === "build" || mode === "place" || !!s.placing) return "hammer";
 
-  return "default";
+  const hover = String(s.hover || "");
+  if (["inspect", "building", "object", "tree", "rock", "food"].includes(hover)) return "inspect";
+  if (hover === "interact" || hover === "trade" || hover === "npc") return "interact";
+  if (hover === "walk" || hover === "tile") return "walk";
+
+  return "walk";
 }
