@@ -33,6 +33,7 @@ import { isMoveKey, movementVectorFromKeys, normalizeMoveKey } from "../client/g
 import { CORE_ACTIONS } from "../client/ui/coreActions";
 import { actionBarActive } from "../client/ui/actionBarState";
 import { MORE_MENU_GROUPS } from "../client/ui/moreMenu";
+import { ribbonModeForState } from "../client/ui/ribbonMode";
 
 const AUTH_KEY = "solcraft:auth";
 const FACE_KEY = "solcraft:face.v1";
@@ -4306,7 +4307,6 @@ export default function mount() {
   function BottomBar() {
     if (ST.screen !== "playing") return <div />;
     const m = ST.me;
-    const buildOpen = ST.mode === "build" || ST.mode === "place";
     const action = (num, ico, lbl, run, opts = {}) => {
       const info = opts.info || `${num}: ${lbl}`;
       return (
@@ -4315,14 +4315,14 @@ export default function mount() {
         </button>
       );
     };
-    const flagCd = ST.channel && ST.channel.kind === "home" ? Math.max(0, Math.min(100, 100 * (ST.channel.until - performance.now()) / Math.max(1, ST.channel.ms))) : 0;
-    const spawnOpen = ST.mode === "spawn" || ST.mode === "spawnPlace" || ST.tool === "spawn";
-    const craftOpen = ST.mode === "craft" || ST.tool === "craft";
-    const useOpen = ST.tool === "use";
-    const wonderOpen = ST.mode === "wonder" || ST.tool === "wonder" || ST.placing === "worldwonder";
-    const adminOpen = ST.mode === "admin" || ST.tool === "admin";
     const admin = isAdminPlayer();
-    const showWonderQuick = wonderOpen;
+    const ribbonMode = ribbonModeForState({ mode: ST.mode, tool: ST.tool, placing: ST.placing });
+    const spawnOpen = ribbonMode === "spawn";
+    const craftOpen = ribbonMode === "craft";
+    const useOpen = ribbonMode === "use";
+    const buildOpen = ribbonMode === "build";
+    const adminOpen = admin && ribbonMode === "admin";
+    const showWonderQuick = ribbonMode === "wonder";
     const wonderQuick = showWonderQuick ? <div className="wonder-inline-planner wonder-action-ribbon">
       <div className="wonder-inline-head"><b>★ World Wonder</b><span>{currentWonderSize()}×{currentWonderSize()} · {wonderTilesClient(currentWonderSize())} tiles · ~{Math.round(wonderBuildMsClient(currentWonderSize(), currentWonderMode()) / 1000)}s</span></div>
       <div className="wonder-line-row">
