@@ -32,6 +32,7 @@ import { loadCharacterProfile, saveCharacterProfile, type CharacterProfile } fro
 import { isMoveKey, movementVectorFromKeys, normalizeMoveKey } from "../client/game/directionalInput";
 import { canIssueKeyboardStep, DEFAULT_KEYBOARD_STEP_MS } from "../client/game/keyboardStepper";
 import { frameThrottleMsForMotion, shouldEnterPerfMode } from "../client/game/renderBudget";
+import { hopDurationForProjectedDistance, movementFeelBucket } from "../client/game/movementFeel";
 import { createPerfOverlay, perfOverlayEnabledFromUrl } from "../client/game/perfOverlay";
 import { CORE_ACTIONS } from "../client/ui/coreActions";
 import { actionBarActive } from "../client/ui/actionBarState";
@@ -2113,7 +2114,24 @@ export default function mount() {
       return true;
     }
     let lowEnergyToastAt = 0;
-    function travelStepDuration() {
+    const moveMeasureA = new THREE.Vector3();
+    const moveMeasureB = new THREE.Vector3();
+    function projectedMoveDistance(from, to) {
+      moveMeasureA.set(from.x, 0.22, from.z).project(camera);
+      moveMeasureB.set(to.x, 0.22, to.z).project(camera);
+      const dx = (moveMeasureB.x - moveMeasureA.x) * Math.max(1, W());
+      const dy = (moveMeasureB.y - moveMeasureA.y) * Math.max(1, H());
+      return Math.sqrt(dx * dx + dy * dy);
+    }
+    function projectedMoveReference(from) {
+      // Use the normal one-tile grid-axis step as the reference feel. In the
+      // isometric camera, some world-diagonal steps become long screen-horizontal
+      // hops; those need a longer duration or they look like speed bursts.
+      const sx = projectedMoveDistance(from, { x: from.x + 1, z: from.z });
+      const sz = projectedMoveDistance(from, { x: from.x, z: from.z + 1 });
+      return Math.max(1, Math.min(sx || Infinity, sz || Infinity));
+    }
+    function travelStepDuration(from, to) {
       // Low energy no longer slows the client. The server still spends/rebuilds
       // energy and validates every move as an adjacent step, but movement feel
       // stays crisp instead of pretending to lag.
@@ -2125,7 +2143,17 @@ export default function mount() {
           say("Low energy — keep moving, then rest to refill.", 1200);
         }
       }
-      return 0.16;
+      const projected = projectedMoveDistance(from, to);
+      const reference = projectedMoveReference(from);
+      const dur = hopDurationForProjectedDistance({ projectedDistance: projected, referenceDistance: reference, baseSeconds: 0.16 });
+      perf.record("move.hop", dur * 1000, {
+        dx: to.x - from.x,
+        dz: to.z - from.z,
+        projected: Math.round(projected),
+        reference: Math.round(reference),
+        feel: movementFeelBucket(projected, reference),
+      });
+      return dur;
     }
     function canStartLocalStep() { return true; }
     function stepTo(x, z) {
@@ -2145,7 +2173,7 @@ export default function mount() {
         say("Out of energy. Roads and World Wonder districts are free to travel. Farms produce food for quick recovery.", 2400);
         walkQueue.length = 0; pendingWalk = null; return false;
       }
-      const hopDur = travelStepDuration();
+      const hopDur = travelStepDuration(from, { x, z });
       walking = true;
       me.x = x; me.z = z;
       if (ST.me) {

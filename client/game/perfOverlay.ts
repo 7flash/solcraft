@@ -150,6 +150,7 @@ export function createPerfOverlay(root: HTMLElement, options: PerfOverlayOptions
       metricLine(recorder, "webgl.tick", "world", 8),
       metricLine(recorder, "webgl.render", "webgl", 6),
       metricLine(recorder, "ui.paint", "paint", 6),
+      metricLine(recorder, "move.hop", "hop feel", 260),
       metricLine(recorder, "snap.apply", "snapshot", 8),
       metricLine(recorder, "net.state", "state api", 80),
       latest ? `last: ${latest}` : "last: —",
