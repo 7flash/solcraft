@@ -1,19 +1,12 @@
 // @ts-nocheck
 import { createMeasure } from "measure-fn";
 import { metaGet } from "../../../game/db";
+import { atlasEntries, atlasRuntimeDefaults } from "../../../game/atlasCatalog";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 const runtimeMeasure = createMeasure("api.atlas-runtime");
-
-const ATLAS = {
-  terrain: { label: "Terrain", cells: 4, cols: 4, rows: 4, runtimeFile: "terrain_atlas_clean.png" },
-  building: { label: "Building", cells: 4, cols: 4, rows: 4, runtimeFile: "building_atlas_clean.png" },
-  fx: { label: "FX", cells: 4, cols: 4, rows: 4, runtimeFile: "fx_atlas_clean.png" },
-  ui: { label: "UI", cells: 4, cols: 4, rows: 4, runtimeFile: "ui_atlas_clean.png" },
-  doll: { label: "Doll", cells: 8, cols: 8, rows: 6, runtimeFile: "doll_atlas_clean.png" },
-};
 
 const META_PUBLISHED = "solcraft:atlas:publishedByAtlas:v3";
 const META_BOUNDS = "solcraft:atlas:boundsByAtlas:v3";
@@ -22,8 +15,12 @@ const META_MODES = "solcraft:atlas:modes:v3";
 const META_RUNTIME_CACHE = "solcraft:atlas:runtimeCacheBust:v3";
 
 function safeJson<T>(raw: string, fallback: T): T { try { return JSON.parse(raw || "") as T; } catch { return fallback; } }
-function runtimeUrl(atlas: keyof typeof ATLAS, v: string | number = Date.now()) {
+function runtimeUrl(atlas: string, v: string | number = Date.now()) {
   return `/api/atlas-runtime/${encodeURIComponent(String(atlas))}?v=${encodeURIComponent(String(v))}`;
+}
+function defaultBounds(id: string) {
+  const entry = atlasEntries().find((a) => a.id === id);
+  return { x0: 0, y0: 0, x1: Math.max(1, Number(entry?.cols || 4)) * 256, y1: Math.max(1, Number(entry?.rows || 4)) * 256 };
 }
 
 export async function GET() {
@@ -32,33 +29,29 @@ export async function GET() {
     const boundsByAtlas = safeJson<Record<string, any>>(metaGet(META_BOUNDS, "{}"), {});
     const padByAtlas = safeJson<Record<string, number>>(metaGet(META_PADS, "{}"), {});
     const cacheByAtlas = safeJson<Record<string, number>>(metaGet(META_RUNTIME_CACHE, "{}"), {});
-    const modesByAtlas = safeJson<Record<string, string>>(metaGet(META_MODES, "{}"), {
-      terrain: "procedural",
-      building: "atlas",
-      fx: "atlas",
-      ui: "atlas",
-      doll: "atlas",
-    });
+    const modesByAtlas = safeJson<Record<string, string>>(metaGet(META_MODES, "{}"), atlasRuntimeDefaults());
 
     const atlases: Record<string, any> = {};
-    for (const [id, def] of Object.entries(ATLAS)) {
+    for (const def of atlasEntries()) {
+      const id = def.id;
       const pub = publishedByAtlas[id] || {};
       const version = cacheByAtlas[id] || pub.runtimeCacheBust || pub.createdAt || pub.id || pub.versionId || pub.url || Date.now();
       atlases[id] = {
         id,
         label: def.label,
         cells: def.cells,
-        cols: def.cols || def.cells,
-        rows: def.rows || def.cells,
-        url: runtimeUrl(id as keyof typeof ATLAS, version),
+        cols: def.cols,
+        rows: def.rows,
+        url: runtimeUrl(id, version),
         sourceUrl: pub.url || "",
         fileName: pub.fileName || def.runtimeFile,
         version,
         versionId: pub.id || pub.versionId || "",
-        bounds: boundsByAtlas[id] || { x0: 0, y0: 0, x1: 1024, y1: id === "doll" ? 768 : 1024 },
+        bounds: boundsByAtlas[id] || defaultBounds(id),
         pad: Number(padByAtlas[id] || 0) || 0,
-        mode: modesByAtlas[id] || (id === "terrain" ? "procedural" : "atlas"),
+        mode: modesByAtlas[id] || def.defaultMode,
         published: !!(pub.url || pub.id || pub.fileName),
+        slots: def.slots,
       };
     }
 

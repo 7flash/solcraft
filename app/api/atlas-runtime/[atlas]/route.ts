@@ -3,20 +3,12 @@ import { promises as fs } from "fs";
 import path from "path";
 import { createMeasure } from "measure-fn";
 import { metaGet } from "../../../../game/db";
+import { atlasEntry } from "../../../../game/atlasCatalog";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 const runtimeImageMeasure = createMeasure("api.atlas-runtime.image");
-
-const ATLAS: Record<string, { cells: number; cols: number; rows: number; runtimeFile: string }> = {
-  terrain: { cells: 4, cols: 4, rows: 4, runtimeFile: "terrain_atlas_clean.png" },
-  building: { cells: 4, cols: 4, rows: 4, runtimeFile: "building_atlas_clean.png" },
-  fx: { cells: 4, cols: 4, rows: 4, runtimeFile: "fx_atlas_clean.png" },
-  ui: { cells: 4, cols: 4, rows: 4, runtimeFile: "ui_atlas_clean.png" },
-  doll: { cells: 8, cols: 8, rows: 6, runtimeFile: "doll_atlas_clean.png" },
-};
-
 const META_PUBLISHED = "solcraft:atlas:publishedByAtlas:v3";
 
 function safeJson<T>(raw: string, fallback: T): T { try { return JSON.parse(raw || "") as T; } catch { return fallback; } }
@@ -41,12 +33,12 @@ function fallbackAtlasSvg(atlas: string, cols: number, rows: number) {
 export async function GET(req: Request, ctx: any) {
   const atlas = String(ctx?.params?.atlas || "").toLowerCase();
   return runtimeImageMeasure.measure.root({ start: () => `GET runtime image ${atlas}`, end: (res: Response) => ({ status: res.status, atlas }), budget: 160, maxResultLength: 120 }, async () => {
-    const def = ATLAS[atlas];
+    const def = atlasEntry(atlas);
     if (!def) return new Response("Unknown atlas", { status: 404, headers: { "Cache-Control": "no-store" } });
     const published = safeJson<Record<string, any>>(metaGet(META_PUBLISHED, "{}"), {});
     const pub = published[atlas] || {};
     const fileName = cleanFileName(pub.fileName || "");
-    const id = cleanFileName(pub.id || pub.versionId || "").replace(/.png$/i, "");
+    const id = cleanFileName(pub.id || pub.versionId || "").replace(/\.png$/i, "");
     const runtimeFile = def.runtimeFile;
 
     const candidates = [

@@ -33,6 +33,7 @@ const ATLASES: AtlasDef[] = [
   { id: "fx", label: "FX", cols: 4, rows: 4, cell: CELL, slots: ["smallShadow", "bigShadow", "sparkle", "coin", "dust", "smoke", "woodchips", "stonechips", "harvest", "warn", "twinkle", "rune", "bank", "market", "lootbag", "impact"] },
   { id: "ui", label: "UI", cols: 4, rows: 4, cell: CELL, slots: ["wood", "stone", "wheat", "fish", "gold", "gem", "energy", "heart", "shield", "sword", "backpack", "hammer", "food", "cottage", "market", "bank"] },
   { id: "doll", label: "Doll", cols: 8, rows: 6, cell: CELL, slots: ["skin0", "skin1", "skin2", "skin3", "skin4", "skin5", "skin6", "skin7", "hair0", "hair1", "hair2", "hair3", "hair4", "hair5", "hair6", "hair7", "hat0", "hat1", "hat2", "hat3", "hat4", "hat5", "hat6", "hat7", "torso0", "torso1", "torso2", "torso3", "torso4", "torso5", "torso6", "torso7", "legs0", "legs1", "legs2", "legs3", "legs4", "legs5", "legs6", "legs7", "back0", "back1", "back2", "back3", "back4", "back5", "back6", "back7"] },
+  { id: "tool", label: "Tools", cols: 5, rows: 4, cell: CELL, slots: ["bar.axe", "bar.pickaxe", "bar.hammer", "bar.shovel", "bar.capture", "hand.axe", "hand.pickaxe", "hand.hammer", "hand.shovel", "hand.capture", "cursor.axe", "cursor.pickaxe", "cursor.hammer", "cursor.shovel", "cursor.capture", "affordance.axe", "affordance.pickaxe", "affordance.hammer", "affordance.shovel", "affordance.capture"] },
 ];
 
 let mounted = false;

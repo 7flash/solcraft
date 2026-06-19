@@ -3,6 +3,7 @@ import { promises as fs } from "fs";
 import path from "path";
 import crypto from "crypto";
 import { metaGet, metaSet } from "../../../../game/db";
+import { atlasLegacyRecord } from "../../../../game/atlasCatalog";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -10,13 +11,7 @@ export const dynamic = "force-dynamic";
 type Bounds = { x0: number; y0: number; x1: number; y1: number };
 type Version = { id: string; atlasId: string; label: string; url: string; fileName: string; filePath?: string; createdAt: number; published?: boolean; w?: number; h?: number };
 
-const ATLAS = {
-  terrain: { label: "Terrain", cols: 4, rows: 4, cells: 4, runtimeFile: "terrain_atlas_clean.png" },
-  building: { label: "Building", cols: 4, rows: 4, cells: 4, runtimeFile: "building_atlas_clean.png" },
-  fx: { label: "FX", cols: 4, rows: 4, cells: 4, runtimeFile: "fx_atlas_clean.png" },
-  ui: { label: "UI", cols: 4, rows: 4, cells: 4, runtimeFile: "ui_atlas_clean.png" },
-  doll: { label: "Doll", cols: 8, rows: 6, cells: 8, runtimeFile: "doll_atlas_clean.png" },
-} as const;
+const ATLAS = atlasLegacyRecord();
 
 const META_VERSIONS = "solcraft:atlas:versions:v3";
 const META_PUBLISHED = "solcraft:atlas:publishedByAtlas:v3";
@@ -48,14 +43,14 @@ function readBounds(): Record<string, Bounds> { return safeJson<Record<string, B
 function writeBounds(v: Record<string, Bounds>) { metaSet(META_BOUNDS, JSON.stringify(v)); }
 function readPads(): Record<string, number> { return safeJson<Record<string, number>>(metaGet(META_PADS, "{}"), {}); }
 function writePads(v: Record<string, number>) { metaSet(META_PADS, JSON.stringify(v)); }
-function readModes(): Record<string, string> { return safeJson<Record<string, string>>(metaGet(META_MODES, "{}"), { terrain: "procedural", building: "atlas", fx: "atlas", ui: "atlas", doll: "atlas" }); }
+function readModes(): Record<string, string> { return safeJson<Record<string, string>>(metaGet(META_MODES, "{}"), { terrain: "procedural", building: "atlas", fx: "atlas", ui: "atlas", doll: "atlas", tool: "atlas" }); }
 function writeModes(v: Record<string, string>) { metaSet(META_MODES, JSON.stringify(v)); }
 function readCache(): Record<string, number> { return safeJson<Record<string, number>>(metaGet(META_RUNTIME_CACHE, "{}"), {}); }
 function writeCache(v: Record<string, number>) { metaSet(META_RUNTIME_CACHE, JSON.stringify(v)); }
 function normalizeMode(atlas: string, value: any) { const raw = String(value || "").toLowerCase(); if (atlas === "terrain") return raw === "atlas" ? "atlas" : "procedural"; return raw === "procedural" ? "procedural" : "atlas"; }
 function normalizeBounds(raw: any, fallback = DEFAULT_BOUNDS): Bounds { const b = raw || {}; const x0 = Math.max(0, Math.trunc(Number(b.x0 ?? fallback.x0) || 0)); const y0 = Math.max(0, Math.trunc(Number(b.y0 ?? fallback.y0) || 0)); const x1 = Math.max(x0 + 1, Math.trunc(Number(b.x1 ?? fallback.x1) || fallback.x1)); const y1 = Math.max(y0 + 1, Math.trunc(Number(b.y1 ?? fallback.y1) || fallback.y1)); return { x0, y0, x1, y1 }; }
 function inferAtlasFromName(file: string): keyof typeof ATLAS | "" { const lower = file.toLowerCase(); for (const id of Object.keys(ATLAS) as (keyof typeof ATLAS)[]) if (lower.includes(id)) return id; return ""; }
-async function readImageForGet(atlas: keyof typeof ATLAS, image: string) { const id = cleanName(image).replace(/\.png$/i, ""); const candidates = [path.join(versionDir(atlas), `${id}.png`), path.join(appVersionDir(atlas), `${id}.png`)]; for (const p of candidates) if (await exists(p)) return fs.readFile(p); return null; }
+async function readImageForGet(atlas: keyof typeof ATLAS, image: string) { const id = cleanName(image).replace(/.png$/i, ""); const candidates = [path.join(versionDir(atlas), `${id}.png`), path.join(appVersionDir(atlas), `${id}.png`)]; for (const p of candidates) if (await exists(p)) return fs.readFile(p); return null; }
 async function scanDiskVersions(existing: Version[]) {
   const byKey = new Map<string, Version>();
   for (const v of existing || []) if (v?.atlasId && v?.id && v?.url) byKey.set(`${v.atlasId}|${v.id}`, v);
@@ -64,8 +59,8 @@ async function scanDiskVersions(existing: Version[]) {
     for (const dir of [versionDir(atlas), appVersionDir(atlas)]) {
       const files = await fs.readdir(dir).catch(() => []);
       for (const f of files) {
-        if (!/\.(png|webp|jpe?g)$/i.test(f)) continue;
-        const id = cleanName(f).replace(/\.(png|webp|jpe?g)$/i, "");
+        if (!/.(png|webp|jpe?g)$/i.test(f)) continue;
+        const id = cleanName(f).replace(/.(png|webp|jpe?g)$/i, "");
         const file = path.join(dir, f);
         const stat = await fs.stat(file).catch(() => null);
         const createdAt = Math.floor(Number(stat?.mtimeMs || Date.now()));
@@ -102,7 +97,7 @@ async function saveUploaded(atlas: keyof typeof ATLAS, file: any): Promise<Versi
   const size = pngSize(buf);
   return { id, atlasId: atlas, label: rawName, url: versionUrl(atlas, id, createdAt), fileName, filePath: publicPath, createdAt, published: false, w: size.w || undefined, h: size.h || undefined };
 }
-function getVersion(versions: Version[], atlas: string, id: string) { return versions.find((v) => v.atlasId === atlas && v.id === id) || versions.find((v) => v.atlasId === atlas && cleanName(v.fileName || "").replace(/\.png$/i, "") === id); }
+function getVersion(versions: Version[], atlas: string, id: string) { return versions.find((v) => v.atlasId === atlas && v.id === id) || versions.find((v) => v.atlasId === atlas && cleanName(v.fileName || "").replace(/.png$/i, "") === id); }
 async function copyToRuntime(atlas: keyof typeof ATLAS, version: Version) {
   await ensureDirs(atlas);
   const candidates = [version.filePath || "", path.join(versionDir(atlas), version.fileName || `${version.id}.png`), path.join(appVersionDir(atlas), version.fileName || `${version.id}.png`)];
