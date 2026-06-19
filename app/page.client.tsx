@@ -46,6 +46,7 @@ import { SettingsPanelView } from "../client/ui/settingsPanel";
 import { OptionsModalView } from "../client/ui/optionsModal";
 import { HelpModalView } from "../client/ui/helpModal";
 import { actionSlotClass, actionStackClass } from "../client/ui/hudChromeModel";
+import { PlayerHudView } from "../client/ui/playerHud";
 
 const AUTH_KEY = "solcraft:auth";
 const FACE_KEY = "solcraft:face.v1";
@@ -1156,6 +1157,38 @@ input:focus,select:focus{border-color:var(--line2);box-shadow:0 0 0 3px rgba(20,
   .ui2-action-slot .num{display:none!important;}
   .ui2-action-slot .ico{width:22px!important;height:22px!important;}
   .ui2-action-slot .lbl{font-size:7.5px!important;letter-spacing:.02em!important;}
+}
+
+
+/* UI Stage 11 — player HUD card polish.
+   The original scv-* classes remain the stable visual contract; ui2-* classes
+   give the extracted PlayerHudView a safer future styling seam. */
+.ui2-player-hud{
+  border-color:rgba(20,241,149,.18)!important;
+  background:
+    radial-gradient(circle at 20% 0%,rgba(20,241,149,.14),transparent 34%),
+    linear-gradient(180deg,rgba(8,14,25,.94),rgba(5,9,16,.90))!important;
+  box-shadow:0 18px 44px rgba(0,0,0,.42),inset 0 1px 0 rgba(255,255,255,.07)!important;
+}
+.ui2-player-head{align-items:center!important;gap:10px!important;}
+.ui2-player-avatar{
+  position:relative;isolation:isolate;background:linear-gradient(135deg,rgba(20,241,149,.30),rgba(153,69,255,.26))!important;
+  border:1px solid rgba(255,255,255,.16)!important;box-shadow:0 8px 22px rgba(0,0,0,.30),0 0 18px rgba(20,241,149,.12)!important;
+}
+.ui2-player-avatar:before{content:"";position:absolute;inset:3px;border-radius:inherit;border:1px solid rgba(255,255,255,.12);z-index:-1;}
+.ui2-player-id .scv-name{letter-spacing:-.02em;}
+.ui2-player-meters{display:grid!important;gap:7px!important;margin-top:10px!important;}
+.ui2-player-meters .scv-meter{background:rgba(255,255,255,.055)!important;border:1px solid rgba(255,255,255,.075)!important;border-radius:12px!important;padding:6px!important;}
+.ui2-player-resources{display:grid!important;grid-template-columns:repeat(4,minmax(0,1fr))!important;gap:6px!important;}
+.ui2-player-resources .scv-pill{min-width:0!important;justify-content:center!important;border-radius:12px!important;background:rgba(255,255,255,.065)!important;border:1px solid rgba(255,255,255,.08)!important;}
+.ui2-player-cap{border-radius:12px!important;background:rgba(255,215,110,.08)!important;border:1px solid rgba(255,215,110,.16)!important;}
+.ui2-limit-row{display:grid!important;grid-template-columns:repeat(2,minmax(0,1fr))!important;gap:5px!important;}
+.ui2-limit-row .scv-limit-pill{min-width:0!important;}
+.ui2-player-tabs{margin-top:9px!important;}
+.ui2-player-hint{border-radius:12px!important;background:rgba(20,241,149,.075)!important;border:1px solid rgba(20,241,149,.13)!important;}
+@media(max-width:520px),(max-height:640px){
+  .ui2-player-resources{grid-template-columns:repeat(2,minmax(0,1fr))!important;}
+  .ui2-limit-row{grid-template-columns:1fr!important;}
 }
 `;
 
@@ -4140,13 +4173,8 @@ export default function mount() {
   function Hud() {
     const m = ST.me;
     if (ST.screen !== "playing" || !m) return <div />;
-    const eNow = liveE();
-    const hpNow = Math.max(0, Math.ceil(m.hp || 0));
-    const gold = Math.floor(m.inv?.g || 0);
     const visiblePlayers = Array.isArray(ST.players) ? ST.players.length : 0;
     const activePlayers = Array.isArray(ST.map?.players) ? ST.map.players.length : visiblePlayers;
-    const initial = String(m.name || "?").slice(0, 1) || "?";
-    const limitRows = limitAdviceRows(m);
     const hint = ST.channel ? (ST.channel.kind === "home" ? "Casting return to flag — stand still" : ST.channel.kind === "redeem" ? "Withdrawing at trade post — hold your nerve" : ST.channel.kind === "tree" ? "Chopping wood — stay close until the logs drop" : "Mining stone — stay close until the chunks drop")
       : ST.tool === "spawn" ? "6 — choose a crafted tool · yellow tiles are valid deploy spots"
       : ST.mode === "place" ? `5 — place ${LIB_BY_ID[ST.placing]?.name || "building"} · green tile only`
@@ -4157,40 +4185,17 @@ export default function mount() {
       : ST.tool === "siege" ? "6 — siege enemy buildings and destroy tools"
       : ST.tool === "use" ? "6 — interact with nearby mines, buildings, offers, and elixirs"
       : ST.near.i ? `6 — ${ST.near.i.label}` : "Goal: claim territory · collect taxed coins · build a Coin Mint to redeem";
-    return (
-      <div className="scv-hud">
-        <div className="scv-top">
-          <div className="scv-av"><b>{initial}</b><span className="scv-lv">{m.level || 1}</span></div>
-          <div className="scv-id">
-            <div className="scv-name">{m.name || "Settler"}</div>
-            <div className="scv-sub"><span className="scv-gold">🪙 {gold}</span><span className="scv-gold">🔬 {Math.floor(m.inv?.sc || 0)}/{m.scienceCap || 0}</span><small>· {m.territory || 0}/{m.tileCap || "?"} tiles · {m.built || 0} builds · {visiblePlayers}/{activePlayers} players visible</small></div>
-          </div>
-        </div>
-        <div className="scv-meters">
-          <div className="scv-meter" data-tip-title="Energy" data-tip-body={`Current energy ${Math.floor(eNow)} / ${m.maxE}. Claiming, moving, building, chopping, and mining spend energy; it refills over time.`}><span className="ic">⚡</span><div className="scv-track e"><i id="sc-e-fill" style={{ width: `${(100 * eNow / Math.max(1, m.maxE)).toFixed(1)}%` }} /></div><span className="scv-val"><span id="sc-e-now">{Math.floor(eNow)}</span> / {m.maxE}</span></div>
-          <div className="scv-meter" data-tip-title="Health" data-tip-body={`Current health ${hpNow} / ${MAX_HP}. Siege tools target territory and structures; keep your city defended.`}><span className="ic">♥</span><div className="scv-track hp"><i id="sc-hp-fill" style={{ width: `${(100 * hpNow / MAX_HP).toFixed(1)}%` }} /></div><span className="scv-val"><span id="sc-hp-now">{hpNow}</span> / {MAX_HP}</span></div>
-        </div>
-        <div className="scv-res">
-          <div className="scv-pill" aria-label={`Wood storage cap ${m.storageCap?.w || 250}`} data-tip-title="Wood" data-tip-body={`You have ${m.inv?.w || 0} wood. Storage cap: ${m.storageCap?.w || 250}. Build Warehouses to raise wood/stone/plank/shard caps.`}><span className="pi">🪵</span><b>{m.inv?.w || 0}</b></div>
-          <div className="scv-pill" aria-label={`Stone storage cap ${m.storageCap?.s || 250}`} data-tip-title="Stone" data-tip-body={`You have ${m.inv?.s || 0} stone. Storage cap: ${m.storageCap?.s || 250}. Mine rocks or use Quarry buildings for more.`}><span className="pi">🪨</span><b>{m.inv?.s || 0}</b></div>
-          <div className="scv-pill" aria-label={`Food cap ${m.storageCap?.f || 250}`} data-tip-title="Food" data-tip-body={`You have ${m.inv?.f || 0} food. Food cap: ${m.storageCap?.f || 250}. Farms produce food; Granaries raise food capacity.`}><span className="pi">🌾</span><b>{m.inv?.f || 0}</b></div>
-          <div className="scv-pill" aria-label={`Shard cap ${m.storageCap?.sh || 250}`} data-tip-title="Shards" data-tip-body={`You have ${m.inv?.sh || 0} shards. Storage cap: ${m.storageCap?.sh || 250}. Shards are used for advanced buildings and deployed tools.`}><span className="pi">◈</span><b>{m.inv?.sh || 0}</b></div>
-        </div>
-        <div className="scv-cap" data-tip-title="Tile and resource limits" data-tip-body={limitAdviceSummary(m)}><b>Limits</b> Tiles {m.territory || 0}/{m.tileCap || "?"} · build Warehouses/Granaries for storage; Town Hall/World Wonder for territory.</div>
-        {limitRows.length ? <div className="scv-limit-row">
-          {limitRows.map((r) => <div className={`scv-limit-pill ${r.cls || "warn"}`} data-tip-title={r.title} data-tip-body={r.body}><span>{r.glyph}</span><b>{r.short}</b></div>)}
-        </div> : null}
-        <div className="scv-xp" aria-label={`XP ${m.xp || 0} / ${xpForLevel(m.level || 1)}`} data-tip-title="Level progress" data-tip-body={`XP ${m.xp || 0} / ${xpForLevel(m.level || 1)}. Gathering, claiming, building, crafting, and guide rewards all add XP.`}><i style={{ width: `${Math.min(100, 100 * ((m.xp || 0) / Math.max(1, xpForLevel(m.level || 1)))).toFixed(0)}%` }} /></div>
-        <div className="scv-tabs">
-          <button className={"scv-tab" + (ST.panel === "char" ? " on" : "")} data-click="toggle-panel" data-panel="char" data-guide-target="char" data-tip-title="Character" data-tip-body="Customize your settler while staying in the world."><UiIcon name="character" fallback="C" /><span>Character</span></button>
-          <button className={"scv-tab" + (ST.panel === "quests" ? " on" : "")} data-click="toggle-panel" data-panel="quests" data-guide-target="quests" data-tip-title="Guide" data-tip-body="Guide cards, skills, and claimable rewards."><UiIcon name="quests" fallback="G" /><span>Guide</span></button>
-          <button className={"scv-tab" + (ST.panel === "skills" ? " on" : "")} data-click="toggle-panel" data-panel="skills" data-tip-title="Achievements" data-tip-body="Skill tiers and progress."><UiIcon name="skills" fallback="A" /><span>Achievements</span></button>
-          <button className={"scv-tab" + (ST.panel === "more" ? " on" : "")} data-click="open-more" data-panel="more" data-tip-title="More" data-tip-body="Bank, craft, siege, wonders, map, settings, and help."><UiIcon name="settings" fallback="☰" /><span>More</span></button>
-        </div>
-        <div className="scv-hint"><b>{hint.split(" — ")[0]}</b>{hint.includes(" — ") ? " — " + hint.split(" — ").slice(1).join(" — ") : hint}</div>
-        {m.spectator ? <div className="scv-hint"><b>Spectator</b> — ghost view; read-only and no coin pickups</div> : null}
-      </div>
-    );
+    return <PlayerHudView
+      player={m}
+      panel={ST.panel}
+      liveEnergy={liveE()}
+      maxHp={MAX_HP}
+      xpNeeded={xpForLevel(m.level || 1)}
+      visiblePlayers={visiblePlayers}
+      activePlayers={activePlayers}
+      gameplayHint={hint}
+      Icon={UiIcon}
+    />;
   }
 
   function TopActions() {
