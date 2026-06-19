@@ -49,6 +49,7 @@ import { actionSlotClass, actionStackClass } from "../client/ui/hudChromeModel";
 import { PlayerHudView } from "../client/ui/playerHud";
 import { TopChromeView } from "../client/ui/topChrome";
 import { configureMinimapCanvas } from "../client/ui/minimapShell";
+import { WorldMapModalView } from "../client/ui/worldMapModal";
 
 const AUTH_KEY = "solcraft:auth";
 const FACE_KEY = "solcraft:face.v1";
@@ -3790,28 +3791,11 @@ export default function mount() {
 
 
   function WorldMapModal() {
-    setTimeout(() => {
-      const cv = document.getElementById("sc-worldmap-canvas");
-      if (cv) drawKnownWorldMap(cv, true);
-    }, 0);
-    const admin = isAdminPlayer();
-    const players = Array.isArray(ST.map?.players) ? ST.map.players.length : 0;
-    const tiles = Array.isArray(ST.map?.tiles) ? ST.map.tiles.length : 0;
-    const buildings = Array.isArray(ST.map?.buildings) ? ST.map.buildings.length : 0;
-    return <div className="modal" style={{ width: "min(1040px,96vw)", maxHeight: "92vh", overflow: "auto" }}>
-      <h2>World Map</h2>
-      <p className="tiny">Lightweight overview from the minimap data. It does not render the whole 3D world, so movement stays fast.</p><div className="worldmap-road-note">Wonder districts are outlined; tan road cells show settlement links to nearby Wonders.</div>
-      <div className="worldmap-legend">
-        <span><i className="worldmap-dot" style={{ background: "#fff" }} />you</span>
-        <span><i className="worldmap-dot" style={{ background: "#f29c72" }} />players</span>
-        <span><i className="worldmap-dot" style={{ background: "#9945ff" }} />wonders</span>
-        <span><i className="worldmap-dot" style={{ background: "#ffd76e" }} />coins</span>
-        <span>{tiles} tiles · {buildings} buildings · {players} player markers</span>
-      </div>
-      <canvas id="sc-worldmap-canvas" className="worldmap-canvas" width="1200" height="760" data-click="worldmap-click" />
-      <p className="worldmap-help">{admin ? <span><b>Admin:</b> click any open map point to teleport there for debugging.</span> : <span><b>Player:</b> click nearby points to walk. Long-range teleport stays limited to Return Scroll and World Wonder teleports.</span>}</p>
-      <div className="row" style={{ marginTop: 12 }}><button className="btn" data-click="modal-close">Close</button><button className="btn primary" data-click="camera-zoom-reset">Reset camera</button></div>
-    </div>;
+    return <WorldMapModalView
+      map={ST.map}
+      admin={isAdminPlayer()}
+      onDraw={(cv) => drawKnownWorldMap(cv, true)}
+    />;
   }
 
   function PlayerModal() {

@@ -905,3 +905,15 @@ input:focus,select:focus{border-color:var(--line2);box-shadow:0 0 0 3px rgba(20,
   .ui2-player-resources{grid-template-columns:repeat(2,minmax(0,1fr))!important;}
   .ui2-limit-row{grid-template-columns:1fr!important;}
 }
+
+/* Stage 13: extracted world map modal shell. Route-scoped styles live here, not in page.client.tsx. */
+.ui2-worldmap-modal{
+  width:min(1040px,96vw);
+  max-height:92vh;
+  overflow:auto;
+}
+.ui2-worldmap-legend .worldmap-dot.you{background:#fff;}
+.ui2-worldmap-legend .worldmap-dot.players{background:#f29c72;}
+.ui2-worldmap-legend .worldmap-dot.wonders{background:#9945ff;}
+.ui2-worldmap-legend .worldmap-dot.coins{background:#ffd76e;}
+.ui2-worldmap-actions{margin-top:12px;}
