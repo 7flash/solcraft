@@ -29,6 +29,7 @@ import {
 } from "../client/meshes";
 import { loadAtlasRuntimeConfig, terrainMats, tickVisualTextures, setTerrainVisualPrefs } from "../client/textures";
 import { loadCharacterProfile, saveCharacterProfile, type CharacterProfile } from "../client/dollProfile";
+import { isMoveKey, movementVectorFromKeys, normalizeMoveKey } from "../client/game/directionalInput";
 
 const AUTH_KEY = "solcraft:auth";
 const FACE_KEY = "solcraft:face.v1";
@@ -2983,7 +2984,7 @@ export default function mount() {
       while (q.length && prev.size < 2600) {
         const [cx, cz] = q.shift();
         if (cx === tx && cz === tz) { found = true; break; }
-        for (const [dx, dz] of N4) {
+        for (const [dx, dz] of N8) {
           const nx = cx + dx, nz = cz + dz, nk = key(nx, nz);
           if (prev.has(nk) || blocked(nx, nz) || cheb(nx, nz, me.x, me.z) > PATH_R + 2) continue;
           prev.set(nk, [cx, cz]); q.push([nx, nz]);
@@ -3808,25 +3809,53 @@ export default function mount() {
     ev.preventDefault();
     world.zoom(ev.deltaY > 0 ? CAMERA_ZOOM_STEP : -CAMERA_ZOOM_STEP);
   }
+
+  const heldMoveKeys = new Set();
+  let lastKeyboardStepAt = 0;
+  const KEYBOARD_STEP_MIN_MS = 92;
+  function clearHeldMoveKeys() { heldMoveKeys.clear(); }
+  function keyboardMovementAllowed() {
+    if (ST.screen !== "playing" || ST.updateRequired || ST.modal) return false;
+    const tag = document.activeElement?.tagName;
+    return !(tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT");
+  }
+  function tryKeyboardMove(ev) {
+    if (!keyboardMovementAllowed()) return false;
+    const v = movementVectorFromKeys(heldMoveKeys);
+    if (!v.x && !v.z) return false;
+    const nowStep = performance.now();
+    if (ev?.repeat && nowStep - lastKeyboardStepAt < KEYBOARD_STEP_MIN_MS) return true;
+    lastKeyboardStepAt = nowStep;
+    world.tryMoveDelta(v.x, v.z);
+    return true;
+  }
+  function onKeyUp(ev) {
+    if (!isMoveKey(ev.key)) return;
+    const k = normalizeMoveKey(ev.key);
+    if (k) heldMoveKeys.delete(k);
+  }
   function onKey(ev) {
     if (ST.screen !== "playing" || ST.updateRequired) return;
     const tag = document.activeElement?.tagName;
     if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
     const k = ev.key.toLowerCase();
-    if (k === "w" || ev.key === "ArrowUp") world.tryMoveDelta(0, -1);
-    else if (k === "s" || ev.key === "ArrowDown") world.tryMoveDelta(0, 1);
-    else if (k === "a" || ev.key === "ArrowLeft") world.tryMoveDelta(-1, 0);
-    else if (k === "d" || ev.key === "ArrowRight") world.tryMoveDelta(1, 0);
-    else if (k === "-" || k === "_") stepCameraZoom(CAMERA_ZOOM_STEP);
+    if (isMoveKey(ev.key)) {
+      const mk = normalizeMoveKey(ev.key);
+      if (mk) heldMoveKeys.add(mk);
+      ev.preventDefault();
+      tryKeyboardMove(ev);
+      return;
+    }
+    if (k === "-" || k === "_") stepCameraZoom(CAMERA_ZOOM_STEP);
     else if (k === "+" || k === "=") stepCameraZoom(-CAMERA_ZOOM_STEP);
     else if (k === "0") resetCameraView();
-    else if (k === "1") selectWonderTool();
+    else if (k === "1") { closeTools(); clearHeldMoveKeys(); paint(); }
     else if (k === "2") doGather("wood");
     else if (k === "3") doGather("stone");
     else if (k === "4" || k === "c" || k === " ") doClaim();
     else if (k === "5" || k === "b") selectBuildTool();
-    else if (k === "6") doAttackTool();
-    else if (k === "7" || k === "i") openBankPanel();
+    else if (k === "6") doUseTool();
+    else if (k === "7") openOptions();
     else if (k === "e" || k === "t") doUseTool();
     else if (k === "i") { ST.panel = ST.panel === "bank" ? null : "bank"; ST.tradeTab = "bank"; loadBankStatus(); paint(true); }
     else if (k === "r") { ST.modal = ST.modal === "craft" ? null : "craft"; closeTools(); paint(true); }
@@ -3835,13 +3864,15 @@ export default function mount() {
     else if (k === "o") openOptions();
     else if (k === "k") togglePanel("skills");
     else if (k === "h" || k === "?") { ST.modal = ST.modal === "help" ? null : "help"; paint(); }
-    else if (ev.key === "Escape") { cancelChop(); ST.modal = null; ST.panel = null; ST.inspect = null; ST.inspectPlayer = null; ST.wonderViewUid = null; ST.mode = "explore"; ST.placing = null; ST.tool = "none"; world.walkQueueClear(); world.hideBuildGhost(); updateHints(); paint(); }
+    else if (ev.key === "Escape") { cancelChop(); ST.modal = null; ST.panel = null; ST.inspect = null; ST.inspectPlayer = null; ST.wonderViewUid = null; ST.mode = "explore"; ST.placing = null; ST.tool = "none"; world.walkQueueClear(); clearHeldMoveKeys(); world.hideBuildGhost(); updateHints(); paint(); }
   }
   worldEl.addEventListener("pointermove", onPointerMove);
   worldEl.addEventListener("pointerleave", () => { hideTip(); world.hoverMarker.visible = false; world.hideBuildGhost(); });
   worldEl.addEventListener("pointerdown", onPointerDown);
   worldEl.addEventListener("wheel", onWheel, { passive: false });
   window.addEventListener("keydown", onKey);
+  window.addEventListener("keyup", onKeyUp);
+  window.addEventListener("blur", clearHeldMoveKeys);
 
   /* ============================================================
      UI VIEWS — region-scoped vdom
@@ -4026,8 +4057,8 @@ export default function mount() {
       : ST.tool === "stone" ? "3 — rocks are highlighted · drops become pickups"
       : ST.tool === "claim" ? "4 — highlighted tiles can be captured"
       : ST.tool === "siege" ? "6 — siege enemy buildings and destroy tools"
-      : ST.tool === "use" ? "7 — interact with nearby mines, buildings, offers, and elixirs"
-      : ST.near.i ? `7 — ${ST.near.i.label}` : "Goal: claim territory · collect taxed coins · build a Coin Mint to redeem";
+      : ST.tool === "use" ? "6 — interact with nearby mines, buildings, offers, and elixirs"
+      : ST.near.i ? `6 — ${ST.near.i.label}` : "Goal: claim territory · collect taxed coins · build a Coin Mint to redeem";
     return (
       <div className="scv-hud">
         <div className="scv-top">
@@ -4372,13 +4403,13 @@ export default function mount() {
       <div className="action-stack">
         {ribbon}
         <div className="action-bar">
-          {action(1, "★", "Wonder", "select-wonder", { primary: true, on: wonderOpen, info: "Create a World Wonder from one prompt, choose a footprint, then place its foundation." })}
+          {action(1, "➤", "Move", "explore-mode", { primary: ST.mode === "explore" && ST.tool === "none", on: ST.mode === "explore" && ST.tool === "none", info: "Clear tools. Click the map, use WASD/arrows, or hold two directions for diagonal movement." })}
           {action(2, "🪓", "Chop", "gather-wood", { on: ST.tool === "wood", info: "Highlight trees only. Chopped wood drops into pickup piles." })}
           {action(3, "⛏", "Mine", "gather-stone", { on: ST.tool === "stone", info: "Highlight rocks only. Mined stone drops into pickup piles." })}
-          {action(4, "⚑", "Capture", "claim", { on: ST.tool === "claim", info: "Capture open connected frontier tiles. Player bases are protected." })}
-          {action(5, "⌂", "Build", "select-build", { on: buildOpen, info: "Open normal buildings only. World Wonder is now its own prompt action." })}
-          {action(6, "⚔", "Siege", "siege-tool", { on: ST.tool === "siege", danger: true, info: "Attack enemy buildings and destroy tools. Crafted bombs can still be deployed from backpack items." })}
-          {action(7, "◈", "Bank", "open-bank", { on: ST.panel === "bank" || ST.tradeTab === "bank", info: "Open deposits, scans, and withdrawals." })}
+          {action(4, "⚑", "Claim", "claim", { on: ST.tool === "claim", info: "Capture open connected frontier tiles. Player bases are protected." })}
+          {action(5, "⌂", "Build", "select-build", { on: buildOpen, info: "Open buildings. Advanced wonders stay inside Build instead of taking the main movement slot." })}
+          {action(6, "✦", "Use", "use-tool", { on: ST.tool === "use", info: "Interact with nearby buildings, offers, scrolls, and supplies." })}
+          {action(7, "☰", "More", "open-options", { on: ST.panel === "settings", info: "Settings, map, guide, bank, character, and advanced panels live outside the core bar." })}
           {admin ? action(8, "⚙", "Admin", "admin-toggle", { danger: true, on: adminOpen, info: "Admin world ops: demolish objects, clear broken cells, spawn neutral Keeps, and open world map jump." }) : null}
         </div>
       </div>
@@ -4811,6 +4842,8 @@ export default function mount() {
       case "spectate-game": return spectateGame();
       case "forget-session": return forgetLocalSettler();
       case "toggle-panel": return togglePanel(readStr(el, "panel"));
+      case "explore-mode": closeTools(); clearHeldMoveKeys(); ST.panel = null; ST.modal = null; say("Move mode — click the map, use WASD/arrows, or hold two directions for diagonal movement.", 1800); paint(true); return;
+      case "open-options": return openOptions();
       case "open-bank": advanceWalkthroughAction("bank"); return openBankPanel();
       case "select-wonder": advanceWalkthroughAction("wonder"); return selectWonderTool();
       case "select-craft": return selectCraftTool();
@@ -6025,6 +6058,8 @@ export default function mount() {
     worldEl.removeEventListener("contextmenu", onContext);
     document.removeEventListener("contextmenu", preventGameContext, { capture: true });
     window.removeEventListener("keydown", onKey);
+    window.removeEventListener("keyup", onKeyUp);
+    window.removeEventListener("blur", clearHeldMoveKeys);
     hudEl.removeEventListener("click", onDelegatedHudClick, true);
     hudEl.removeEventListener("input", onDelegatedHudInput, true);
     hudEl.removeEventListener("change", onDelegatedHudChange, true);
