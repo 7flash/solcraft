@@ -1,0 +1,25 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Aether WebGPU Voxel MMO v31</title>
+  <link rel="stylesheet" href="./style.css" />
+</head>
+<body>
+  <canvas id="game"></canvas>
+  <div id="hud">
+    <div class="title">AETHER WEBGPU VOXEL MMO v31</div>
+    <div id="status">Booting...</div>
+    <div id="stats"></div>
+    <div id="target"></div>
+    <div class="hint">Click to lock mouse · WASD move · Space/Shift vertical · LMB mine · RMB place · C claim chunk · 1/2/3 blocks</div>
+  </div>
+  <div id="crosshair">+</div>
+  <div id="unsupported" hidden>
+    <h1>WebGPU unavailable</h1>
+    <p>Use a modern Chrome/Edge browser with WebGPU enabled.</p>
+  </div>
+  <script type="module" src="./src/main.js"></script>
+</body>
+</html>

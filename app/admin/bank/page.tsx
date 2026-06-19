@@ -1,0 +1,1 @@
+export default function BankStudioPage(){return <main id="solcraft-admin-bank"/>}

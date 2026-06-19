@@ -1,0 +1,1 @@
+export default function AudioStudioPage(){return <main id="solcraft-admin-audio" style={{minHeight:"100vh",background:"#05080e",color:"#f3ead7",padding:"16px",fontFamily:"Inter,system-ui,sans-serif"}}><a href="/admin" style={{color:"#f3ead7"}}>← Admin</a><h1>Audio Studio</h1><p>Loading audio studio…</p></main>}
