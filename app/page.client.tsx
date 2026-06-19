@@ -37,6 +37,9 @@ import { ribbonModeForState } from "../client/ui/ribbonMode";
 import { ActionRibbon } from "../client/ui/actionRibbons";
 import { InspectPanelView } from "../client/ui/inspectPanel";
 import { CharacterPanelView } from "../client/ui/characterPanel";
+import { InventoryPanelView } from "../client/ui/inventoryPanel";
+import { SkillsPanelView } from "../client/ui/skillsPanel";
+import { QuestPanelView } from "../client/ui/questPanel";
 
 const AUTH_KEY = "solcraft:auth";
 const FACE_KEY = "solcraft:face.v1";
@@ -5454,50 +5457,20 @@ export default function mount() {
   }
 
   function QuestPanel() {
-    const visible = guideVisibleRows();
     return <UtilityShell className="quest-pop" title="Guide" sub="Independent guide cards for every core action and building. Complete any card, then claim its reward.">
-      <GuideSummaryView />
-      <GuideTabs />
-      <div className="guide-list">
-        {visible.length ? visible.map((row) => <GuideCard key={row.id} row={row} />) : <div className="tiny">No cards in this section yet.</div>}
-      </div>
+      <QuestPanelView rows={guideRows()} tabs={GUIDE_TABS} activeTab={ST.questTab || "actions"} onTab={setGuideTab} onClaim={claimGuideRewardClient} />
     </UtilityShell>;
   }
 
   function InventoryPanel() {
-    const m = ST.me;
-    if (!m) return <div />;
-    const pack = m.pack || [];
     return <UtilityShell title="Inventory" sub="Resources, gear, tools, and usable items. Use elixirs from the 7 Use ribbon.">
-      <div className="utility-row">
-        {RES_KEYS.map((r) => <span className="stat" aria-label={RES_NAMES[r]}>{COSTI[r]} {m.inv?.[r] || 0}</span>)}
-      </div>
-      <div className="mini-slots">
-        {Array.from({ length: PACK_SIZE }, (_, i) => {
-          const item = pack[i];
-          if (!item) return <button className="mini-slot empty">·</button>;
-          if (item.t === "bomb") { const b = DESTROY_BY_ID[item.id]; return <button className="mini-slot" aria-label={b?.blurb || "Destroy tool"}>{b?.glyph || "✹"}<small>{b?.name || item.id}</small></button>; }
-          if (item.t === "use") { const u = USE_ITEMS[item.id]; return <button className="mini-slot" aria-label={u?.blurb || "Use item"}>{u?.glyph || "✦"}<small>{u?.name || item.id}</small></button>; }
-          const g = GEAR_BY_ID[item.id];
-          return <button className="mini-slot" data-click="pack-equip" data-idx={i} aria-label="Tap to equip">{g?.glyph || "◇"}<small>{g?.name || item.id}</small></button>;
-        })}
-      </div>
+      <InventoryPanelView player={ST.me} />
     </UtilityShell>;
   }
 
   function SkillsPanel() {
-    const m = ST.me;
-    if (!m) return <div />;
-    const xp = m.skillXp || {};
     return <UtilityShell title="Skills" sub="Skills train automatically from play. Chop and mine for Gathering/Efficiency, build for Masonry, claim for Vigor, siege/craft tools for Siegecraft.">
-      <div className="mini-list">
-        {SKILLS.map((sk) => {
-          const lvl = skillLvl(m.skills || {}, sk.id);
-          const need = Math.max(1, 25 * (lvl + 1));
-          const cur = Math.min(need, Number(xp[sk.id] || 0));
-          return <div className="skill-mini"><div className="utility-row"><b>{sk.glyph} {sk.name}</b><span className="stat">Lv {lvl}/{sk.max}</span></div><div className="mini-bar"><i style={{ width: `${Math.min(100, 100 * cur / need).toFixed(0)}%` }} /></div><div className="tiny">{sk.blurb}</div></div>;
-        })}
-      </div>
+      <SkillsPanelView player={ST.me} />
     </UtilityShell>;
   }
 
