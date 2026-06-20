@@ -59,6 +59,7 @@ import { disposeMiniPreviews, syncMiniPreviewPanels } from "../client/world/mini
 import { WorldMapModalView } from "../client/ui/worldMapModal";
 import { PlayerModalView } from "../client/ui/playerModal";
 import { renderKnownWorldMap, tileFromCanvasEvent } from "../client/world/mapCanvas";
+import { chatCardSubtitle, chatCardTitle, formatBuildingChatCard, formatLocationChatCard, parseChatCard } from "../client/ui/chatCards";
 
 const AUTH_KEY = "solcraft:auth";
 const FACE_KEY = "solcraft:face.v1";
@@ -381,6 +382,7 @@ export default function mount() {
   const chatEl = mk("");
   const bottomRoot = mk("");
   const toastEl = document.createElement("div"); toastEl.className = "toast"; hudEl.appendChild(toastEl);
+  const noticeEl = document.createElement("div"); noticeEl.className = "notice-rail"; hudEl.appendChild(noticeEl);
   const channelEl = document.createElement("div"); channelEl.className = "channel";
   channelEl.innerHTML = `<div id="sc-ch-label">Chopping…</div><div class="cbar"><i id="sc-ch-fill"></i></div>`;
   hudEl.appendChild(channelEl);
@@ -765,13 +767,29 @@ export default function mount() {
     setCameraZoom(2.05, true);
   }
 
-  /* imperative toast — zero vdom */
+  /* imperative feedback — zero vdom */
   let toastT = null;
+  let noticeSeq = 0;
+  function pushNotice(msg, kind = "info") {
+    const text = String(msg || "").trim();
+    if (!text) return;
+    const d = document.createElement("div");
+    d.className = `notice-item ${kind}`;
+    d.dataset.noticeId = String(++noticeSeq);
+    const amount = text.match(/[+]\d+(?:\.\d+)?\s*[^\s.]*/)?.[0] || "";
+    d.innerHTML = amount ? `<b>${amount}</b><span>${text.replace(amount, "").trim()}</span>` : `<span>${text}</span>`;
+    noticeEl.appendChild(d);
+    while (noticeEl.children.length > 6) noticeEl.removeChild(noticeEl.firstChild);
+    setTimeout(() => d.classList.add("gone"), 4200);
+    setTimeout(() => d.remove(), 4800);
+  }
   const say = (msg, ms = 2400) => {
-    toastEl.textContent = msg;
+    const text = String(msg || "");
+    toastEl.textContent = text;
     toastEl.classList.add("show");
     clearTimeout(toastT);
     toastT = setTimeout(() => toastEl.classList.remove("show"), ms);
+    pushNotice(text, /full|need|not enough|blocked|failed|cannot/i.test(text) ? "warn" : "info");
   };
 
   let tipT = null;
@@ -837,27 +855,80 @@ export default function mount() {
   chatEl.style.display = "flex";
   const chatLogEl = document.createElement("div"); chatLogEl.className = "chat-log";
   const chatForm = document.createElement("div"); chatForm.className = "chat-form";
+  const chatTools = document.createElement("div"); chatTools.className = "chat-tools";
+  chatTools.innerHTML = `<button type="button" data-click="chat-share-here" title="Share your current map location">Share here</button>`;
   const chatInput = document.createElement("input");
   chatInput.maxLength = 120; chatInput.placeholder = "Chat… press Enter";
   chatInput.addEventListener("keydown", (ev) => {
     if (ev.key === "Escape") { ST.chatOpen = false; chatInput.blur(); paint(true); return; }
     if (ev.key !== "Enter") return;
-    const msg = chatInput.value.trim();
+    let msg = chatInput.value.trim();
     if (!msg) { ST.chatOpen = false; chatInput.blur(); paint(true); return; }
+    if (msg === "/here" || msg === "/loc") msg = chatShareHereMessage();
     chatInput.value = "";
     act("chat", { msg });
     ST.chatOpen = false; chatInput.blur(); paint(true);
   });
-  chatForm.appendChild(chatInput);
+  chatForm.append(chatInput, chatTools);
   chatEl.append(chatLogEl, chatForm);
   function appendChat(line) {
     const d = document.createElement("div");
     d.className = "chat-line" + (line.sys ? " sys" : "");
-    if (line.sys || !line.n) d.textContent = line.m;
+    const card = parseChatCard(line.m);
+    if (card) {
+      d.className += " has-card";
+      const who = document.createElement("b");
+      who.textContent = line.n ? `${line.n}: ` : "";
+      const btn = document.createElement("button");
+      btn.className = `chat-card ${card.kind}`;
+      btn.setAttribute("data-click", "chat-card-open");
+      btn.setAttribute("data-kind", card.kind);
+      btn.setAttribute("data-x", String(card.x));
+      btn.setAttribute("data-z", String(card.z));
+      if (card.uid) btn.setAttribute("data-uid", String(card.uid));
+      if (card.label) btn.setAttribute("data-label", card.label);
+      btn.innerHTML = `<span>${card.kind === "keep" ? "⚔" : card.kind === "building" ? "⌂" : "⌖"}</span><strong>${chatCardTitle(card)}</strong><small>${chatCardSubtitle(card)}</small>`;
+      if (who.textContent) d.append(who);
+      d.append(btn);
+    } else if (line.sys || !line.n) d.textContent = line.m;
     else { const b = document.createElement("b"); b.textContent = line.n + ": "; d.append(b, document.createTextNode(line.m)); }
     chatLogEl.appendChild(d);
     while (chatLogEl.children.length > 36) chatLogEl.removeChild(chatLogEl.firstChild);
     chatLogEl.scrollTop = chatLogEl.scrollHeight;
+  }
+
+  function chatShareHereMessage() {
+    const x = Math.trunc(Number(world?.me?.x ?? ST.me?.x ?? 0));
+    const z = Math.trunc(Number(world?.me?.z ?? ST.me?.z ?? 0));
+    return formatLocationChatCard({ x, z, label: `${ST.me?.name || "Settler"} is here` });
+  }
+  function shareHereInChat() {
+    const msg = chatShareHereMessage();
+    act("chat", { msg });
+    say("Shared your location.", 1100);
+  }
+  function shareInspectedBuildingInChat() {
+    const uid = ST.inspect || ST.wonderViewUid || 0;
+    const b = uid ? world.buildPool.get(uid) : null;
+    if (!b) return say("Select a building first.", 1200);
+    const def = LIB_BY_ID[b.kind];
+    const msg = formatBuildingChatCard({ uid, x: b.x, z: b.z, kind: b.kind, label: b.nm || def?.name || b.kind });
+    act("chat", { msg });
+    say(b.kind === "keep" ? "Shared raid target." : "Shared building location.", 1200);
+  }
+  function openChatCardFromElement(el) {
+    const x = readNum(el, "x", 0);
+    const z = readNum(el, "z", 0);
+    const uid = readNum(el, "uid", 0);
+    const kind = readStr(el, "kind", "location");
+    const label = readStr(el, "label", kind === "keep" ? "Shared keep" : kind === "building" ? "Shared building" : "Shared location");
+    const b = uid ? world.buildPool.get(uid) : null;
+    if (b) { openBuildingInspect({ uid, b }); return; }
+    ST.objectPreview = { kind: kind === "keep" ? "keep" : "shared", x, z, name: label, biome: biomeAt(x, z).name };
+    ST.inspect = null;
+    ST.panel = "object";
+    ST.modal = null;
+    paint(true);
   }
 
   /* ---------- NET: anchor/rev protocol ---------- */
@@ -3989,6 +4060,7 @@ export default function mount() {
       case "inspect-close": return closeInspectPanel();
       case "inspect-rename": return customizeInspect({ nm: (document.getElementById("sc-rename") || {}).value || "" });
       case "inspect-wonder-view": { ST.wonderViewUid = ST.inspect; ST.wonderViewError = ""; ST.modal = "wonder-view"; ST.panel = null; paint(true); mountWonderViewerSoon(); return; }
+      case "inspect-share": return shareInspectedBuildingInChat();
       case "inspect-use": return useBuildingClient(ST.inspect);
       case "inspect-raid": return doRaid(ST.inspect);
       case "inspect-upgrade": return act("upgrade", { uid: ST.inspect });
@@ -4041,6 +4113,8 @@ export default function mount() {
       case "tutorial-restart": return restartWalkthrough();
       case "copy-text": return copyTextToClipboard(readStr(el, "copy"), readStr(el, "label", "Value"));
       case "reload-page": writeAckedClientVersion(ST.updateVersion); return location.reload();
+      case "chat-share-here": return shareHereInChat();
+      case "chat-card-open": return openChatCardFromElement(el);
       case "object-preview-close": ST.objectPreview = null; if (ST.panel === "object") ST.panel = null; paint(true); return;
       case "object-preview-walk-near": if (ST.objectPreview) { const p = ST.objectPreview; ST.panel = null; ST.objectPreview = null; world.pathToNear(p.x, p.z); paint(true); } return;
       case "object-preview-primary": {
