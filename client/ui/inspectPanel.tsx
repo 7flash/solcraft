@@ -2,6 +2,7 @@
 /** @jsxImportSource tradjs/client */
 import { MAX_LEVEL, lvlMul, repairCost, upgradeCost } from "../../game/shared";
 import { inspectPanelViewModel, rgba, safeHex } from "./inspectPanelModel";
+import { keepPressureModel } from "./keepPressure";
 
 function costTextFallback(cost: any) {
   return Object.entries(cost || {}).map(([k, v]) => `${v}${k}`).join(" ");
@@ -35,6 +36,7 @@ export function InspectPanelView(props: any) {
   const formatCost = typeof costStr === "function" ? costStr : costTextFallback;
   const hpText = `${Math.ceil(b.hp || 0)} / ${Math.ceil(b.maxHp || 0)}`;
   const ownerText = vm.mine ? "Your building" : `${b.ownerName || "Someone"}'s building`;
+  const keepPressure = Number(b.owner || 0) === 0 && b.kind === "keep" ? keepPressureModel({ hp: b.hp, maxHp: b.maxHp, stored: b.stored, accAt: b.accAt, now: Date.now(), playerHp: player?.hp, siegeBonus: player?.siegeBonus || 0 }) : null;
 
   return <aside className="utility-pop inspect-pop ui30-panel ui30-inspect" data-stop-pointerdown="1" style={{ "--ui30-accent": vm.accent, "--ui30-accent-soft": rgba(vm.accent, 0.13), "--ui30-accent-line": rgba(vm.accent, 0.42) }}>
     <button className="utility-close ui30-close" data-click="inspect-close" aria-label="Close inspect panel">×</button>
@@ -71,6 +73,16 @@ export function InspectPanelView(props: any) {
 
     {territoryHint ? <section className="ui30-note"><b>Upgrade bonus</b><span>{String(territoryHint).replace(/^Upgrade effect: /, "")}</span></section> : null}
     {b.kind === "worldwonder" ? <section className="ui30-note"><b>District anchor</b><span>This landmark connects nearby settlements and city bonuses.</span></section> : null}
+    {keepPressure ? <section className={`ui30-keep-card ${keepPressure.pressure}`} aria-label="Keep raid pressure">
+      <div className="ui30-keep-top"><div><b>Raid pressure</b><span>{keepPressure.pressureLabel}</span></div><strong>{keepPressure.hpLabel}</strong></div>
+      <div className="ui30-keep-track"><i style={{ width: `${Math.max(2, keepPressure.hpPct * 100).toFixed(0)}%` }} /></div>
+      <div className="ui30-keep-grid">
+        <span><b>{keepPressure.regenLabel}</b><em>{keepPressure.nextRegenLabel}</em></span>
+        <span><b>{keepPressure.hitsLabel}</b><em>if the group keeps pressure</em></span>
+        <span><b>{keepPressure.coinChipLabel}</b><em>{keepPressure.storedLabel}</em></span>
+        <span><b>{keepPressure.raidHealthLabel}</b><em>Food restores health over time</em></span>
+      </div>
+    </section> : null}
 
     <section className="ui30-action-stack" aria-label="Building actions">
       {b.kind === "worldwonder" ? <button className="ui30-btn primary" data-click="inspect-wonder-view">View 3D</button> : <button className="ui30-btn primary" data-click="inspect-use">Use</button>}
@@ -78,7 +90,7 @@ export function InspectPanelView(props: any) {
       {b.kind === "worldwonder" ? <button className="ui30-btn" data-click="inspect-walk-near">Walk near</button> : null}
       {vm.mine && b.kind !== "worldwonder" ? <button className="ui30-btn" disabled={maxLvl} data-click="inspect-upgrade">{maxLvl ? "Max level" : `Upgrade · ${formatCost(upCost)}`}</button> : null}
       {vm.mine ? <button className="ui30-btn" disabled={missingHp <= 0} data-click="inspect-repair">{missingHp <= 0 ? "Full health" : `Repair · ${formatCost(repCost)}`}</button> : null}
-      {!vm.mine && (b.kind === "keep" || b.kind === "bomb") ? <button className="ui30-btn danger" data-click="inspect-raid">Raid</button> : null}
+      {!vm.mine && (b.kind === "keep" || b.kind === "bomb") ? <button className="ui30-btn danger" disabled={!!keepPressure && !keepPressure.canRaid} data-click="inspect-raid">{keepPressure && !keepPressure.canRaid ? "Recover first" : "Raid"}</button> : null}
       {!vm.mine && b.kind !== "worldwonder" ? <button className="ui30-btn" data-click="inspect-walk-near">Walk closer</button> : null}
       {vm.mine ? <button className="ui30-btn danger" data-click="inspect-demolish">Demolish</button> : null}
     </section>

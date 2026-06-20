@@ -1478,3 +1478,22 @@ input:focus,select:focus{border-color:var(--line2);box-shadow:0 0 0 3px rgba(20,
 .chat-tools button:hover{background:rgba(34,230,165,.16);}
 @media(max-width:720px){.notice-rail{left:8px;right:8px;bottom:calc(var(--safe-b) + 168px);width:auto}.chat{width:min(328px,calc(100vw - 16px))!important}.chat-tools button{padding:0 8px;font-size:10px}}
 @media(max-height:640px){.notice-rail{display:none}.chat{max-height:150px!important}.chat-log{max-height:88px!important}}
+
+/* Stage 34 — readable Keep raid pressure card */
+.ui30-keep-card{display:grid;gap:10px;padding:12px;border-radius:18px;background:linear-gradient(180deg,rgba(255,214,110,.10),rgba(255,255,255,.035));border:1px solid rgba(255,214,110,.20);box-shadow:inset 0 1px 0 rgba(255,255,255,.04);}
+.ui30-keep-card.weak{border-color:rgba(255,214,110,.32);background:linear-gradient(180deg,rgba(255,214,110,.13),rgba(255,255,255,.04));}
+.ui30-keep-card.critical{border-color:rgba(255,110,88,.36);background:linear-gradient(180deg,rgba(255,110,88,.15),rgba(255,214,110,.055));}
+.ui30-keep-card.fresh{border-color:rgba(175,194,205,.18);background:linear-gradient(180deg,rgba(175,194,205,.07),rgba(255,255,255,.03));}
+.ui30-keep-top{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;}
+.ui30-keep-top div{display:grid;gap:3px;}
+.ui30-keep-top b{color:#fff3c0;font:950 12px/1 var(--ui30-font);text-transform:uppercase;letter-spacing:.08em;}
+.ui30-keep-top span{color:rgba(245,240,230,.78);font:850 12px/1.15 var(--ui30-font);}
+.ui30-keep-top strong{color:#fff7dc;font:950 15px/1 var(--ui30-mono);white-space:nowrap;}
+.ui30-keep-track{height:10px;border-radius:999px;background:rgba(255,255,255,.11);overflow:hidden;}
+.ui30-keep-track i{display:block;height:100%;border-radius:inherit;background:linear-gradient(90deg,#ff6e58,#ffd66e);transition:width .18s ease;}
+.ui30-keep-card.fresh .ui30-keep-track i{background:linear-gradient(90deg,#8da4b0,#d8e0d8);}
+.ui30-keep-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;}
+.ui30-keep-grid span{min-width:0;display:grid;gap:3px;padding:9px;border-radius:14px;background:rgba(0,0,0,.16);border:1px solid rgba(255,255,255,.07);}
+.ui30-keep-grid b{min-width:0;color:#f7f0de;font:950 12px/1.1 var(--ui30-font);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.ui30-keep-grid em{min-width:0;color:rgba(222,232,228,.68);font:800 11px/1.15 var(--ui30-font);font-style:normal;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+@media(max-width:720px){.ui30-keep-grid{grid-template-columns:1fr}.ui30-keep-grid span{padding:8px}.ui30-keep-top{align-items:center}.ui30-keep-top strong{font-size:13px}}
