@@ -59,7 +59,9 @@ import { disposeMiniPreviews, syncMiniPreviewPanels } from "../client/world/mini
 import { WorldMapModalView } from "../client/ui/worldMapModal";
 import { PlayerModalView } from "../client/ui/playerModal";
 import { renderKnownWorldMap, tileFromCanvasEvent } from "../client/world/mapCanvas";
-import { chatCardCta, chatCardSubtitle, chatCardTitle, formatBuildingChatCard, formatKeepRallyChatCard, formatLocationChatCard, parseChatCard } from "../client/ui/chatCards";
+import { formatBuildingChatCard, formatKeepRallyChatCard, formatLocationChatCard } from "../client/ui/chatCards";
+import { NotificationRailView } from "../client/ui/notificationRail";
+import { GameChatView } from "../client/ui/gameChat";
 
 const AUTH_KEY = "solcraft:auth";
 const FACE_KEY = "solcraft:face.v1";
@@ -382,7 +384,7 @@ export default function mount() {
   const chatEl = mk("");
   const bottomRoot = mk("");
   const toastEl = document.createElement("div"); toastEl.className = "toast"; hudEl.appendChild(toastEl);
-  const noticeEl = document.createElement("div"); noticeEl.className = "notice-rail"; hudEl.appendChild(noticeEl);
+  const noticeRoot = mk("");
   const channelEl = document.createElement("div"); channelEl.className = "channel";
   channelEl.innerHTML = `<div id="sc-ch-label">Chopping…</div><div class="cbar"><i id="sc-ch-fill"></i></div>`;
   hudEl.appendChild(channelEl);
@@ -767,21 +769,27 @@ export default function mount() {
     setCameraZoom(2.05, true);
   }
 
-  /* imperative feedback — zero vdom */
+  /* feedback rails render through JSX; no imperative DOM for UI rows */
   let toastT = null;
   let noticeSeq = 0;
+  let notices: any[] = [];
+  function renderNotices() {
+    render(<NotificationRailView notices={notices} />, noticeRoot);
+  }
   function pushNotice(msg, kind = "info") {
     const text = String(msg || "").trim();
     if (!text) return;
-    const d = document.createElement("div");
-    d.className = `notice-item ${kind}`;
-    d.dataset.noticeId = String(++noticeSeq);
-    const amount = text.match(/[+]\d+(?:\.\d+)?\s*[^\s.]*/)?.[0] || "";
-    d.innerHTML = amount ? `<b>${amount}</b><span>${text.replace(amount, "").trim()}</span>` : `<span>${text}</span>`;
-    noticeEl.appendChild(d);
-    while (noticeEl.children.length > 6) noticeEl.removeChild(noticeEl.firstChild);
-    setTimeout(() => d.classList.add("gone"), 4200);
-    setTimeout(() => d.remove(), 4800);
+    const id = ++noticeSeq;
+    notices = [...notices, { id, text, kind }].slice(-6);
+    renderNotices();
+    setTimeout(() => {
+      notices = notices.map((n) => n.id === id ? { ...n, gone: true } : n);
+      renderNotices();
+    }, 4200);
+    setTimeout(() => {
+      notices = notices.filter((n) => n.id !== id);
+      renderNotices();
+    }, 4800);
   }
   const say = (msg, ms = 2400) => {
     const text = String(msg || "");
@@ -850,63 +858,28 @@ export default function mount() {
     rd.readAsDataURL(file);
   }
 
-  /* imperative chat — input never re-renders */
-  chatEl.className = "panel chat";
-  chatEl.style.display = "flex";
-  const chatLogEl = document.createElement("div"); chatLogEl.className = "chat-log";
-  const chatForm = document.createElement("div"); chatForm.className = "chat-form";
-  const chatTools = document.createElement("div"); chatTools.className = "chat-tools";
-  chatTools.innerHTML = `<button type="button" data-click="chat-share-here" title="Share your current map location">Share here</button>`;
-  const chatInput = document.createElement("input");
-  chatInput.maxLength = 120; chatInput.placeholder = "Chat… press Enter";
-  chatInput.addEventListener("keydown", (ev) => {
-    if (ev.key === "Escape") { ST.chatOpen = false; chatInput.blur(); paint(true); return; }
-    if (ev.key !== "Enter") return;
-    let msg = chatInput.value.trim();
-    if (!msg) { ST.chatOpen = false; chatInput.blur(); paint(true); return; }
-    if (msg === "/here" || msg === "/loc") msg = chatShareHereMessage();
-    chatInput.value = "";
-    act("chat", { msg });
-    ST.chatOpen = false; chatInput.blur(); paint(true);
-  });
-  chatForm.append(chatInput, chatTools);
-  chatEl.append(chatLogEl, chatForm);
-  function appendChat(line) {
-    const d = document.createElement("div");
-    d.className = "chat-line" + (line.sys ? " sys" : "");
-    const card = parseChatCard(line.m);
-    if (card) {
-      d.className += " has-card";
-      const who = document.createElement("b");
-      who.textContent = line.n ? `${line.n}: ` : "";
-      const btn = document.createElement("button");
-      btn.className = `chat-card ${card.kind}`;
-      btn.setAttribute("data-click", "chat-card-open");
-      btn.setAttribute("data-kind", card.kind);
-      btn.setAttribute("data-x", String(card.x));
-      btn.setAttribute("data-z", String(card.z));
-      if (card.uid) btn.setAttribute("data-uid", String(card.uid));
-      if (card.label) btn.setAttribute("data-label", card.label);
-      if (card.hp) btn.setAttribute("data-hp", String(card.hp));
-      if (card.maxHp) btn.setAttribute("data-max-hp", String(card.maxHp));
-      if (card.coins) btn.setAttribute("data-coins", String(card.coins));
-      const glyph = document.createElement("span");
-      glyph.textContent = card.kind === "keep" ? "⚔" : card.kind === "building" ? "⌂" : "⌖";
-      const title = document.createElement("strong");
-      title.textContent = chatCardTitle(card);
-      const sub = document.createElement("small");
-      sub.textContent = chatCardSubtitle(card);
-      const cta = document.createElement("em");
-      cta.textContent = chatCardCta(card);
-      btn.append(glyph, title, sub, cta);
-      if (who.textContent) d.append(who);
-      d.append(btn);
-    } else if (line.sys || !line.n) d.textContent = line.m;
-    else { const b = document.createElement("b"); b.textContent = line.n + ": "; d.append(b, document.createTextNode(line.m)); }
-    chatLogEl.appendChild(d);
-    while (chatLogEl.children.length > 36) chatLogEl.removeChild(chatLogEl.firstChild);
-    chatLogEl.scrollTop = chatLogEl.scrollHeight;
+  /* chat renders through JSX; input stays inside the chat component */
+  let chatLines: any[] = [];
+  function renderChat() {
+    render(<GameChatView lines={chatLines} onKeyDown={handleChatKeyDown} />, chatEl);
+    const log = chatEl.querySelector('[data-chat-log="1"]') as any;
+    if (log) log.scrollTop = log.scrollHeight;
   }
+  function handleChatKeyDown(ev) {
+    if (ev.key === "Escape") { ST.chatOpen = false; ev.currentTarget?.blur?.(); paint(true); return; }
+    if (ev.key !== "Enter") return;
+    let msg = String(ev.currentTarget?.value || "").trim();
+    if (!msg) { ST.chatOpen = false; ev.currentTarget?.blur?.(); paint(true); return; }
+    if (msg === "/here" || msg === "/loc") msg = chatShareHereMessage();
+    ev.currentTarget.value = "";
+    act("chat", { msg });
+    ST.chatOpen = false; ev.currentTarget?.blur?.(); paint(true);
+  }
+  function appendChat(line) {
+    chatLines = [...chatLines, line].slice(-36);
+    renderChat();
+  }
+  renderChat();
 
   function chatShareHereMessage() {
     const x = Math.trunc(Number(world?.me?.x ?? ST.me?.x ?? 0));
