@@ -1497,3 +1497,14 @@ input:focus,select:focus{border-color:var(--line2);box-shadow:0 0 0 3px rgba(20,
 .ui30-keep-grid b{min-width:0;color:#f7f0de;font:950 12px/1.1 var(--ui30-font);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
 .ui30-keep-grid em{min-width:0;color:rgba(222,232,228,.68);font:800 11px/1.15 var(--ui30-font);font-style:normal;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
 @media(max-width:720px){.ui30-keep-grid{grid-template-columns:1fr}.ui30-keep-grid span{padding:8px}.ui30-keep-top{align-items:center}.ui30-keep-top strong{font-size:13px}}
+
+/* Stage 35: keep rally chat cards */
+.chat-card.keep{border-color:rgba(255,94,86,.42);background:linear-gradient(135deg,rgba(255,94,86,.16),rgba(255,215,110,.08));}
+.chat-card.keep>span{background:rgba(255,94,86,.18);color:#ffd7d1;}
+.chat-card em{display:inline-flex;align-items:center;justify-content:center;margin-left:auto;padding:5px 8px;border-radius:999px;background:rgba(255,255,255,.08);color:#f3ead7;font-size:10px;font-style:normal;font-weight:900;text-transform:uppercase;letter-spacing:.08em;white-space:nowrap;}
+.chat-card.keep em{background:rgba(255,215,110,.14);color:#ffe7a3;border:1px solid rgba(255,215,110,.22);}
+.ui35-rally-strip{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;margin:10px 0 0;}
+.ui35-rally-strip span{display:grid;gap:2px;padding:9px 10px;border-radius:14px;background:rgba(255,255,255,.06);border:1px solid rgba(243,234,215,.12);}
+.ui35-rally-strip b{font-size:15px;color:#ffe7a3;line-height:1;}
+.ui35-rally-strip em{font-size:10px;line-height:1.2;color:#9fb0ba;font-style:normal;text-transform:uppercase;letter-spacing:.08em;font-weight:900;}
+@media(max-width:720px){.chat-card em{display:none}.ui35-rally-strip{grid-template-columns:1fr}}

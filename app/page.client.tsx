@@ -59,7 +59,7 @@ import { disposeMiniPreviews, syncMiniPreviewPanels } from "../client/world/mini
 import { WorldMapModalView } from "../client/ui/worldMapModal";
 import { PlayerModalView } from "../client/ui/playerModal";
 import { renderKnownWorldMap, tileFromCanvasEvent } from "../client/world/mapCanvas";
-import { chatCardSubtitle, chatCardTitle, formatBuildingChatCard, formatLocationChatCard, parseChatCard } from "../client/ui/chatCards";
+import { chatCardCta, chatCardSubtitle, chatCardTitle, formatBuildingChatCard, formatKeepRallyChatCard, formatLocationChatCard, parseChatCard } from "../client/ui/chatCards";
 
 const AUTH_KEY = "solcraft:auth";
 const FACE_KEY = "solcraft:face.v1";
@@ -887,7 +887,18 @@ export default function mount() {
       btn.setAttribute("data-z", String(card.z));
       if (card.uid) btn.setAttribute("data-uid", String(card.uid));
       if (card.label) btn.setAttribute("data-label", card.label);
-      btn.innerHTML = `<span>${card.kind === "keep" ? "⚔" : card.kind === "building" ? "⌂" : "⌖"}</span><strong>${chatCardTitle(card)}</strong><small>${chatCardSubtitle(card)}</small>`;
+      if (card.hp) btn.setAttribute("data-hp", String(card.hp));
+      if (card.maxHp) btn.setAttribute("data-max-hp", String(card.maxHp));
+      if (card.coins) btn.setAttribute("data-coins", String(card.coins));
+      const glyph = document.createElement("span");
+      glyph.textContent = card.kind === "keep" ? "⚔" : card.kind === "building" ? "⌂" : "⌖";
+      const title = document.createElement("strong");
+      title.textContent = chatCardTitle(card);
+      const sub = document.createElement("small");
+      sub.textContent = chatCardSubtitle(card);
+      const cta = document.createElement("em");
+      cta.textContent = chatCardCta(card);
+      btn.append(glyph, title, sub, cta);
       if (who.textContent) d.append(who);
       d.append(btn);
     } else if (line.sys || !line.n) d.textContent = line.m;
@@ -912,9 +923,11 @@ export default function mount() {
     const b = uid ? world.buildPool.get(uid) : null;
     if (!b) return say("Select a building first.", 1200);
     const def = LIB_BY_ID[b.kind];
-    const msg = formatBuildingChatCard({ uid, x: b.x, z: b.z, kind: b.kind, label: b.nm || def?.name || b.kind });
+    const msg = b.kind === "keep"
+      ? formatKeepRallyChatCard({ uid, x: b.x, z: b.z, label: b.nm || "Keep raid", hp: b.hp, maxHp: b.maxHp, coins: b.stored })
+      : formatBuildingChatCard({ uid, x: b.x, z: b.z, kind: b.kind, label: b.nm || def?.name || b.kind });
     act("chat", { msg });
-    say(b.kind === "keep" ? "Shared raid target." : "Shared building location.", 1200);
+    say(b.kind === "keep" ? "Rally shared in chat." : "Shared building location.", 1200);
   }
   function openChatCardFromElement(el) {
     const x = readNum(el, "x", 0);
@@ -922,9 +935,12 @@ export default function mount() {
     const uid = readNum(el, "uid", 0);
     const kind = readStr(el, "kind", "location");
     const label = readStr(el, "label", kind === "keep" ? "Shared keep" : kind === "building" ? "Shared building" : "Shared location");
+    const hp = readNum(el, "hp", 0);
+    const maxHp = readNum(el, "maxHp", 0);
+    const coins = readNum(el, "coins", 0);
     const b = uid ? world.buildPool.get(uid) : null;
     if (b) { openBuildingInspect({ uid, b }); return; }
-    ST.objectPreview = { kind: kind === "keep" ? "keep" : "shared", x, z, name: label, biome: biomeAt(x, z).name };
+    ST.objectPreview = { kind: kind === "keep" ? "keep" : "shared", x, z, name: label, biome: biomeAt(x, z).name, hp, maxHp, coins };
     ST.inspect = null;
     ST.panel = "object";
     ST.modal = null;

@@ -25,6 +25,10 @@ export function ObjectPreviewPanelView({ preview }: any) {
         <div className="tiny">{desc}</div>
       </div>
     </div>
+    {p.kind === "keep" && (p.maxHp || p.coins) ? <div className="ui35-rally-strip" aria-label="Shared keep rally details">
+      {p.maxHp ? <span><b>{Math.max(0, Math.floor(Number(p.hp || 0)))}/{Math.floor(Number(p.maxHp || 0))}</b><em>HP when shared</em></span> : null}
+      {p.coins ? <span><b>{Math.floor(Number(p.coins || 0))}🪙</b><em>reported inside</em></span> : null}
+    </div> : null}
     <div className="inspect-actions">
       {showPrimary ? <button className="btn primary" data-click="object-preview-primary" data-object-action={primary}>{objectPreviewActionLabel(primary)}</button> : null}
       <button className="btn" data-click="object-preview-walk-near">Walk near</button>

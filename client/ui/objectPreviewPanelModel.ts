@@ -7,6 +7,9 @@ export type ObjectPreview = {
   name?: string;
   ownerName?: string;
   biome?: string;
+  hp?: number;
+  maxHp?: number;
+  coins?: number;
 };
 
 export function objectPreviewTitle(p: ObjectPreview | null | undefined): string {
@@ -41,7 +44,11 @@ export function objectPreviewDescription(p: ObjectPreview | null | undefined): s
   if (p.kind === "food") return "A crop patch grown by a nearby farm. Food restores health over time and can be harvested when you stand beside it.";
   if (p.kind === "trade") return "A public exchange point. In the capital this becomes the natural place for bank, deposit, withdrawal, and trade actions.";
   if (p.kind === "npc") return `${p.biome || "Frontier"} visitor. NPC services should eventually live in capital/city buildings instead of permanent HUD menus.`;
-  if (p.kind === "keep") return "A shared raid target. Coordinate in chat, walk there together, and attack before the keep regenerates too much health.";
+  if (p.kind === "keep") {
+    const hp = p.maxHp ? ` Current rally note: ${Math.max(0, Math.floor(Number(p.hp || 0)))}/${Math.floor(Number(p.maxHp || 0))} HP.` : "";
+    const coins = p.coins ? ` Scouts report about ${Math.floor(Number(p.coins || 0))} coins inside.` : "";
+    return `A shared raid target. Coordinate in chat, walk there together, and attack before the keep regenerates too much health.${hp}${coins}`;
+  }
   if (p.kind === "shared") return "A place shared in chat. Open it here, then walk toward it when your group is ready.";
   return "Open ground. With no tool selected, clicking walkable land moves your character.";
 }

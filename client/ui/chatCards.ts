@@ -6,6 +6,9 @@ export type ChatCard = {
   z: number;
   uid?: number;
   label?: string;
+  hp?: number;
+  maxHp?: number;
+  coins?: number;
 };
 
 function cleanLabel(value: any): string {
@@ -25,6 +28,11 @@ function int(value: any, fallback = 0): number {
   return Number.isFinite(n) ? n : fallback;
 }
 
+function cardNum(value: any, fallback = 0): number {
+  const n = Math.floor(Number(value));
+  return Number.isFinite(n) ? Math.max(0, n) : fallback;
+}
+
 export function formatLocationChatCard(input: { x: number; z: number; label?: string }): string {
   const x = int(input.x);
   const z = int(input.z);
@@ -39,6 +47,17 @@ export function formatBuildingChatCard(input: { uid?: number; x: number; z: numb
   const uid = int(input.uid || 0);
   const label = enc(input.label || (kind === "keep" ? "Keep" : `Building ${x},${z}`));
   return `[[sc:${kind}|uid=${uid}|x=${x}|z=${z}|label=${label}]]`;
+}
+
+export function formatKeepRallyChatCard(input: { uid?: number; x: number; z: number; label?: string; hp?: number; maxHp?: number; coins?: number }): string {
+  const x = int(input.x);
+  const z = int(input.z);
+  const uid = int(input.uid || 0);
+  const label = enc(input.label || `Keep raid ${x},${z}`);
+  const hp = cardNum(input.hp, 0);
+  const maxHp = cardNum(input.maxHp, 0);
+  const coins = cardNum(input.coins, 0);
+  return `[[sc:keep|uid=${uid}|x=${x}|z=${z}|label=${label}|hp=${hp}|maxHp=${maxHp}|coins=${coins}]]`;
 }
 
 export function parseChatCard(message: string): ChatCard | null {
@@ -67,19 +86,39 @@ export function parseChatCard(message: string): ChatCard | null {
   if (uid) out.uid = uid;
   const clean = cleanLabel(label);
   if (clean) out.label = clean;
+  const hp = cardNum(fields.hp, 0);
+  const maxHp = cardNum(fields.maxHp, 0);
+  const coins = cardNum(fields.coins, 0);
+  if (kind === "keep") {
+    if (hp) out.hp = hp;
+    if (maxHp) out.maxHp = maxHp;
+    if (coins) out.coins = coins;
+  }
   return out;
 }
 
 export function chatCardTitle(card: ChatCard | null | undefined): string {
   if (!card) return "Shared place";
   if (card.label) return card.label;
-  if (card.kind === "keep") return "Shared keep";
+  if (card.kind === "keep") return "Keep raid rally";
   if (card.kind === "building") return "Shared building";
   return "Shared location";
 }
 
 export function chatCardSubtitle(card: ChatCard | null | undefined): string {
   if (!card) return "";
-  const kind = card.kind === "keep" ? "Raid target" : card.kind === "building" ? "Building" : "Location";
+  if (card.kind === "keep") {
+    const hp = card.maxHp ? ` · ${Math.max(0, Math.floor(card.hp || 0))}/${Math.floor(card.maxHp)} HP` : "";
+    const coins = card.coins ? ` · ${Math.floor(card.coins)} coins` : "";
+    return `Raid target · ${card.x},${card.z}${hp}${coins}`;
+  }
+  const kind = card.kind === "building" ? "Building" : "Location";
   return `${kind} · ${card.x},${card.z}`;
+}
+
+export function chatCardCta(card: ChatCard | null | undefined): string {
+  if (!card) return "Open";
+  if (card.kind === "keep") return "Open rally";
+  if (card.kind === "building") return "Inspect";
+  return "Open map point";
 }

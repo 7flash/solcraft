@@ -12,6 +12,9 @@ test("shared chat locations open as walkable preview cards", () => {
 });
 
 test("keep chat cards explain coordination loop", () => {
-  const p = { kind: "keep" as const, x: 20, z: 9, name: "North Keep" };
-  assert.match(objectPreviewDescription(p), /Coordinate in chat/i);
+  const p = { kind: "keep" as const, x: 20, z: 9, name: "North Keep", hp: 55, maxHp: 120, coins: 30 };
+  const text = objectPreviewDescription(p);
+  assert.match(text, /Coordinate in chat/i);
+  assert.match(text, /55\/120 HP/);
+  assert.match(text, /30 coins/);
 });
