@@ -34,6 +34,7 @@ import {
 } from "./shared";
 import { cleanWonderPrompt, assertRealWonderRecipe, applyWonderDesignOptions, wonderFootprintRadius, normalizeWonderFootprint, wonderFootprintTiles, wonderBuildMsFor } from "./wonderRecipe";
 import { resolveKeepVaultBreak } from "./mechanics/keepVault";
+import { applyKeepRegen, keepRaidHitPreview, keepRaidNote } from "./mechanics/keepRaid";
 import { academyScienceCapFor, resourceCapFor, scienceStatusFor, storageCapsFor } from "./mechanics/science";
 import { craftDestroyToolFor, tunedDestroySpecFor } from "./mechanics/destroyTools";
 
@@ -2790,13 +2791,21 @@ function damageBuilding(attacker: Player, b: Building, rawDmg: number, cause = "
     pushEvent(attacker.id, "raid", "Player bases are protected. Siege neutral Keeps for coins.");
     return err("Player bases are protected. Siege neutral Keeps for coins.", "BASE_PROTECTED");
   }
+  const isNeutralKeep = Number(b.owner || 0) === 0 && b.kind === "keep";
+  const regen = isNeutralKeep ? applyKeepRegen(b, now()) : { recovered: 0 };
   let dmg = Math.max(1, Math.floor(rawDmg));
   if (b.kind === "worldwonder" && cause === "siege") dmg = 1;
-  if (b.kind !== "bomb" && hasTowerProtection(b.owner, b.x, b.z)) dmg = Math.max(1, Math.floor(dmg * (1 - towerCutFor(b.owner))));
+  if (!isNeutralKeep && b.kind !== "bomb" && hasTowerProtection(b.owner, b.x, b.z)) dmg = Math.max(1, Math.floor(dmg * (1 - towerCutFor(b.owner))));
   b.hp = Math.max(0, Number(b.hp || buildMaxHp(def, b.level || 1)) - dmg);
+  if (isNeutralKeep) b.accAt = now();
   bump();
   if (b.hp <= 0) return destroyBuilding(attacker, b, cause);
   if (b.owner) pushEvent(b.owner, "raid", `⚠ ${attacker.name} damaged your ${b.nm || def?.name || b.kind}: ${Math.ceil(b.hp)} HP left.`);
+  if (isNeutralKeep) {
+    const name = b.nm || "Keep";
+    const baseNote = `${name} took ${dmg} damage — ${Math.ceil(b.hp)}/${Math.ceil(Number(b.maxHp || b.hp || 1))} HP left.`;
+    return ok({ note: keepRaidNote({ regenRecovered: regen.recovered, baseNote }), keep: { uid: b.id, hp: b.hp, maxHp: b.maxHp, regenRecovered: regen.recovered } });
+  }
   return ok({ note: `${def?.name || b.kind} took ${dmg} damage — ${Math.ceil(b.hp)} HP left.` });
 }
 function detonateBomb(p: Player, b: Building) {
@@ -3159,17 +3168,35 @@ export function raid(p: Player, uid: number) {
   if (b.owner === p.id) return err("That's yours.");
   if (cheb(b.x, b.z, p.x, p.z) > 1) return err("Stand beside it to siege it.");
   if (energyNow(p).energy < RAID_COST) return err(`Need ${RAID_COST}⚡ to siege.`);
-  spend(p, { e: RAID_COST });
   const siegeBonus = gearStat(p.equip as Equip, "atk") + skillAtk(p.skills as Skills);
-  const dmg = b.kind === "bomb" ? SIEGE_TOOL_DMG + siegeBonus : (b.owner === 0 && b.kind === "keep" ? 10 + siegeBonus : 1);
-  let backlash = 0;
-  if (b.owner === 0 && b.kind === "keep" && Math.random() < 0.28) {
+  const isNeutralKeep = Number(b.owner || 0) === 0 && b.kind === "keep";
+  let keepHit: any = null;
+  if (isNeutralKeep) {
     const live = settleEnergy(p);
-    backlash = Math.min(14, Math.max(4, 7 + Math.floor(Math.random() * 5)));
-    p.hp = Math.max(1, live.hp - backlash);
+    keepHit = keepRaidHitPreview({ playerHp: live.hp, stored: b.stored || 0, siegeBonus, random: Math.random });
+    if (!keepHit.ok) return err(keepHit.msg || "Too hurt to raid.", keepHit.reasonCode || "LOW_HEALTH");
   }
+
+  spend(p, { e: RAID_COST });
+  if (keepHit) p.hp = keepHit.playerHpAfter;
+  const dmg = b.kind === "bomb" ? SIEGE_TOOL_DMG + siegeBonus : (isNeutralKeep ? keepHit.damage : 1);
   const r = damageBuilding(p, b, dmg, "siege");
-  if (r.ok && backlash) (r as any).note = `${(r as any).note || "Raid landed."} The Keep struck back for ${backlash}♥.`;
+
+  if (r.ok && keepHit) {
+    let coins = 0;
+    if (b.hp > 0 && keepHit.coins > 0) {
+      coins = Math.min(Math.max(0, Math.floor(Number(b.stored || 0))), Math.floor(keepHit.coins));
+      if (coins > 0) {
+        b.stored = Math.max(0, Math.floor(Number(b.stored || 0)) - coins);
+        gain(p, { g: coins });
+      }
+    }
+    (r as any).note = keepRaidNote({ baseNote: (r as any).note || "Raid landed.", backlash: keepHit.backlash, coins });
+    (r as any).player = { hp: p.hp, maxHp: MAX_HP };
+    if (coins) (r as any).coins = coins;
+    sysChat(`${p.name} struck ${b.nm || "a Keep"} at ${b.x}, ${b.z}.`);
+  }
+
   if (r.ok) { addXp(p, XP.fight); autoTrainSkill(p, "warrior", b.kind === "bomb" ? 5 : 3); if (b.kind === "bomb") sysChat(`${p.name} damaged a destroy tool.`); }
   return r;
 }
