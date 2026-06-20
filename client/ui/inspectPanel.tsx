@@ -3,6 +3,14 @@
 import { MAX_LEVEL, lvlMul, repairCost, upgradeCost } from "../../game/shared";
 import { inspectPanelViewModel, rgba, safeHex } from "./inspectPanelModel";
 
+function costTextFallback(cost: any) {
+  return Object.entries(cost || {}).map(([k, v]) => `${v}${k}`).join(" ");
+}
+
+function StatRow({ label, value, accent = false }: any) {
+  return <div className={"ui30-stat-row" + (accent ? " accent" : "")}><span>{label}</span><b>{value}</b></div>;
+}
+
 export function InspectPanelView(props: any) {
   const {
     building: b,
@@ -24,71 +32,75 @@ export function InspectPanelView(props: any) {
   const upCost = maxLvl ? {} : upgradeCost(def, level);
   const missingHp = (b.maxHp || 0) - (b.hp || 0);
   const repCost = repairCost(missingHp);
-  const costText = typeof costStr === "function" ? costStr : (cost: any) => Object.entries(cost || {}).map(([k, v]) => `${v}${k}`).join(" ");
+  const formatCost = typeof costStr === "function" ? costStr : costTextFallback;
+  const hpText = `${Math.ceil(b.hp || 0)} / ${Math.ceil(b.maxHp || 0)}`;
+  const ownerText = vm.mine ? "Your building" : `${b.ownerName || "Someone"}'s building`;
 
-  return (
-    <div className="utility-pop inspect-pop" data-stop-pointerdown="1" style={{ borderColor: vm.accentLine, boxShadow: `0 18px 48px rgba(0,0,0,.46), inset 0 1px 0 rgba(255,255,255,.05), 0 0 0 3px ${rgba(vm.accent, 0.08)}` }}>
-      <button className="utility-close" data-click="inspect-close">×</button>
-      <div className="mini3d-preview object-preview-stage building-preview-stage" data-mini3d-preview="1" data-preview-kind="building" data-building-kind={b.kind} data-preview-accent={vm.accent} aria-label={`${b.nm || def?.name || b.kind} 3D preview`}><span>{def?.glyph || "▣"}</span></div>
-      <div className="inspect-head">
-        <span className="accent-orb" style={{ background: vm.accent, boxShadow: `0 0 0 3px ${vm.accentSoft}, 0 0 18px ${rgba(vm.accent, 0.24)}` }} />
-        <div className="inspect-name">{def?.glyph} {b.nm || def?.name}</div>
-        <span className="stat">Lv {level}</span>
+  return <aside className="utility-pop inspect-pop ui30-panel ui30-inspect" data-stop-pointerdown="1" style={{ "--ui30-accent": vm.accent, "--ui30-accent-soft": rgba(vm.accent, 0.13), "--ui30-accent-line": rgba(vm.accent, 0.42) }}>
+    <button className="utility-close ui30-close" data-click="inspect-close" aria-label="Close inspect panel">×</button>
+
+    <section className="ui30-preview-wrap">
+      <div className="mini3d-preview object-preview-stage building-preview-stage ui30-preview-stage" data-mini3d-preview="1" data-preview-kind="building" data-building-kind={b.kind} data-preview-accent={vm.accent} aria-label={`${b.nm || def?.name || b.kind} 3D preview`}><span>{def?.glyph || "▣"}</span></div>
+    </section>
+
+    <header className="ui30-inspect-head">
+      <div className="ui30-title-mark" aria-hidden="true">{def?.glyph || "▣"}</div>
+      <div>
+        <p>{ownerText}</p>
+        <h2>{b.nm || def?.name || b.kind}</h2>
       </div>
-      <div className="owner-card" style={{ borderColor: rgba(vm.accent, 0.26), background: `linear-gradient(135deg, ${rgba(vm.accent, 0.13)}, rgba(255,255,255,.045))` }}>
-        {vm.face ? <img className="face-preview small" src={vm.face} /> : <div className="face-preview small empty" />}
-        <div>
-          <div className="card-title">{vm.mine ? "Your building" : `${b.ownerName}'s building`}</div>
-          <div className="tiny">{def?.blurb || "City structure"}</div>
+      <span className="ui30-level-pill">Lv {level}</span>
+    </header>
+
+    <section className="ui30-summary-card">
+      <p>{def?.blurb || "A settlement structure."}</p>
+    </section>
+
+    <section className="ui30-stat-list" aria-label="Building stats">
+      <StatRow label="Health" value={hpText} accent />
+      <div className="ui30-hp-track"><i style={{ width: `${(vm.hpPct * 100).toFixed(0)}%` }} /></div>
+      {construction ? <>
+        <StatRow label="Construction" value={`${Math.max(1, Math.round(construction.progress * 100))}% · ${Math.ceil(construction.left / 1000)}s`} />
+        <div className="ui30-progress-track"><i style={{ width: `${Math.max(1, construction.progress * 100).toFixed(0)}%` }} /></div>
+      </> : null}
+      <StatRow label="Output" value={`+${(Number(def?.regen || 0) * lvlMul(level)).toFixed(2)}/s`} />
+      {def?.maxE ? <StatRow label="Energy cap" value={`+${def.maxE}`} /> : null}
+      {def?.prod ? <StatRow label="Stored cycle" value={`${Math.floor(estimatedBin)}/60`} /> : null}
+      {vm.cdLeft ? <StatRow label="Cooldown" value={`${vm.cdLeft}s`} /> : null}
+    </section>
+
+    {territoryHint ? <section className="ui30-note"><b>Upgrade bonus</b><span>{String(territoryHint).replace(/^Upgrade effect: /, "")}</span></section> : null}
+    {b.kind === "worldwonder" ? <section className="ui30-note"><b>District anchor</b><span>This landmark connects nearby settlements and city bonuses.</span></section> : null}
+
+    <section className="ui30-action-stack" aria-label="Building actions">
+      {b.kind === "worldwonder" ? <button className="ui30-btn primary" data-click="inspect-wonder-view">View 3D</button> : <button className="ui30-btn primary" data-click="inspect-use">Use</button>}
+      {b.kind === "worldwonder" ? <button className="ui30-btn" data-click="inspect-walk-near">Walk near</button> : null}
+      {vm.mine && b.kind !== "worldwonder" ? <button className="ui30-btn" disabled={maxLvl} data-click="inspect-upgrade">{maxLvl ? "Max level" : `Upgrade · ${formatCost(upCost)}`}</button> : null}
+      {vm.mine ? <button className="ui30-btn" disabled={missingHp <= 0} data-click="inspect-repair">{missingHp <= 0 ? "Full health" : `Repair · ${formatCost(repCost)}`}</button> : null}
+      {!vm.mine && (b.kind === "keep" || b.kind === "bomb") ? <button className="ui30-btn danger" data-click="inspect-raid">Raid</button> : null}
+      {!vm.mine && b.kind !== "worldwonder" ? <button className="ui30-btn" data-click="inspect-walk-near">Walk closer</button> : null}
+      {vm.mine ? <button className="ui30-btn danger" data-click="inspect-demolish">Demolish</button> : null}
+    </section>
+
+    {vm.mine ? <details className="ui30-details">
+      <summary>Customize</summary>
+      <div className="ui30-field"><label>Building name</label><div className="ui30-inline">
+        <input id="sc-rename" maxLength={16} placeholder={def?.name} defaultValue={b.nm || ""} />
+        <button className="ui30-btn small" data-click="inspect-rename">Rename</button>
+      </div></div>
+      <div className="ui30-field"><label>Color palette</label>
+        <div className="ui30-palette-grid">
+          {buildingColorPresets.map((preset: any) => {
+            const p1 = preset.primary ? safeHex(preset.primary) : vm.defaultAccent;
+            const p2 = safeHex(preset.secondary || p1);
+            const on = preset.primary ? safeHex(vm.liveCl || "") === p1 : !vm.liveCl;
+            return <button type="button" aria-pressed={on} className={"ui30-palette" + (on ? " on" : "")} style={{ "--p1": p1, "--p2": p2 }} aria-label={`${preset.name} building colors`} data-inspect-preset-id={preset.id}>
+              <b>{preset.name}</b><span><i style={{ background: p1 }} /><i style={{ background: p2 }} /></span>{on ? <em>✓</em> : null}
+            </button>;
+          })}
         </div>
+        <p className="ui30-muted">Selected <b style={{ color: vm.accent }}>{vm.accentLabel}</b>{vm.hasDraftColor ? " · saving…" : ""}</p>
       </div>
-      <div className="row" style={{ margin: "8px 0", gap: 8 }}>
-        <span className="tiny">HP {Math.ceil(b.hp)}/{b.maxHp}</span>
-        <span className="hpbar"><i style={{ width: `${(vm.hpPct * 100).toFixed(0)}%` }} /></span>
-      </div>
-      {construction ? <div className="recipe-req">
-        <b>Construction:</b> {Math.max(1, Math.round(construction.progress * 100))}% · about {Math.ceil(construction.left / 1000)}s left
-        <span className="hpbar" style={{ marginTop: 6 }}><i style={{ width: `${Math.max(1, construction.progress * 100).toFixed(0)}%` }} /></span>
-      </div> : null}
-      {b.kind === "worldwonder" ? <div className="recipe-req"><b>District:</b> roads connect nearby settlements to this Wonder. Open View 3D to inspect the finished monument.</div> : null}
-      {vm.mine ? <details className="inspect-advanced">
-        <summary>Customize</summary>
-        <div className="utility-field"><label>Building name</label><div className="utility-row inspect-rename-row">
-          <input id="sc-rename" maxLength={16} placeholder={def?.name} defaultValue={b.nm || ""} />
-          <button className="btn" data-click="inspect-rename">Rename</button>
-        </div></div>
-        <div className="utility-field"><label>Building colors</label>
-          <div className="combo-grid building-combos compact">
-            {buildingColorPresets.map((preset: any) => {
-              const p1 = preset.primary ? safeHex(preset.primary) : vm.defaultAccent;
-              const p2 = safeHex(preset.secondary || p1);
-              const on = preset.primary ? safeHex(vm.liveCl || "") === p1 : !vm.liveCl;
-              return <button type="button" aria-pressed={on} className={"combo-card" + (on ? " on" : "")} style={{ "--p1": p1, "--p2": p2, "--choice-glow": rgba(p2, 0.30) }} aria-label={`${preset.name} building colors`} data-inspect-preset-id={preset.id}>
-                {on ? <span className="combo-check">✓</span> : null}
-                <b>{preset.name}</b>
-                <span className="combo-dots"><i className="combo-dot" style={{ background: p1 }} /><i className="combo-dot" style={{ background: p2 }} /></span>
-              </button>;
-            })}
-          </div>
-          <div className="tiny inspect-selected-color">Selected: <b style={{ color: vm.accent }}>{vm.accentLabel}</b>{vm.hasDraftColor ? <span> · saving…</span> : null}</div>
-        </div>
-      </details> : null}
-      <div className="utility-row tiny" style={{ margin: "8px 0" }}>
-        <span className="stat">+{(def?.regen * lvlMul(level)).toFixed(2)}/s</span>
-        {def?.maxE ? <span className="stat">+{def.maxE} cap</span> : null}
-        {def?.prod ? <span className="stat">bin {Math.floor(estimatedBin)}/60</span> : null}
-        {vm.cdLeft ? <span className="stat">⏳ {vm.cdLeft}s</span> : null}
-      </div>
-      {territoryHint ? <div className="tiny" style={{ margin: "0 0 8px", color: "#d8cfb7" }}><b>Upgrade bonus:</b> {String(territoryHint).replace(/^Upgrade effect: /, "")}</div> : null}
-      <div className="inspect-actions">
-        {b.kind === "worldwonder" ? <button className="btn primary" data-click="inspect-wonder-view">View 3D</button> : <button className="btn primary" data-click="inspect-use">Use</button>}
-        {b.kind === "worldwonder" ? <button className="btn" data-click="inspect-walk-near">Walk near</button> : null}
-        {vm.mine && b.kind !== "worldwonder" ? <button className="btn" disabled={maxLvl} data-click="inspect-upgrade">{maxLvl ? "Max level" : `Upgrade (${costText(upCost)})`}</button> : null}
-        {vm.mine ? <button className="btn" disabled={missingHp <= 0} data-click="inspect-repair">{missingHp <= 0 ? "Full HP" : `Repair (${costText(repCost)})`}</button> : null}
-        {vm.mine ? <button className="btn danger" data-click="inspect-demolish">Demolish</button> : null}
-        {!vm.mine && (b.kind === "keep" || b.kind === "bomb") ? <button className="btn danger" data-click="inspect-raid">Raid</button> : null}
-        {!vm.mine && b.kind !== "worldwonder" ? <button className="btn" data-click="inspect-walk-near">Walk closer</button> : null}
-      </div>
-    </div>
-  );
+    </details> : null}
+  </aside>;
 }

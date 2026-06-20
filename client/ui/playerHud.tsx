@@ -6,6 +6,21 @@ function FallbackIcon({ fallback = "•" }: any) {
   return <span className="ui-ico"><span>{fallback}</span></span>;
 }
 
+function Meter({ kind, icon, label, now, max, pct, fillId, valueId, tip }: any) {
+  return <div className={`ui30-meter ui30-meter-${kind}`} data-tip-title={label} data-tip-body={tip}>
+    <div className="ui30-meter-meta"><span>{icon}</span><b>{label}</b></div>
+    <div className="ui30-meter-track"><i id={fillId} style={{ width: `${Number(pct || 0).toFixed(1)}%` }} /></div>
+    <div className="ui30-meter-value"><span id={valueId}>{now}</span><span>/</span><b>{max}</b></div>
+  </div>;
+}
+
+function ResourceChip({ icon, label, value, cap, tip }: any) {
+  return <div className="ui30-resource-chip" aria-label={`${label}: ${value} of ${cap}`} data-tip-title={label} data-tip-body={tip}>
+    <span className="ui30-resource-icon">{icon}</span>
+    <b>{value}</b>
+  </div>;
+}
+
 export function PlayerHudView(props: any) {
   const {
     player,
@@ -22,61 +37,59 @@ export function PlayerHudView(props: any) {
   const m = player || {};
   const vm = playerHudViewModel({ player: m, liveEnergy, maxHp, xpNeeded, visiblePlayers, activePlayers, gameplayHint });
 
-  return (
-    <div className="scv-hud ui2-player-hud">
-      <div className="scv-top ui2-player-head">
-        <div className="scv-av ui2-player-avatar"><b>{vm.initial}</b><span className="scv-lv">{vm.level}</span></div>
-        <div className="scv-id ui2-player-id">
-          <div className="scv-name">{vm.name}</div>
-          <div className="scv-sub">
-            <span className="scv-gold">🪙 {vm.gold}</span>
-            <span className="scv-gold">🔬 {vm.science}/{vm.scienceCap}</span>
-            <small>· {vm.territory}/{vm.tileCap} tiles · {vm.built} builds · {vm.visiblePlayers}/{vm.activePlayers} players visible</small>
-          </div>
-        </div>
+  return <aside className="scv-hud ui2-player-hud ui30-card ui30-player-hud" aria-label="Player status">
+    <header className="ui30-player-top">
+      <div className="ui30-avatar"><b>{vm.initial}</b><span>{vm.level}</span></div>
+      <div className="ui30-player-title">
+        <h1>{vm.name}</h1>
+        <p><span>🪙 {vm.gold}</span><span>🔬 {vm.science}/{vm.scienceCap}</span><span>{vm.territory}/{vm.tileCap} tiles</span><span>{vm.built} builds</span></p>
       </div>
+    </header>
 
-      <div className="scv-meters ui2-player-meters">
-        <div className="scv-meter" data-tip-title="Energy" data-tip-body={`Current energy ${vm.energyNow} / ${vm.maxEnergy}. Claiming, moving, building, chopping, and mining spend energy; it refills over time.`}>
-          <span className="ic">⚡</span>
-          <div className="scv-track e"><i id="sc-e-fill" style={{ width: `${vm.energyPct.toFixed(1)}%` }} /></div>
-          <span className="scv-val"><span id="sc-e-now">{vm.energyNow}</span> / {vm.maxEnergy}</span>
-        </div>
-        <div className="scv-meter" data-tip-title="Health" data-tip-body={`Current health ${vm.hpNow} / ${vm.maxHp}. Siege tools target territory and structures; keep your city defended.`}>
-          <span className="ic">♥</span>
-          <div className="scv-track hp"><i id="sc-hp-fill" style={{ width: `${vm.hpPct.toFixed(1)}%` }} /></div>
-          <span className="scv-val"><span id="sc-hp-now">{vm.hpNow}</span> / {vm.maxHp}</span>
-        </div>
-      </div>
+    <section className="ui30-meter-stack" aria-label="Vitals">
+      <Meter
+        kind="energy"
+        icon="⚡"
+        label="Energy"
+        now={vm.energyNow}
+        max={vm.maxEnergy}
+        pct={vm.energyPct}
+        fillId="sc-e-fill"
+        valueId="sc-e-now"
+        tip={`Energy ${vm.energyNow} / ${vm.maxEnergy}. Movement and world actions spend energy; it refills over time.`}
+      />
+      <Meter
+        kind="health"
+        icon="♥"
+        label="Health"
+        now={vm.hpNow}
+        max={vm.maxHp}
+        pct={vm.hpPct}
+        fillId="sc-hp-fill"
+        valueId="sc-hp-now"
+        tip={`Health ${vm.hpNow} / ${vm.maxHp}. Food helps you recover after dangerous encounters.`}
+      />
+    </section>
 
-      <div className="scv-res ui2-player-resources">
-        <div className="scv-pill" aria-label={`Wood storage cap ${m.storageCap?.w || 250}`} data-tip-title="Wood" data-tip-body={`You have ${m.inv?.w || 0} wood. Storage cap: ${m.storageCap?.w || 250}. Build Warehouses to raise wood/stone/plank/shard caps.`}><span className="pi">🪵</span><b>{m.inv?.w || 0}</b></div>
-        <div className="scv-pill" aria-label={`Stone storage cap ${m.storageCap?.s || 250}`} data-tip-title="Stone" data-tip-body={`You have ${m.inv?.s || 0} stone. Storage cap: ${m.storageCap?.s || 250}. Mine rocks or use Quarry buildings for more.`}><span className="pi">🪨</span><b>{m.inv?.s || 0}</b></div>
-        <div className="scv-pill" aria-label={`Food cap ${m.storageCap?.f || 250}`} data-tip-title="Food" data-tip-body={`You have ${m.inv?.f || 0} food. Food cap: ${m.storageCap?.f || 250}. Farms produce food; Granaries raise food capacity.`}><span className="pi">🌾</span><b>{m.inv?.f || 0}</b></div>
-        <div className="scv-pill" aria-label={`Shard cap ${m.storageCap?.sh || 250}`} data-tip-title="Shards" data-tip-body={`You have ${m.inv?.sh || 0} shards. Storage cap: ${m.storageCap?.sh || 250}. Shards are used for advanced buildings and deployed tools.`}><span className="pi">◈</span><b>{m.inv?.sh || 0}</b></div>
-      </div>
+    <section className="ui30-resource-grid" aria-label="Resources">
+      <ResourceChip icon="🪵" label="Wood" value={m.inv?.w || 0} cap={m.storageCap?.w || 250} tip={`Wood ${m.inv?.w || 0}. Storage cap: ${m.storageCap?.w || 250}.`} />
+      <ResourceChip icon="🪨" label="Stone" value={m.inv?.s || 0} cap={m.storageCap?.s || 250} tip={`Stone ${m.inv?.s || 0}. Storage cap: ${m.storageCap?.s || 250}.`} />
+      <ResourceChip icon="🌾" label="Food" value={m.inv?.f || 0} cap={m.storageCap?.f || 250} tip={`Food ${m.inv?.f || 0}. Farms and crops provide food for recovery.`} />
+      <ResourceChip icon="◈" label="Shards" value={m.inv?.sh || 0} cap={m.storageCap?.sh || 250} tip={`Shards ${m.inv?.sh || 0}. Storage cap: ${m.storageCap?.sh || 250}.`} />
+    </section>
 
-      <div className="scv-cap ui2-player-cap" data-tip-title="Tile and resource limits" data-tip-body={vm.limitSummary}>
-        <b>Limits</b> Tiles {vm.territory}/{vm.tileCap} · build Warehouses/Granaries for storage; Town Hall/World Wonder for territory.
-      </div>
+    <section className="ui30-alert-card" data-tip-title="Settlement limits" data-tip-body={vm.limitSummary}>
+      <b>Limits</b>
+      <span>{vm.territory}/{vm.tileCap} tiles · {vm.built} buildings</span>
+    </section>
 
-      {vm.limitRows.length ? <div className="scv-limit-row ui2-limit-row">
-        {vm.limitRows.map((r: any) => <div className={`scv-limit-pill ${r.cls || "warn"}`} data-tip-title={r.title} data-tip-body={r.body}><span>{r.glyph}</span><b>{r.short}</b></div>)}
-      </div> : null}
+    {vm.limitRows.length ? <section className="ui30-warning-row" aria-label="Warnings">
+      {vm.limitRows.slice(0, 2).map((r: any) => <div className={`ui30-warning-pill ${r.cls || "warn"}`} data-tip-title={r.title} data-tip-body={r.body}><span>{r.glyph}</span><b>{r.short}</b></div>)}
+    </section> : null}
 
-      <div className="scv-xp ui2-player-xp" aria-label={`XP ${vm.xp} / ${vm.xpNeeded}`} data-tip-title="Level progress" data-tip-body={`XP ${vm.xp} / ${vm.xpNeeded}. Gathering, claiming, building, crafting, and guide rewards all add XP.`}>
-        <i style={{ width: `${vm.xpPct.toFixed(0)}%` }} />
-      </div>
+    <div className="ui30-xp" aria-label={`XP ${vm.xp} / ${vm.xpNeeded}`} data-tip-title="Level progress" data-tip-body={`XP ${vm.xp} / ${vm.xpNeeded}.`}><i style={{ width: `${vm.xpPct.toFixed(0)}%` }} /></div>
 
-      <div className="scv-tabs ui2-player-tabs">
-        <button className={"scv-tab" + (panel === "char" ? " on" : "")} data-click="toggle-panel" data-panel="char" data-guide-target="char" data-tip-title="Character" data-tip-body="Customize your settler while staying in the world."><Icon name="character" fallback="C" /><span>Character</span></button>
-        <button className={"scv-tab" + (panel === "quests" ? " on" : "")} data-click="toggle-panel" data-panel="quests" data-guide-target="quests" data-tip-title="Guide" data-tip-body="Guide cards, skills, and claimable rewards."><Icon name="quests" fallback="G" /><span>Guide</span></button>
-        <button className={"scv-tab" + (panel === "skills" ? " on" : "")} data-click="toggle-panel" data-panel="skills" data-tip-title="Achievements" data-tip-body="Skill tiers and progress."><Icon name="skills" fallback="A" /><span>Achievements</span></button>
-        <button className={"scv-tab" + (panel === "more" ? " on" : "")} data-click="open-more" data-panel="more" data-tip-title="More" data-tip-body="Bank, craft, siege, wonders, map, settings, and help."><Icon name="settings" fallback="☰" /><span>More</span></button>
-      </div>
-
-      <div className="scv-hint ui2-player-hint"><b>{vm.hintLead}</b>{vm.hintRest ? " — " + vm.hintRest : ""}</div>
-      {vm.spectator ? <div className="scv-hint ui2-player-hint"><b>Spectator</b> — ghost view; read-only and no coin pickups</div> : null}
-    </div>
-  );
+    <footer className="ui30-hint"><b>{vm.hintLead}</b>{vm.hintRest ? <span>{vm.hintRest}</span> : null}</footer>
+    {vm.spectator ? <footer className="ui30-hint"><b>Spectator</b><span>Read-only world view.</span></footer> : null}
+  </aside>;
 }
