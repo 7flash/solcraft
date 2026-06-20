@@ -94,11 +94,10 @@ export function SettingsPanelView(props: any) {
           <button className="btn" data-click="camera-zoom-reset">Reset camera</button>
         </div>
         <div className="settings-card wide">
-          <div className="settings-card-head"><b>Guide</b><span>Reference</span></div>
-          <p className="settings-note">Open the guide when you need controls or settlement basics.</p>
+          <div className="settings-card-head"><b>Controls</b><span>Toolbelt</span></div>
+          <p className="settings-note">Use 1–5 for axe, pickaxe, hammer, shovel, and capture. Capital NPCs will host deeper guide and reward systems later.</p>
           <div className="settings-actions">
-            <button className="btn primary" data-click="toggle-panel" data-panel="quests">Open guide</button>
-            <button className="btn" data-click="tutorial-restart">Restart tutorial</button>
+            <button className="btn" data-click="tutorial-restart">Restart basics</button>
           </div>
         </div>
       </div>

@@ -7,7 +7,14 @@ const DEFAULT_ATLAS: Record<string, string> = {
   fx: "/api/atlas-runtime/fx",
   ui: "/api/atlas-runtime/ui",
   doll: "/api/atlas-runtime/doll",
+  tool: "/api/atlas-runtime/tool",
+  cursor: "/api/atlas-runtime/cursor",
 };
+
+// Stage 31: art atlases are being regenerated. Keep the live game on the
+// procedural/canvas fallback path until the new atlas contract is published.
+const FORCE_PROCEDURAL_TERRAIN = true;
+const FORCE_FALLBACK_ATLASES = true;
 
 let ATLAS: Record<string, string> = { ...DEFAULT_ATLAS };
 let ATLAS_BOUNDS: Record<string, any> = {
@@ -16,12 +23,14 @@ let ATLAS_BOUNDS: Record<string, any> = {
   fx: { x0: 0, y0: 0, x1: 1024, y1: 1024 },
   ui: { x0: 0, y0: 0, x1: 1024, y1: 1024 },
   doll: { x0: 0, y0: 0, x1: 1024, y1: 1024 },
+  tool: { x0: 0, y0: 0, x1: 1024, y1: 614 },
+  cursor: { x0: 0, y0: 0, x1: 1024, y1: 341 },
 };
-let ATLAS_CELLS: Record<string, number> = { terrain: 4, building: 4, fx: 4, ui: 4, doll: 8 };
-let ATLAS_COLS: Record<string, number> = { terrain: 4, building: 4, fx: 4, ui: 4, doll: 8 };
-let ATLAS_ROWS: Record<string, number> = { terrain: 4, building: 4, fx: 4, ui: 4, doll: 6 };
-let ATLAS_PAD: Record<string, number> = { terrain: 0, building: 0, fx: 0, ui: 0, doll: 0 };
-let ATLAS_MODE: Record<string, string> = { terrain: "procedural", building: "atlas", fx: "atlas", ui: "atlas", doll: "atlas" };
+let ATLAS_CELLS: Record<string, number> = { terrain: 4, building: 4, fx: 4, ui: 4, doll: 8, tool: 5, cursor: 6 };
+let ATLAS_COLS: Record<string, number> = { terrain: 4, building: 4, fx: 4, ui: 4, doll: 8, tool: 5, cursor: 6 };
+let ATLAS_ROWS: Record<string, number> = { terrain: 4, building: 4, fx: 4, ui: 4, doll: 6, tool: 3, cursor: 2 };
+let ATLAS_PAD: Record<string, number> = { terrain: 0, building: 0, fx: 0, ui: 0, doll: 0, tool: 0, cursor: 0 };
+let ATLAS_MODE: Record<string, string> = { terrain: "procedural", building: "procedural", fx: "procedural", ui: "procedural", doll: "procedural", tool: "procedural", cursor: "procedural" };
 let runtimeSig = "boot";
 
 const texCache = new Map<string, THREE.Texture>();
@@ -56,6 +65,8 @@ function clearCaches() {
 }
 
 export function atlasMode(kind: string) {
+  if (kind === "terrain" && FORCE_PROCEDURAL_TERRAIN) return "procedural";
+  if (FORCE_FALLBACK_ATLASES) return "procedural";
   return ATLAS_MODE[kind] || (kind === "terrain" ? "procedural" : "atlas");
 }
 
@@ -75,6 +86,10 @@ export async function loadAtlasRuntimeConfig(force = false) {
       if (cfg?.mode) ATLAS_MODE[id] = cfg.mode;
     }
     Object.assign(ATLAS_MODE, json.modesByAtlas || {});
+    if (FORCE_PROCEDURAL_TERRAIN) ATLAS_MODE.terrain = "procedural";
+    if (FORCE_FALLBACK_ATLASES) {
+      for (const id of Object.keys(ATLAS_MODE)) ATLAS_MODE[id] = "procedural";
+    }
     runtimeSig = String(json.generatedAt || Date.now());
     clearCaches();
     return json;

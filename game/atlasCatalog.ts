@@ -37,10 +37,10 @@ export const TOOL_ATLAS_SLOTS = TOOL_ATLAS_ROWS.flatMap((row) => row.slots);
 
 export const ATLAS_CATALOG: Record<AtlasId, AtlasCatalogEntry> = {
   terrain: { id: "terrain", label: "Terrain", cols: 4, rows: 4, cells: 4, runtimeFile: "terrain_atlas_clean.png", defaultMode: "procedural", slots: BASE_CELL_SLOTS.terrain },
-  building: { id: "building", label: "Building", cols: 4, rows: 4, cells: 4, runtimeFile: "building_atlas_clean.png", defaultMode: "atlas", slots: BASE_CELL_SLOTS.building },
-  fx: { id: "fx", label: "FX", cols: 4, rows: 4, cells: 4, runtimeFile: "fx_atlas_clean.png", defaultMode: "atlas", slots: BASE_CELL_SLOTS.fx },
-  ui: { id: "ui", label: "UI", cols: 4, rows: 4, cells: 4, runtimeFile: "ui_atlas_clean.png", defaultMode: "atlas", slots: BASE_CELL_SLOTS.ui },
-  doll: { id: "doll", label: "Doll", cols: 8, rows: 6, cells: 8, runtimeFile: "doll_atlas_clean.png", defaultMode: "atlas", slots: BASE_CELL_SLOTS.doll },
+  building: { id: "building", label: "Building", cols: 4, rows: 4, cells: 4, runtimeFile: "building_atlas_clean.png", defaultMode: "procedural", slots: BASE_CELL_SLOTS.building },
+  fx: { id: "fx", label: "FX", cols: 4, rows: 4, cells: 4, runtimeFile: "fx_atlas_clean.png", defaultMode: "procedural", slots: BASE_CELL_SLOTS.fx },
+  ui: { id: "ui", label: "UI", cols: 4, rows: 4, cells: 4, runtimeFile: "ui_atlas_clean.png", defaultMode: "procedural", slots: BASE_CELL_SLOTS.ui },
+  doll: { id: "doll", label: "Doll", cols: 8, rows: 6, cells: 8, runtimeFile: "doll_atlas_clean.png", defaultMode: "procedural", slots: BASE_CELL_SLOTS.doll },
   tool: {
     id: "tool",
     label: "Tools",
@@ -48,9 +48,9 @@ export const ATLAS_CATALOG: Record<AtlasId, AtlasCatalogEntry> = {
     rows: 3,
     cells: 5,
     runtimeFile: "tool_atlas_clean.png",
-    defaultMode: "atlas",
+    defaultMode: "procedural",
     slots: TOOL_ATLAS_SLOTS,
-    notes: "Dedicated atlas for five active tools: bottom toolbelt icons, in-hand character overlays, and active tool cursor sprites. Tool art no longer belongs in the doll atlas.",
+    notes: "Fallback-first dedicated atlas contract for five active tools: bottom toolbelt icons, in-hand character overlays, and active tool cursor sprites. Tool art no longer belongs in the doll atlas.",
   },
   cursor: {
     id: "cursor",
@@ -59,9 +59,9 @@ export const ATLAS_CATALOG: Record<AtlasId, AtlasCatalogEntry> = {
     rows: 2,
     cells: 6,
     runtimeFile: "cursor_atlas_clean.png",
-    defaultMode: "atlas",
+    defaultMode: "procedural",
     slots: CURSOR_IDS,
-    notes: "Dedicated atlas for neutral/non-tool browser cursors: default movement, inspect/interact, denied/select, wait/target/share/chat states. Active axe/pickaxe/hammer/shovel/capture cursor art lives in the tool atlas.",
+    notes: "Fallback-first dedicated atlas contract for neutral/non-tool browser cursors: default movement, inspect/interact, denied/select, wait/target/share/chat states. Active axe/pickaxe/hammer/shovel/capture cursor art lives in the tool atlas.",
   },
 };
 

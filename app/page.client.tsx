@@ -563,12 +563,12 @@ export default function mount() {
   function maybeStartWalkthrough(force = false) {
     if (ST.spectator || ST.screen !== "playing" || !ST.me || ST.needsProfile || !ST.me.profileDone || ST.updateRequired) return false;
     if (!force && walkthroughIsDone()) return false;
-    if (!ST.walkthrough) ST.walkthrough = { active: true, step: "char" };
+    if (!ST.walkthrough) ST.walkthrough = { active: true, step: "chop" };
     return true;
   }
   function skipWalkthrough() {
     markWalkthroughDone();
-    say("Walkthrough skipped. Open Quests anytime for the full guide.", 1800);
+    say("Tutorial skipped. Capital NPCs will host deeper guidance later.", 1800);
     paint(true);
   }
   function restartWalkthrough() {
@@ -578,7 +578,7 @@ export default function mount() {
     if (started) {
       ST.panel = null;
       ST.modal = null;
-      say("Tutorial restarted from the beginning.", 1800);
+      say("Tutorial restarted.", 1800);
     } else {
       say("Tutorial reset. It will start when you enter as a player.", 2200);
     }
@@ -589,7 +589,7 @@ export default function mount() {
     if (!id || !ST.auth || ST.spectator) return;
     act("guideVisit", { id }).then((r) => r?.ok && pollSoon());
   }
-  const WALK_STEPS = ["char", "quests", "chop", "mine", "claim", "build", "bank"];
+  const WALK_STEPS = ["chop", "mine", "claim", "build"];
   function nextWalkStep(cur) { const i = WALK_STEPS.indexOf(cur); return i >= 0 && i < WALK_STEPS.length - 1 ? WALK_STEPS[i + 1] : "done"; }
   function advanceWalkthroughTo(next, msg = "") {
     if (next === "done") { markWalkthroughDone(); if (msg) say(msg, 2400); paint(true); return; }
@@ -599,16 +599,13 @@ export default function mount() {
   }
   function advanceWalkthroughPanel(panel) {
     if (!ST.walkthrough?.active) return;
-    if (ST.walkthrough.step === "char" && panel === "char") return advanceWalkthroughTo("quests", "Nice. Open Guide to see action, building, and skill rewards.");
-    if (ST.walkthrough.step === "quests" && panel === "quests") return advanceWalkthroughTo("chop", "Guide opened. Next, try Chop (2) on a tree.");
-    if (ST.walkthrough.step === "bank" && panel === "bank") return advanceWalkthroughTo("done", "Bank opened. Deposits, scans, and withdrawals live here.");
+    // Capital-service panels no longer advance the first-run flow.
   }
   function advanceWalkthroughAction(kind) {
     if (!ST.walkthrough?.active) return;
     // Selection alone should not complete Chop/Mine/Capture. Those steps advance
     // only after the server confirms the actual completed action.
-    if (ST.walkthrough.step === "build" && kind === "build") return advanceWalkthroughTo("bank", "Build cards explain cost, footprint, and construction time. Next open Bank (7) from the main bar.");
-    if (ST.walkthrough.step === "bank" && kind === "bank") return advanceWalkthroughPanel("bank");
+    if (ST.walkthrough.step === "build" && kind === "build") return advanceWalkthroughTo("done", "Build cards explain cost, footprint, and construction time.");
   }
   function completeWalkthroughAction(kind) {
     if (!ST.walkthrough?.active) return;
@@ -3076,13 +3073,13 @@ export default function mount() {
     else if (k === "4") selectDemolishTool();
     else if (k === "5" || k === "c" || k === " ") selectCaptureTool();
     else if (k === "e" || k === "t") doUseTool();
-    else if (k === "i") { ST.panel = ST.panel === "bank" ? null : "bank"; ST.tradeTab = "bank"; loadBankStatus(); paint(true); }
-    else if (k === "r") { ST.modal = ST.modal === "craft" ? null : "craft"; closeTools(); paint(true); }
+    else if (k === "i") say("Banking is moving to the capital bank.", 1400);
+    else if (k === "r") say("Crafting will move to workshop buildings.", 1400);
     else if (ev.key === "Enter") { ST.chatOpen = true; paint(true); setTimeout(() => chatInput.focus(), 0); }
     else if (k === "j") openQuests();
     else if (k === "o") openOptions();
-    else if (k === "k") togglePanel("skills");
-    else if (k === "h" || k === "?") { ST.modal = ST.modal === "help" ? null : "help"; paint(); }
+    else if (k === "k") say("Skills will move to capital trainers.", 1400);
+    else if (k === "h" || k === "?") openOptions();
     else if (ev.key === "Escape") {
       cancelChop();
       const hadOverlay = !!(ST.modal || ST.panel || ST.inspect || ST.inspectPlayer || ST.wonderViewUid);
@@ -3169,39 +3166,39 @@ export default function mount() {
     const gateProblem = gate?.enabled && !gate?.configured;
     const canJoin = hasPhantom && !gateProblem && !ST.joining;
     return (
-      <div className="menu">
-
-        <div className="login-scene">
+      <div className="menu ui31-menu">
+        <div className="login-scene ui31-login-scene">
           <div className="login-glow a" /><div className="login-glow b" /><div className="login-glow c" />
           {LoginIso()}<div className="login-grain" />{LoginMotes()}
         </div>
-        <main className="login-stage">
-          <section className="login-hero">
-            <p className="login-eyebrow"><span className="login-pulse" /> Shared frontier · live on Solana</p>
-            <h1 className="login-wordmark">World of <span className="b">SolCrafts</span></h1>
-            <p className="login-lede">Stake a claim on one living map, raise a city tile by tile, and hold your border against every other player. <b>Loose tokens you collect belong to the in-game bank and can be withdrawn to $CRAFTS.</b></p>
-            <ol className="login-loop"><li><b>01</b> Claim land</li><li><b>02</b> Build & defend</li><li><b>03</b> Collect tokens</li><li><b>04</b> Use the Bank</li></ol>
-            <div className="login-cta-row">
-              <button className={"login-play" + (!canJoin ? " blocked" : "")} data-click="join-game" disabled={!canJoin}><span>👻</span>{ST.joining ? "Checking…" : !hasPhantom ? "Install Phantom to play" : "Connect Phantom & play"}</button>
-              <button className="login-ghostbtn" data-click="spectate-game" disabled={ST.joining}>Spectate read-only</button>
-              {ST.auth ? <button className="login-ghostbtn" data-click="forget-session" disabled={ST.joining}>Forget local session</button> : null}
+        <main className="ui31-login-shell">
+          <section className="ui31-login-card">
+            <p className="ui31-kicker"><span className="login-pulse" /> Shared frontier</p>
+            <h1>World of <span>SolCrafts</span></h1>
+            <p className="ui31-login-copy">Explore from the capital, gather resources, claim land, and grow a settlement outward on one shared map.</p>
+            <div className="ui31-login-loop" aria-label="Core loop">
+              <div><b>01</b><span>Explore</span></div>
+              <div><b>02</b><span>Gather</span></div>
+              <div><b>03</b><span>Claim</span></div>
+              <div><b>04</b><span>Build</span></div>
             </div>
-            <div className={"login-req" + (!hasPhantom ? " bad" : gate?.enabled ? " ok" : "") }>
-              <b>{!hasPhantom ? "Phantom wallet required" : gate?.enabled ? "Token-gated login" : "Wallet login"}</b>
-              <span>{!hasPhantom ? "Install or enable Phantom to claim land, build, collect tokens, and play. Spectate remains available without a wallet." : loginGateText(gate)}</span>
-              {gate?.tokenMint ? <code>{gate.tokenMint}</code> : null}
-              <span className="mini">The server checks your token balance before creating a playable session.</span>
+            <div className="ui31-login-actions">
+              <button className="ui31-play" data-click="join-game" disabled={!canJoin}>{ST.joining ? "Checking…" : !hasPhantom ? "Install Phantom" : "Enter world"}</button>
+              <button className="ui31-secondary" data-click="spectate-game" disabled={ST.joining}>Spectate</button>
+              {ST.auth ? <button className="ui31-secondary" data-click="forget-session" disabled={ST.joining}>Forget session</button> : null}
             </div>
-            {ST.loginMsg ? <div className="login-msg">{ST.loginMsg}<small>Spectate mode works without Phantom and cannot affect the shared world.</small></div> : null}
-            <p className="login-trust">◇ Phantom players must meet the token requirement to claim/build/redeem. Spectators can move around and customize locally. Other players see them as ghosts, and they cannot collect coins or affect the world.</p>
+            <div className={"ui31-login-status" + (!hasPhantom || gateProblem ? " bad" : "") }>
+              <b>{!hasPhantom ? "Phantom wallet required" : gate?.enabled ? "Wallet checked by server" : "Wallet login"}</b>
+              <span>{!hasPhantom ? "Install or enable Phantom to play. Spectate remains available without a wallet." : loginGateText(gate)}</span>
+            </div>
+            {ST.loginMsg ? <div className="ui31-login-message">{ST.loginMsg}</div> : null}
           </section>
-          <aside className="login-rail"><div className="login-token">
-            <div className="login-wallet"><span className={"login-chip" + (ST.profile.wallet ? "" : " off")}>👻 {ST.profile.wallet ? shortWallet(ST.profile.wallet) : hasPhantom ? "Ready to connect" : "Phantom not found"}</span><span className="login-tag">{gate?.enabled ? "Token required" : "Wallet"}</span></div>
-            <div className="login-home"><div className="pad" /><div className="flag" /><div className="roof" /></div>
-            <h3>Your home base awaits</h3>
-            <p>New settlers get a protected 3×3 camp. Customize your doll after entering so you can see it live on the map.</p>
-            <div className="login-stats"><div className="login-stat"><b>1</b><span>shared map</span></div><div className="login-stat"><b>25</b><span>buildings</span></div><div className="login-stat"><b>∞</b><span>frontier</span></div></div>
-          </div></aside>
+          <aside className="ui31-capital-card">
+            <div className="ui31-capital-mini"><div className="pad" /><div className="flag" /><div className="roof" /></div>
+            <p className="ui31-kicker">Capital services</p>
+            <h2>Start near the capital</h2>
+            <p>Banking, appearance, guide, and reward systems are moving into world buildings and NPCs instead of permanent HUD menus.</p>
+          </aside>
         </main>
       </div>
     );
@@ -3214,7 +3211,7 @@ export default function mount() {
     return `${tiles} claimed tiles · territory coins spawn over time and are picked up by walking over them`;
   }
   function territoryCoinNextStep() {
-    return "Claim connected land, collect loose tokens, and use the Bank to manage deposits and withdrawals.";
+    return "Claim connected land, collect loose tokens, and return to the capital bank for token services.";
   }
 
   function capRatio(value, cap) {
@@ -3262,9 +3259,9 @@ export default function mount() {
     if (!rows.length) return "Limits are healthy. Claim outward, build producers, and keep collecting loose tokens.";
     return rows.map((r) => `${r.title}: ${r.body}`).join(" ");
   }
-  function openQuests() { togglePanel("quests"); }
-  function openOptions() { togglePanel("more"); }
-  function openCoinGuide() { openQuests(); }
+  function openQuests() { say("Guide and rewards are moving into capital NPCs.", 1600); }
+  function openOptions() { togglePanel("settings"); }
+  function openCoinGuide() { say("Coin and bank help will live at the capital bank.", 1600); }
   function Hud() {
     const m = ST.me;
     if (ST.screen !== "playing" || !m) return <div />;
@@ -4673,13 +4670,9 @@ export default function mount() {
     if (ST.screen !== "playing" || ST.modal || !ST.panel) return <div />;
     if (ST.panel === "inspect") return <InspectPanel />;
     if (ST.panel === "object") return <ObjectPreviewPanelView preview={ST.objectPreview} />;
-    if (ST.panel === "more") return <MorePanel />;
-    if (ST.panel === "char") return <CharacterPanel />;
-    if (ST.panel === "quests") return <QuestPanel />;
-    if (ST.panel === "inv" || ST.panel === "inventory") { ST.panel = "bank"; return <BankPanel />; }
-    if (ST.panel === "skills") return <SkillsPanel />;
-    if (ST.panel === "bank") return <BankPanel />;
     if (ST.panel === "settings") return <SettingsPanel />;
+    // Capital services are intentionally no longer instant HUD panels.
+    // Bank, appearance, guide, inventory, and skills will return as city NPC/building interactions.
     return <div />;
   }
 
@@ -4780,19 +4773,12 @@ export default function mount() {
     if (ST.screen !== "playing" || !ST.walkthrough?.active || ST.updateRequired || ST.modal || ST.needsProfile || !ST.me?.profileDone) return <div />;
     const step = ST.walkthrough.step;
     const meta = {
-      char: { panel: "char", title: "Step 1: Character", text: "Open Character and try a quick look change while your settler stays visible.", btn: "Open Character", click: "toggle-panel" },
-      quests: { panel: "quests", title: "Step 2: Guide", text: "Open Guide to see action, building, economy, and skill reward cards.", btn: "Open Guide", click: "toggle-panel" },
-      chop: { panel: "chop", title: "Step 3: Chop", text: "Use Chop (2) on a tree. Wood drops as pickups on the map.", btn: "Select Chop", click: "gather-wood" },
-      mine: { panel: "mine", title: "Step 4: Mine", text: "Use Mine (3) on stone. The game tells you if the wrong tool is selected.", btn: "Select Mine", click: "gather-stone" },
-      claim: { panel: "claim", title: "Step 5: Capture", text: "Use Capture (4) on highlighted connected tiles. If tile limit is near full, the HUD tells you what to build next.", btn: "Select Capture", click: "claim" },
-      build: { panel: "build", title: "Step 6: Build for limits", text: "Build normal structures to expand tile cap. Build Warehouses for wood/stone/plank/shard storage, Granaries for food, and Town Hall/World Wonder for big territory cap jumps.", btn: "Open Build", click: "select-build" },
-      use: { panel: "use", title: "Step 7: Use", text: "Use (7) contains Return Scroll, Emergency Flask, rations, and elixirs.", btn: "Open Use", click: "use-tool" },
-      bank: { panel: "bank", title: "Step 7: Bank", text: "Open Bank to see wallet $CRAFTS, in-game bank tokens, deposit address, and withdrawals.", btn: "Open Bank", click: "open-bank" },
-    }[step] || { panel: "char", title: "Step 1: Character", text: "Open Character first.", btn: "Open", click: "toggle-panel" };
+      chop: { panel: "chop", title: "Step 1: Axe", text: "Select the axe and click a tree. Wood drops as pickups on the map.", btn: "Select axe", click: "gather-wood" },
+      mine: { panel: "mine", title: "Step 2: Pickaxe", text: "Select the pickaxe and click stone. The cursor tells you what can be worked.", btn: "Select pickaxe", click: "gather-stone" },
+      claim: { panel: "claim", title: "Step 3: Capture", text: "Select capture and click connected highlighted land to grow your border.", btn: "Select capture", click: "claim" },
+      build: { panel: "build", title: "Step 4: Build", text: "Select the hammer, choose a building, then place it on valid land.", btn: "Open build", click: "select-build" },
+    }[step] || { panel: "chop", title: "Step 1: Axe", text: "Start by gathering wood.", btn: "Select axe", click: "gather-wood" };
     const place = walkthroughPlacement(meta.panel);
-    if (ST.panel && (step === "char" || step === "quests" || step === "bank")) {
-      return <div className="walkthrough-layer walkthrough-target-only">{place.nub ? <div className="walkthrough-nub" style={place.nub} /> : null}</div>;
-    }
     return <div className="walkthrough-layer">
       <div className="walkthrough-scrim" />
       {place.nub ? <div className="walkthrough-nub" style={place.nub} /> : null}
