@@ -35,8 +35,8 @@ export function PlayerHudView(props: any) {
       <div className="ui31-avatar" aria-label={`Level ${vm.level}`} style={{ ["--xp" as any]: `${vm.xpPct.toFixed(0)}%` }}><b>{vm.level}</b></div>
       <div className="ui31-hud-title">
         <h1>{vm.name}</h1>
-        <p><span>🪙 {vm.gold}</span><span>{vm.territory}/{vm.tileCap} tiles{vm.factionTileBonus ? ` (+${vm.factionTileBonus} rep)` : ""}</span><span>{vm.storageUsed}/{vm.storageLimit} storage</span></p>
-        <p className="ui31-factions" aria-label="Faction standing"><span title={vm.factionEmpireTitle}>⚜ {vm.factionEmpire}</span><span title={vm.factionBanditsTitle}>☠ {vm.factionBandits}</span></p>
+        <p><span>🪙 {vm.gold}</span><span>{vm.territory}/{vm.tileCap} tiles{vm.reputationTileBonus ? ` (+${vm.reputationTileBonus} rep)` : ""}</span><span>{vm.storageUsed}/{vm.storageLimit} storage</span></p>
+        <p className="ui31-factions" aria-label="Reputation"><span title={vm.reputationTitle}>★ {vm.reputation}</span><span>{vm.reputationTitle}</span></p>
       </div>
     </header>
 

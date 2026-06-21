@@ -1,5 +1,6 @@
 import * as legacy from "./engine";
 import * as ecs from "./ecsBackend";
+import { removedFeatureResponse } from "./removedFeatures";
 
 export type BackendMode = "legacy" | "hybrid" | "ecs";
 
@@ -34,6 +35,8 @@ export function snapshot(p: any, q: { rev: number; ax: number; az: number; chat:
 }
 
 export function dispatch(p: any, body: any) {
+  const removed = removedFeatureResponse(body?.type);
+  if (removed) return { ...removed, backend: activeBackendName() };
   if (!usingEcsBackend()) return legacy.dispatch(p, body);
   const r = ecs.dispatch(p, body);
   if (r?.ok === false && r?.reasonCode === "ECS_ACTION_NOT_IMPLEMENTED" && allowFallback()) {

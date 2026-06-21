@@ -52,7 +52,7 @@
     "rallyShared": "Rally shared in chat.",
     "buildingLocationShared": "Shared building location.",
     "tooFarWalk": "That point is too far to walk from here. Try moving in smaller steps or use a discovered travel point.",
-    "spectatorReadonly": "Spectator mode is read-only. Connect Phantom to claim, craft, build, trade, or collect. Spectators are visible as ghosts but cannot pick up coins.",
+    "spectatorReadonly": "Spectator mode is read-only. Connect Phantom to claim, build, gather, attack, or collect. Spectators are visible as ghosts but cannot pick up coins.",
     "wonderAiBusy": "World Wonder AI is already generating. The foundation will start after the plan is ready.",
     "wonderGeneratorFailed": "Wonder generator failed.",
     "wonderPlacementBusy": "World Wonder placement is already running. Wait for the current request.",
@@ -339,8 +339,8 @@
     "watchingRoad": " I am watching the road between the capital and the settlements.",
     "carryingResource": " I am carrying {amount} {resource} from the frontier.",
     "carryingCoins": " I have {coins} coins for the road.",
-    "trader": "{name}: Donate supplies to earn trust with the Empire, or leave me to gather resources.{carrying}",
-    "warrior": "{name}: Keep your blade sheathed unless you want the Empire to remember it.{carrying}",
+    "trader": "{name}: Donate supplies to earn reputation, or leave me to gather resources.{carrying}",
+    "warrior": "{name}: Keep your blade sheathed unless you want your reputation to suffer.{carrying}",
     "traveler": "{name}: Roads, camps, and Wonders draw travelers like me.{carrying}",
     "default": "{name}: The frontier is busy today.{carrying}"
   },
@@ -389,8 +389,8 @@
   },
   "help": {
     "title": "How to play",
-    "intro": "Use the bottom bar like a city-builder hotbar: craft, gather with separate tools, capture, build, deploy crafted tools, and interact. Movement works in every action mode by clicking the world or using WASD, and each tile costs a tiny bit of energy that refills quickly. Tutorial objectives live in Quests.",
-    "hotkeys": "craft · wood · stone · capture · build · deploy · use/scroll",
+    "intro": "Use the bottom bar like a city-builder hotbar: gather, capture, build, demolish, and attack. Movement works in every action mode by clicking the world or using WASD, and energy limits heavy actions.",
+    "hotkeys": "axe · pickaxe · hammer · shovel · capture · sword",
     "cards": {
       "gather": {
         "title": "Gather",

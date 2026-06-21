@@ -64,7 +64,7 @@ export function limitAdviceRows(m: any): LimitAdviceRow[] {
       cls: tileRatio >= 0.96 ? "bad" : "warn",
       title: `Tile limit ${m.territory || 0}/${tileCap}`,
       short: tileRatio >= 0.96 ? "Tile limit full" : "Near tile limit",
-      body: `Your level controls the main land limit. Helpful faction standing adds up to +10 trusted frontier tiles${Number(m.factions?.tileBonus || 0) ? `; yours adds +${Number(m.factions?.tileBonus || 0)}.` : "."}`,
+      body: `Your level and reputation control your land limit${Number(m.reputation?.tileBonus || 0) ? `; reputation adds +${Number(m.reputation?.tileBonus || 0)} tiles.` : "."}`,
     });
   }
 
@@ -112,7 +112,7 @@ export function playerHudViewModel(input: PlayerHudInput) {
   const usedStorage = storageUsed(m.inv || {});
   const maxStorage = storageLimit(m.storageCap || {});
 
-  const factions = m.factions || {};
+  const reputation = m.reputation || {};
 
   return {
     initial: playerInitial(m.name),
@@ -123,11 +123,9 @@ export function playerHudViewModel(input: PlayerHudInput) {
     scienceCap: Number(m.scienceCap || 0),
     territory: Number(m.territory || 0),
     tileCap: m.tileCap || "?",
-    factionEmpire: Math.floor(Number(factions.empire || 0)),
-    factionBandits: Math.floor(Number(factions.bandits || 0)),
-    factionTileBonus: Math.floor(Number(factions.tileBonus || 0)),
-    factionEmpireTitle: String(factions.titles?.empire || "Neutral"),
-    factionBanditsTitle: String(factions.titles?.bandits || "Neutral"),
+    reputation: Math.floor(Number(reputation.value || 0)),
+    reputationTitle: String(reputation.title || "Neutral"),
+    reputationTileBonus: Math.floor(Number(reputation.tileBonus || 0)),
     built: Number(m.built || 0),
     storageUsed: usedStorage,
     storageLimit: maxStorage || "?",

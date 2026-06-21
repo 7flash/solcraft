@@ -1,13 +1,11 @@
 // @ts-nocheck
 /** @jsxImportSource tradjs/client */
-import { GEAR_BY_ID, SLOTS, SLOT_LABEL } from "@server/shared";
-import { equippedGearRows, playerModalViewModel } from "./playerModalModel";
+import { playerModalViewModel } from "./playerModalModel";
 
 export function PlayerModalView(props: any) {
   const { target, player, worldPlayer } = props;
   if (!target) return <div />;
-  const vm = playerModalViewModel({ target, player, worldPlayer, gearById: GEAR_BY_ID });
-  const rows = equippedGearRows(target, SLOTS, SLOT_LABEL, GEAR_BY_ID);
+  const vm = playerModalViewModel({ target, player, worldPlayer });
   return (
     <div className="modal ui2-player-modal">
       <h2 className="ui2-player-modal-title">
@@ -18,14 +16,10 @@ export function PlayerModalView(props: any) {
       </h2>
       <div className="row ui2-player-modal-stats">
         <span className="stat">♥ {vm.hpNow}/{vm.hpMax}</span>
-        <span className="stat">💥 Siege {vm.attack}</span>
-        <span className="stat">🛡 Defense {vm.defense}</span>
+        <span className="stat">⚔ Weak PvP</span>
         {vm.adjacent ? <span className="stat good">nearby</span> : null}
       </div>
-      <h3>Worn gear</h3>
-      <div className="ui2-player-gear-list">
-        {rows.map((row: any) => <div className="slot" data-slot={row.slot}><span><b>{row.label}</b> — {row.empty ? <span className="tiny">—</span> : row.text}</span></div>)}
-      </div>
+      <p className="tiny">Equipment and skill stats are disabled for this clean ECS release. Player attacks are intentionally weak until the stats system returns.</p>
       <div className="row ui2-player-modal-actions">
         <button className="btn" data-click="player-walk">Walk toward</button>
         <button className="btn" data-click="player-close">Close</button>

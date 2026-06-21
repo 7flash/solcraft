@@ -1,4 +1,4 @@
-export const DB_SCHEMA_VERSION = 13;
+export const DB_SCHEMA_VERSION = 14;
 
 export function applyProductionDbSchema(db: { exec(sql: string): unknown }) {
   // Coordinates and ownership: current hot range queries plus future ECS/chunk adapters.
@@ -90,6 +90,13 @@ export function applyProductionDbSchema(db: { exec(sql: string): unknown }) {
   db.exec("CREATE INDEX IF NOT EXISTS idx_ecs_action_log_action_ok_createdAt ON ecsActionLog(action, ok, createdAt)");
   db.exec("CREATE INDEX IF NOT EXISTS idx_ecs_action_log_reason_createdAt ON ecsActionLog(reasonCode, createdAt)");
   db.exec("CREATE INDEX IF NOT EXISTS idx_ecs_action_log_backend_action ON ecsActionLog(backend, action)");
+
+
+  // Stage 14: clean ECS release. Runtime tuning moves into DB meta/config keys
+  // and reputation replaces faction standing as the only social expansion axis.
+  db.exec("CREATE INDEX IF NOT EXISTS idx_buildings_kind_owner_level ON buildings(kind, owner, level)");
+  db.exec("CREATE INDEX IF NOT EXISTS idx_buildings_owner_cdUntil ON buildings(owner, cdUntil)");
+  db.exec("CREATE INDEX IF NOT EXISTS idx_players_level_lastSeen ON players(level, lastSeen)");
 
 }
 

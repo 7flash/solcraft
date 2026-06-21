@@ -2,7 +2,8 @@ import { db, metaGet, metaSet } from "./db";
 import { getPlayer, refreshPlayer } from "./playerStore";
 import { deleteBuilding, getBuilding, refreshBuilding } from "./buildingStore";
 import { insertLoot } from "./lootStore";
-import { adjustFactionStanding, factionDeltaText, factionSummaryForWire } from "./factionRules";
+import { adjustReputation, reputationDeltaFor, reputationDeltaText, reputationSummaryForWire } from "./reputationRules";
+import { removedFeatureResponse } from "./removedFeatures";
 import { bumpEcsWorldRev, mirrorLegacyToEcsTables } from "./ecsDbAdapter";
 import { BASE_MAX, GOLD_MINE_KIND, LIBRARY, MAX_HP, RAID_COST, RES_KEYS, RES_NAMES, TELEPORT_COST, TELEPORT_MS, XP, biomeAt, cheb, proceduralNpcAt } from "./shared";
 
@@ -19,13 +20,12 @@ const DIRECT_ACTIONS = new Set([
   "repair",
   "customize",
   "use",
-  "collectGoldMine",
   "talkNpc",
   "attackNpc",
   "donateNpc",
   "donateKeep",
   "raid",
-  "siege",
+  "attack",
   "home",
   "homeStart",
   "homeFinish",
@@ -33,7 +33,6 @@ const DIRECT_ACTIONS = new Set([
   "wonderStart",
   "wonderFinish",
   "wonderCancel",
-  "guideVisit",
   "wallet",
 ]);
 
@@ -140,7 +139,6 @@ function actionUseBuilding(p: PlayerRow, body: any) {
   if (isUnderConstruction(b)) return err(`${b.nm || def.name || "Building"} is still under construction — ${Math.ceil((Number(b.cdUntil || 0) - now()) / 1000)}s left.`, "UNDER_CONSTRUCTION");
   markUsed(b);
   if (Number(b.owner || 0) !== Number(p.id)) return ok({ cosmetic: true, usedAt: b.usedAt, note: `${def.name || "Building"} responds, but only its owner can operate it.` });
-  if (b.kind === GOLD_MINE_KIND) return actionCollectGoldMine(p, body);
   const prod = def.prod || def.produces || {};
   const first = Object.entries(prod).find(([, v]) => Number(v || 0) > 0) as [string, any] | undefined;
   if (first) {
@@ -192,10 +190,9 @@ function actionDonateNpc(p: PlayerRow, body: any) {
   p.hp = Math.min(MAX_HP, Math.max(1, Number(p.hp || MAX_HP)) + 3);
   addXp(p, 8);
   markNpcGone(x, z);
-  const delta = { empire: 8, bandits: -1 };
-  const standing = adjustFactionStanding(Number(p.id), delta);
+  const rep = adjustReputation(Number(p.id), reputationDeltaFor("npcDonate"), "npcDonate");
   refreshPlayer(p); bump("donate-npc"); mirrorLegacyToEcsTables("donate-npc");
-  return ok({ note: `Donated supplies to ${npc.title || "traveler"}. +3♥ goodwill, +8 XP. ${factionDeltaText(delta, standing)}`, player: { hp: p.hp, maxHp: MAX_HP }, inv: p.inv, factions: factionSummaryForWire(Number(p.id)) });
+  return ok({ note: `Donated supplies to ${npc.title || "traveler"}. +3♥ goodwill, +8 XP. ${reputationDeltaText(rep)}`, player: { hp: p.hp, maxHp: MAX_HP }, inv: p.inv, reputation: reputationSummaryForWire(Number(p.id)) });
 }
 
 function actionAttackNpc(p: PlayerRow, body: any) {
@@ -214,10 +211,9 @@ function actionAttackNpc(p: PlayerRow, body: any) {
   const resKind = npc.resource === "s" ? "stone" : npc.resource === "f" ? "food" : "wood";
   const resources = scatterLoot(x, z, resKind, carried);
   addXp(p, XP.fight || 4);
-  const delta = { empire: -8, bandits: 2 };
-  const standing = adjustFactionStanding(Number(p.id), delta);
+  const rep = adjustReputation(Number(p.id), reputationDeltaFor("npcKill"), "npcKill");
   refreshPlayer(p); bump("attack-npc"); mirrorLegacyToEcsTables("attack-npc");
-  return ok({ note: `${npc.title || "Traveler"} defeated. Loot dropped nearby${bonus.bonus ? ` from ${bonus.source}` : ""}. ${factionDeltaText(delta, standing)}`, player: { hp: p.hp, maxHp: MAX_HP }, dropped: { coins, resources, kind: resKind }, npc: { id: npc.id, x, z }, factions: factionSummaryForWire(Number(p.id)) });
+  return ok({ note: `${npc.title || "Traveler"} defeated. Loot dropped nearby${bonus.bonus ? ` from ${bonus.source}` : ""}. ${reputationDeltaText(rep)}`, player: { hp: p.hp, maxHp: MAX_HP }, dropped: { coins, resources, kind: resKind }, npc: { id: npc.id, x, z }, reputation: reputationSummaryForWire(Number(p.id)) });
 }
 
 function actionDonateKeep(p: PlayerRow, body: any) {
@@ -231,10 +227,9 @@ function actionDonateKeep(p: PlayerRow, body: any) {
   b.maxHp = maxHpFor(b);
   b.hp = Math.min(Number(b.maxHp || b.hp || 1), Math.max(1, Number(b.hp || 1)) + Math.max(1, Math.floor(amount / 2)));
   b.accAt = now(); markUsed(b); addXp(p, Math.max(4, Math.floor(amount / 2)));
-  const delta = { empire: -Math.max(1, Math.floor(amount / 5)), bandits: Math.max(2, Math.ceil(amount / 2)) };
-  const standing = adjustFactionStanding(Number(p.id), delta);
+  const rep = adjustReputation(Number(p.id), Math.max(1, reputationDeltaFor("keepDonate", Math.ceil(amount / 10))), "keepDonate");
   refreshPlayer(p); refreshBuilding(b); bump("donate-keep"); mirrorLegacyToEcsTables("donate-keep");
-  return ok({ note: `Paid ${amount}🪙 tribute to ${b.nm || "the Keep"}. Bandits remember. ${factionDeltaText(delta, standing)}`, keep: { uid: b.id, hp: b.hp, maxHp: b.maxHp, stored: b.stored }, inv: p.inv, factions: factionSummaryForWire(Number(p.id)) });
+  return ok({ note: `Donated ${amount}🪙 to ${b.nm || "the Keep"}. ${reputationDeltaText(rep)}`, keep: { uid: b.id, hp: b.hp, maxHp: b.maxHp, stored: b.stored }, inv: p.inv, reputation: reputationSummaryForWire(Number(p.id)) });
 }
 
 function actionRaidKeep(p: PlayerRow, body: any) {
@@ -252,22 +247,20 @@ function actionRaidKeep(p: PlayerRow, body: any) {
     const stored = Math.max(0, Math.floor(Number(b.stored || 0)));
     if (stored > 0) gain(p, { g: stored });
     deleteBuilding(Number(b.id));
-    const delta = isKeep ? { empire: 10, bandits: -12 } : { empire: 1, bandits: 0 };
-    const standing = adjustFactionStanding(Number(p.id), delta as any);
+    const rep = adjustReputation(Number(p.id), reputationDeltaFor(isKeep ? "keepBreach" : "buildingAttack"), isKeep ? "keepBreach" : "buildingAttack");
     addXp(p, isKeep ? XP.raidKill || 22 : 8);
-    note = `${isKeep ? "Keep breached" : "Building destroyed"}. ${stored ? `Recovered ${stored}🪙. ` : ""}${factionDeltaText(delta as any, standing)}`;
+    note = `${isKeep ? "Keep breached" : "Building destroyed"}. ${stored ? `Recovered ${stored}🪙. ` : ""}${reputationDeltaText(rep)}`;
   } else {
     if (isKeep) {
       const coins = Math.min(Math.max(0, Math.floor(Number(b.stored || 0))), 3);
       if (coins) { b.stored = Math.max(0, Math.floor(Number(b.stored || 0)) - coins); gain(p, { g: coins }); note += ` Looted ${coins}🪙.`; }
-      const delta = { empire: 1, bandits: -1 };
-      const standing = adjustFactionStanding(Number(p.id), delta);
-      note += ` ${factionDeltaText(delta, standing)}`;
+      const rep = adjustReputation(Number(p.id), reputationDeltaFor("keepRaid"), "keepRaid");
+      note += ` ${reputationDeltaText(rep)}`;
     }
     refreshBuilding(b);
   }
   refreshPlayer(p); bump("raid"); mirrorLegacyToEcsTables("raid");
-  return ok({ note, player: { hp: p.hp, energy: p.energy }, building: b.hp > 0 ? { uid: b.id, hp: b.hp, maxHp: b.maxHp } : null, inv: p.inv, factions: factionSummaryForWire(Number(p.id)) });
+  return ok({ note, player: { hp: p.hp, energy: p.energy }, building: b.hp > 0 ? { uid: b.id, hp: b.hp, maxHp: b.maxHp } : null, inv: p.inv, reputation: reputationSummaryForWire(Number(p.id)) });
 }
 
 function actionHomeStart(p: PlayerRow) {
@@ -323,6 +316,8 @@ export function ecsGameplaySupportedActionTypes() { return [...DIRECT_ACTIONS].s
 
 export function dispatchEcsGameplayAction(playerLike: PlayerRow, body: any): EcsGameplayResult {
   const type = String(body?.type || "");
+  const removed = removedFeatureResponse(type);
+  if (removed) return { handled: true, result: err(removed.msg, removed.reasonCode, removed) };
   if (!DIRECT_ACTIONS.has(type)) return { handled: false };
   const p = getPlayer(playerLike?.id) as PlayerRow || playerLike;
   if (!p) return { handled: true, result: err("Unknown player", "PLAYER_NOT_FOUND") };
@@ -331,19 +326,17 @@ export function dispatchEcsGameplayAction(playerLike: PlayerRow, body: any): Ecs
     if (type === "customize") return { handled: true, result: actionCustomize(p, body) };
     if (type === "repair") return { handled: true, result: actionRepair(p, body) };
     if (type === "use") return { handled: true, result: actionUseBuilding(p, body) };
-    if (type === "collectGoldMine") return { handled: true, result: actionCollectGoldMine(p, body) };
     if (type === "talkNpc") return { handled: true, result: actionTalkNpc(p, body) };
     if (type === "donateNpc") return { handled: true, result: actionDonateNpc(p, body) };
     if (type === "attackNpc") return { handled: true, result: actionAttackNpc(p, body) };
     if (type === "donateKeep") return { handled: true, result: actionDonateKeep(p, body) };
-    if (type === "raid" || type === "siege") return { handled: true, result: actionRaidKeep(p, body) };
+    if (type === "raid" || type === "attack") return { handled: true, result: actionRaidKeep(p, body) };
     if (type === "home" || type === "homeStart") return { handled: true, result: actionHomeStart(p) };
     if (type === "homeFinish") return { handled: true, result: actionHomeFinish(p) };
     if (type === "homeCancel") return { handled: true, result: actionHomeCancel(p) };
     if (type === "wonderStart") return { handled: true, result: actionWonderStart(p, body) };
     if (type === "wonderFinish") return { handled: true, result: actionWonderFinish(p) };
     if (type === "wonderCancel") { channels.delete(Number(p.id)); return { handled: true, result: ok() }; }
-    if (type === "guideVisit") return { handled: true, result: actionGuideVisit(p, body) };
     if (type === "wallet") return { handled: true, result: actionWallet(p, body) };
     return { handled: true, result: err(`ECS gameplay action missing: ${type}`, "ECS_GAMEPLAY_NOT_IMPLEMENTED") };
   } catch (e: any) {

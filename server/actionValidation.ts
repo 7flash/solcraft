@@ -6,7 +6,7 @@ const KNOWN_ACTIONS = new Set([
   "completeFoundation", "placeWonder", "makeBomb", "spawnBomb", "placeBomb", "demolish", "customize",
   "profileFace", "profileAppearance", "setupProfile", "upgrade", "repair", "harvestStart", "harvestFinish",
   "harvestCancel", "craft", "learn", "use", "trade", "usePack", "equip", "unequip", "drop", "fight",
-  "attackNpc", "donateNpc", "donateKeep", "siege", "siegeSource", "raid", "collectGoldMine", "postOffer",
+  "attackNpc", "donateNpc", "donateKeep", "attack", "siege", "siegeSource", "raid", "collectGoldMine", "postOffer",
   "acceptOffer", "cancelOffer", "wallet", "withdrawGold", "redeem", "redeemStart", "redeemFinish", "redeemCancel",
   "claimGuideReward", "guideVisit", "chat",
 ]);

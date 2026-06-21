@@ -1,13 +1,9 @@
 // @ts-nocheck
 /** @jsxImportSource tradjs/client */
 import {
-  COSTI,
-  DESTROY_TOOLS,
-  RECIPES,
-  USE_ITEMS,
   WORLD_WONDER_GOLD_COST,
 } from "@server/shared";
-import { buildChoiceState, craftedToolOwnedCount, missingCostKeys, usablePackItems } from "./actionRibbonModel";
+import { buildChoiceState } from "./actionRibbonModel";
 import { t } from "../i18n";
 
 export function ActionRibbon(props: any) {
@@ -38,7 +34,6 @@ export function ActionRibbon(props: any) {
   } = props;
 
   const liveEnergy = Number(liveE?.() || 0);
-  const ownedToolCount = (id: string) => typeof craftedToolCount === "function" ? craftedToolCount(id) : craftedToolOwnedCount(m?.pack, id);
   const adminOpen = !!admin && mode === "admin";
   const showWonderQuick = mode === "wonder";
   const buildOpen = mode === "build";
@@ -91,12 +86,6 @@ export function ActionRibbon(props: any) {
       <button className={"build-tile" + (state.tool === "use" ? " on" : "")} aria-label={t("ribbon.useAria", "Use — interact with buildings and supplies")} data-tip-title={t("ribbon.useTipTitle", "✦ Use")} data-tip-body={t("ribbon.useTipBody", "Click nearby buildings, consume usable items, or interact with trade posts.")} data-click="use-tool">
         <span className="bg">✦</span><span className="bn">{t("ribbon.useLabel", "Use")}</span><span className="bc">{t("ribbon.useAction", "Interact")}</span>
       </button>
-      <button className="build-tile" aria-label={t("ribbon.craftAria", "Craft — make tools and supplies")} data-tip-title={t("ribbon.craftTipTitle", "🧪 Craft")} data-tip-body={t("ribbon.craftTipBody", "Craft gear, elixirs, and deployable tools.")} data-click="select-craft">
-        <span className="bg">🧪</span><span className="bn">{t("ribbon.craftLabel", "Craft")}</span><span className="bc">{t("ribbon.craftAction", "Supplies")}</span>
-      </button>
-      <button className="build-tile" aria-label={t("ribbon.deployAria", "Deploy — place crafted tools")} data-tip-title={t("ribbon.deployTipTitle", "⚒ Deploy")} data-tip-body={t("ribbon.deployTipBody", "Select crafted deployables, then click a valid tile.")} data-click="select-spawn-tool">
-        <span className="bg">⚒</span><span className="bn">{t("ribbon.deployLabel", "Deploy")}</span><span className="bc">{t("ribbon.deployAction", "Crafted tools")}</span>
-      </button>
     </div>
     <div className="build-scroll-track"><i id="sc-build-scroll-thumb" /></div>
   </div>;
@@ -134,57 +123,10 @@ export function ActionRibbon(props: any) {
     <div className="build-scroll-track"><i id="sc-build-scroll-thumb" /></div>
   </div>;
 
-  if (craftOpen) return <div className="build-ribbon craft-ribbon">
-    <div id="sc-build-strip" className="build-strip" data-build-strip="1">
-      <div className="build-sep"><b>{t("ribbon.craftDeployables", "Craft deployables")}</b><small>{t("ribbon.scienceSiege", "science-only siege tools")}</small></div>
-      {DESTROY_TOOLS.map((b) => {
-        const miss = missingCostKeys(b.cost, m, liveEnergy);
-        return <button className={"build-tile" + (miss.length > 0 ? " locked" : "")} aria-disabled={miss.length > 0} aria-label={`Craft ${b.name} — ${b.blurb}`} data-tip-title={`${t("ribbon.craft", "Craft")} ${b.glyph} ${b.name}`} data-tip-body={`${b.blurb} · ${t("ribbon.scienceOnly", "Science-only")} · ${t("ribbon.cost", "Cost")}: ${costStr(b.cost)} · ${t("ribbon.owned", "Owned")} ${ownedToolCount(b.id)}`} data-click="make-bomb" data-id={b.id}>
-          <span className="bg">{b.glyph}</span><span className="bn">{t("ribbon.craft", "Craft")} {b.name}</span><span className="bc">{miss.length ? t("ribbon.need", "Need") + " " + miss.map((r) => COSTI[r]).join(" ") : `${t("ribbon.science", "Science")}: ${costStr(b.cost)} · ${t("ribbon.you", "You")}: ${ownedToolCount(b.id)}`}</span>
-        </button>;
-      })}
-      <div className="build-sep"><b>{t("ribbon.craftGear", "Craft gear & supplies")}</b><small>{t("ribbon.scienceLoadout", "science-only loadout")}</small></div>
-      {RECIPES.map((r) => {
-        const miss = missingCostKeys(r.cost, m, liveEnergy);
-        return <button className={"build-tile" + (miss.length > 0 ? " locked" : "")} aria-disabled={miss.length > 0} aria-label={`Craft ${r.name} — ${r.blurb}`} data-tip-title={`${r.glyph} ${r.name}`} data-tip-body={`${r.blurb} · ${t("ribbon.scienceOnly", "Science-only")} · ${t("ribbon.cost", "Cost")}: ${costStr(r.cost)}`} data-click="craft-recipe" data-id={r.id}>
-          <span className="bg">{r.glyph}</span><span className="bn">{r.name}</span><span className="bc">{miss.length ? t("ribbon.need", "Need") + " " + miss.map((k) => COSTI[k]).join(" ") : `${t("ribbon.science", "Science")}: ${costStr(r.cost)}`}</span>
-        </button>;
-      })}
-    </div>
-    <div className="build-scroll-track"><i id="sc-build-scroll-thumb" /></div>
-  </div>;
+  if (craftOpen || spawnOpen) return <div className="build-ribbon craft-ribbon"><div className="build-sep"><b>Removed</b><small>Crafting, bombs, packs, and deployables are disabled for this ECS release.</small></div></div>;
 
-  if (spawnOpen) return <div className="build-ribbon destroy-ribbon">
-    <div id="sc-build-strip" className="build-strip" data-build-strip="1">
-      {DESTROY_TOOLS.map((b) => {
-        const owned = ownedToolCount(b.id);
-        const active = state.destroying === b.id;
-        return <button className={"build-tile" + (active ? " on" : "") + (owned <= 0 ? " locked" : "")} aria-disabled={owned <= 0} aria-label={`${b.name} — ${b.blurb}`} data-tip-title={`Deploy ${b.glyph} ${b.name}`} data-tip-body={`${b.blurb} · ${t("ribbon.target", "Target")}: ${b.target || t("ribbon.territory", "territory")} · ${t("ribbon.owned", "Owned")} ${owned} · ${Math.round(b.fuseMs / 1000)}s ${t("ribbon.fuse", "fuse")}`} data-click="select-spawn" data-id={b.id}>
-          <span className="bg">{b.glyph}</span><span className="bn">{b.name}</span><span className="bc">{owned > 0 ? `${t("ribbon.ownedShort", "Owned")}: ${owned} · ${Math.round(b.fuseMs / 1000)}s` : t("ribbon.craftFirst", "Craft first")}</span>
-        </button>;
-      })}
-    </div>
-    <div className="build-scroll-track"><i id="sc-build-scroll-thumb" /></div>
-  </div>;
+  if (useOpen) return <div className="build-ribbon use-ribbon"><div className="build-sep"><b>{t("ribbon.useTitle", "Use")}</b><small>Use nearby buildings from their preview. Return home from travel controls.</small></div></div>;
 
-  if (useOpen) return <div className="build-ribbon use-ribbon">
-    <div id="sc-build-strip" className="build-strip" data-build-strip="1">
-      <div className="build-sep"><b>{t("ribbon.useTitle", "Use")}</b><small>{t("ribbon.useText", "scrolls & supplies")}</small></div>
-      <button className="build-tile on" aria-label={t("ribbon.returnScrollAria", "Return Scroll — infinite teleport to your flag after casting")} data-tip-title={t("ribbon.returnScrollTitle", "✦ Return Scroll")} data-tip-body={t("ribbon.returnScrollTip", "Infinite use. Stand still through the cast to return to your flag.")} data-click="home-cast">
-        <span className="bg">✦</span><span className="bn">{t("ribbon.returnScroll", "Return Scroll")}</span><span className="bc">{t("ribbon.infiniteDelay", "Infinite · cast delay")}</span>
-      </button>
-      {usablePackItems(m).map(({ item, index }) => {
-        const u = USE_ITEMS[item.id];
-        return <button className="build-tile" aria-label={`${u?.name || item.id} — ${u?.blurb || t("ribbon.usableItem", "Usable item")}`} data-tip-title={`${u?.glyph || "✦"} ${u?.name || item.id}`} data-tip-body={u?.blurb || t("ribbon.useCraftedItem", "Use this crafted item.")} data-click="use-pack-slot" data-idx={index}>
-          <span className="bg">{u?.glyph || "✦"}</span><span className="bn">{u?.name || item.id}</span><span className="bc">{t("ribbon.backpackSlot", "Backpack slot {slot}", { slot: index + 1 })}</span>
-        </button>;
-      })}
-      {usablePackItems(m).length === 0 ? <button className="build-tile" disabled aria-label={t("ribbon.craftElixirs", "Craft elixirs from Craft")}>
-        <span className="bg">🧪</span><span className="bn">{t("ribbon.noCraftedItems", "No crafted items")}</span><span className="bc">{t("ribbon.craftElixirsFirst", "Craft elixirs first")}</span>
-      </button> : null}
-    </div>
-    <div className="build-scroll-track"><i id="sc-build-scroll-thumb" /></div>
-  </div>;
 
   return null;
 }

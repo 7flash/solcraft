@@ -5,8 +5,9 @@ import { verifyWalletAuth } from "./wallet-auth";
 import { dispatchEcs, ecsContext, type EcsAction, type EcsWorld } from "./ecs/index";
 import { loadEcsWorld, persistEcsWorldDelta, ecsRulesFromShared, ecsWorldRev, bumpEcsWorldRev, mirrorLegacyToEcsTables, ecsMigrationStatus } from "./ecsDbAdapter";
 import { ECONOMY_RULES, START_INV, PACK_SIZE, BASE_MAX, MAX_HP, SPAWN_HALF, biomeAt, RES_KEYS, LIBRARY } from "./shared";
-import { factionSummaryForWire } from "./factionRules";
+import { reputationSummaryForWire, tileCapacityForPlayer, storageCapsForPlayer } from "./reputationRules";
 import { dispatchEcsGameplayAction, ecsGameplayStatus, ecsGameplaySupportedActionTypes } from "./ecsGameplayActions";
+import { activeActionSurface, removedFeatureResponse } from "./removedFeatures";
 
 export type EcsPlayerRow = any;
 export type WalletAuthInput = { wallet?: string; message?: string; signature?: string } | null | undefined;
@@ -39,8 +40,8 @@ function bodyPalette(seed: number) { const colors = [0x6a5ae0, 0x14f195, 0xffc85
 function spawnOrigin(idx: number) { const ring = Math.floor(Math.sqrt(idx)); const side = Math.max(1, ring * 2 + 1); const step = 9; const x = ((idx % side) - ring) * step; const z = (Math.floor(idx / side) - ring) * step; return [x, z] as const; }
 function spectatorSpawnPoint(idx: number) { return [Math.cos(idx) * 6 | 0, Math.sin(idx) * 6 | 0] as const; }
 function maxResourceBag(inv: any) { const out: any = {}; for (const k of RES_KEYS) out[k] = Math.max(0, Number(inv?.[k] || 0)); return out; }
-function tileCapacityFor(p: any) { return Math.round(18 + Math.max(0, Number(p?.level || 1) - 1) * 3); }
-function resourceCaps(_p: any) { return { w: 120, p: 120, s: 120, f: 120, g: 999999, sh: 120, sc: 120 }; }
+function tileCapacityFor(p: any) { return tileCapacityForPlayer(p); }
+function resourceCaps(p: any) { return storageCapsForPlayer(p); }
 function ownedTileCount(id: number) { return Number(db.tiles.select().where({ owner: id }).count() || 0); }
 function nonBombBuildingCount(id: number) { return Number((db.buildings.select().where({ owner: id }).all() as any[]).filter((b) => !String(b.kind || "").includes("bomb")).length); }
 function leaderboardRows() {
@@ -214,7 +215,7 @@ export function snapshot(p: EcsPlayerRow, q: { rev: number; ax: number; az: numb
     territory: ownedTileCount(fresh.id), built: nonBombBuildingCount(fresh.id), msIndex: fresh.msIndex || 0,
     treesChopped: fresh.treesChopped || 0, planksMade: fresh.planksMade || 0, gearCrafted: fresh.gearCrafted || 0, tradesDone: fresh.tradesDone || 0, equippedOnce: !!fresh.equippedOnce,
     clientVersion: "", requiredVersion: requiredClientVersion, updateReason: requiredClientReason, profileDone: !!fresh.profileDone, spectator: isSpectator(fresh),
-    tileCap: tileCapacityFor(fresh), storageCap: resourceCaps(fresh), tuning: {}, quests: {}, factions: factionSummaryForWire(fresh.id), guideQuests: [], guideSummary: { done: 0, total: 0, claimed: 0, claimable: 0, pct: 0 }, bank: null,
+    tileCap: tileCapacityFor(fresh), storageCap: resourceCaps(fresh), tuning: {}, quests: {}, reputation: reputationSummaryForWire(fresh.id), guideQuests: [], guideSummary: { done: 0, total: 0, claimed: 0, claimable: 0, pct: 0 }, bank: null,
     backend: "ecs",
   };
   const players = (db.players.select().all() as any[])
@@ -242,6 +243,8 @@ function cloneWorld(world: EcsWorld): EcsWorld {
 
 export function dispatch(p: EcsPlayerRow, body: any) {
   const type = String(body?.type || "");
+  const removed = removedFeatureResponse(type);
+  if (removed) { logEcsAction(Number(p?.id || 0), type, removed, "ecs-removed"); return { ...removed, backend: "ecs" }; }
   if (type === "chat") {
     const msg = String(body.msg || "").trim().slice(0, 180);
     if (!msg) return { ok: false, msg: "Write a message first.", reasonCode: "EMPTY_CHAT" };
@@ -349,5 +352,5 @@ export function forceClientRefresh(reason = "Admin published an update") {
 }
 
 export function ecsBackendStatus() {
-  return { backend: "ecs", tick: worldTickStatus(), rulesBuildings: Object.keys(ecsRulesFromShared().buildings).length, gameplay: ecsGameplayStatus(), coreActions: [...ECS_ACTION_TYPES].sort() };
+  return { backend: "ecs", tick: worldTickStatus(), rulesBuildings: Object.keys(ecsRulesFromShared().buildings).length, gameplay: ecsGameplayStatus(), coreActions: [...ECS_ACTION_TYPES].sort(), activeActions: activeActionSurface() };
 }
