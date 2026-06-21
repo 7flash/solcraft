@@ -37,7 +37,7 @@ import { FOUNDATION_KIND, FOUNDATION_BUILD_KINDS, foundationChoiceLabel } from "
 import { loadCharacterProfile, saveCharacterProfile, type CharacterProfile } from "../client/dollProfile";
 import { isMoveKey, movementVectorFromKeys, normalizeMoveKey } from "../client/game/directionalInput";
 import { canIssueKeyboardStep, DEFAULT_KEYBOARD_STEP_MS } from "../client/game/keyboardStepper";
-import { frameThrottleMsForMotion, shouldEnterPerfMode } from "../client/game/renderBudget";
+import { shouldEnterPerfMode } from "../client/game/renderBudget";
 import { hopDurationForProjectedDistance, movementFeelBucket } from "../client/game/movementFeel";
 import { createPerfOverlay, perfOverlayEnabledFromUrl } from "../client/game/perfOverlay";
 import { CORE_ACTIONS } from "../client/ui/coreActions";
@@ -60,7 +60,6 @@ import { actionSlotClass, actionStackClass } from "../client/ui/hudChromeModel";
 import { toolCursorForState } from "../client/ui/toolCursor";
 import { PlayerHudView } from "../client/ui/playerHud";
 import { TopChromeView } from "../client/ui/topChrome";
-import { configureMinimapCanvas } from "../client/ui/minimapShell";
 import { disposeMiniPreviews, syncMiniPreviewPanels } from "../client/world/miniPreview";
 import { WorldMapModalView } from "../client/ui/worldMapModal";
 import { PlayerModalView } from "../client/ui/playerModal";
@@ -69,6 +68,23 @@ import { formatBuildingChatCard, formatKeepRallyChatCard, formatLocationChatCard
 import { NotificationRailView } from "../client/ui/notificationRail";
 import { GameChatView } from "../client/ui/gameChat";
 import { CapitalServicePanelView } from "../client/ui/capitalServicePanel";
+import { createHudRoots } from "../client/ui/hudRoots";
+import { npcTalkLine } from "../client/ui/npcDialogue";
+import { api } from "../client/game/httpClient";
+import { connectAndSignPhantom, loadLoginGateConfig, loginGateText, phantomProvider, shortWallet } from "../client/game/walletAuthClient";
+import {
+  CAMERA_ROTATION_STEP, CAMERA_ZOOM_MAX, CAMERA_ZOOM_MIN, CAMERA_ZOOM_STEP,
+  UI_SCALE_MAX, UI_SCALE_MIN, UI_SCALE_STEP,
+  cameraYawDeg, cameraZoomPct, clampCameraZoom, clampUiScale,
+  loadUiSettings, loadVisualSettings, normalizeCameraYaw,
+  readAckedClientVersion, saveUiSettings, saveVisualSettings,
+  uiScalePct, visualPerfFor, writeAckedClientVersion,
+} from "../client/game/clientSettings";
+import { UiIcon } from "../client/ui/proceduralIcon";
+import {
+  BUILDING_COLOR_PRESETS, CHARACTER_COLOR_KEYS, CHARACTER_COLOR_PRESETS,
+  buildingPresetById, characterPresetActive, characterPresetById, presetHexToNumber,
+} from "../client/ui/appearancePresets";
 
 const AUTH_KEY = "solcraft:auth";
 const FACE_KEY = "solcraft:face.v1";
@@ -81,16 +97,7 @@ const MOVE_BATCH_MAX = 18;
 const REMOTE_FULL_RIG_RADIUS = 16;
 const REMOTE_FULL_RIG_BUDGET = 24;
 const CLIENT_BOOT_AT = Date.now();
-const UPDATE_ACK_KEY = "solcraft:client:ackVersion:v1";
 const WALKTHROUGH_KEY = "solcraft:firstGuide:v2";
-const UI_SETTINGS_KEY = "solcraft:uiScale:v1";
-const UI_SCALE_MIN = 0.50;
-const UI_SCALE_MAX = 2.00;
-const UI_SCALE_STEP = 0.08;
-const CAMERA_ZOOM_MIN = 0.75;
-const CAMERA_ZOOM_MAX = 2.15;
-const CAMERA_ZOOM_STEP = 0.18;
-const CAMERA_ROTATION_STEP = 0; // fixed classic isometric camera; expanded minimap handles global view
 const GUIDE_TABS = [
   ["actions", "Actions"],
   ["buildings", "Buildings"],
@@ -99,8 +106,6 @@ const GUIDE_TABS = [
   ["done", "Done"],
 ];
 
-const VISUAL_QUALITY_CHOICES = ["auto", "crisp", "balanced", "fast"];
-const MOTION_FEEL_CHOICES = ["smooth", "classic", "low"];
 const WONDER_PLAZA_SIZE = SHARED_WONDER_PLAZA_SIZE || 9;
 const WONDER_PLAZA_RADIUS = WORLD_WONDER_PLAZA_RADIUS || 4;
 const WONDER_PLAZA_TILES = SHARED_WONDER_PLAZA_TILES || 81;
@@ -135,262 +140,18 @@ function wonderTilesClient(v) { const s = normalizeWonderFootprintClient(v); ret
 function wonderBuildMsClient(size, mode) { size = normalizeWonderFootprintClient(size); const base = size === 3 ? 24000 : size === 5 ? 32000 : size === 7 ? 40000 : 48000; return mode === "single" ? Math.max(22000, base - 4000) : base; }
 
 
-function pickChoice(value, choices, fallback) {
-  const v = String(value || "").trim().toLowerCase();
-  return choices.includes(v) ? v : fallback;
-}
-function resolveVisualQuality(visual, lowEnd = false) {
-  const q = pickChoice(visual?.quality, VISUAL_QUALITY_CHOICES, "auto");
-  if (q !== "auto") return q;
-  return lowEnd ? "fast" : "balanced";
-}
-function visualPerfFor(visual, lowEnd = false) {
-  const quality = resolveVisualQuality(visual, lowEnd);
-  const motion = pickChoice(visual?.motion, MOTION_FEEL_CHOICES, "smooth");
-  const pixelRatioCap =
-    quality === "crisp" ? 1.55 :
-    quality === "balanced" ? 1.25 :
-    0.92;
-  return {
-    quality,
-    motion,
-    antialias: quality === "crisp" || (!lowEnd && quality === "balanced"),
-    pixelRatioCap,
-    // Stage 17 perf: classic should change camera feel only, not cap the render loop.
-    // A 22ms cap makes the game feel like ~45fps, especially during horizontal movement.
-    frameMs: frameThrottleMsForMotion(motion),
-    decorStep: quality === "fast" ? 0.14 : quality === "balanced" ? 0.085 : 0.055,
-    envStep: quality === "fast" ? 0.40 : quality === "balanced" ? 0.28 : 0.18,
-    cameraMode: motion,
-  };
-}
 
-const CHARACTER_COLOR_KEYS = ["skin", "hair", "primaryCloth", "secondaryCloth", "leather", "metal"];
-const CHARACTER_COLOR_PRESETS = [
-  { id: "solana", name: "Solana", look: "Explorer", skin: "#f0b887", hair: "#f4f0dd", primaryCloth: "#31507d", secondaryCloth: "#14f195", leather: "#6a4124", metal: "#b8c2cc", parts: { head: 0, hair: 0, torso: 1, legs: 1, back: 0, tool: 0, hat: 0 } },
-  { id: "forest", name: "Forest", look: "Ranger", skin: "#c68f63", hair: "#2f2118", primaryCloth: "#2f6b46", secondaryCloth: "#8fbf6a", leather: "#5a3a22", metal: "#b0b9b5", parts: { head: 1, hair: 0, torso: 2, legs: 2, back: 0, tool: 0, hat: 0 } },
-  { id: "sunforge", name: "Sunforge", look: "Smith", skin: "#a96b4d", hair: "#f2c35b", primaryCloth: "#8e3d26", secondaryCloth: "#e0b54a", leather: "#6a3e20", metal: "#ffe0a6", parts: { head: 2, hair: 0, torso: 3, legs: 3, back: 0, tool: 0, hat: 0 } },
-  { id: "tide", name: "Tide", look: "Sailor", skin: "#8cc7d8", hair: "#17384a", primaryCloth: "#1e5f86", secondaryCloth: "#7dcfe8", leather: "#38516a", metal: "#d6f2ff", parts: { head: 3, hair: 0, torso: 4, legs: 4, back: 0, tool: 0, hat: 0 } },
-  { id: "violet", name: "Violet", look: "Mage", skin: "#d5a5ff", hair: "#33204a", primaryCloth: "#56359b", secondaryCloth: "#9945ff", leather: "#4b315f", metal: "#dec8ff", parts: { head: 4, hair: 0, torso: 5, legs: 5, back: 0, tool: 0, hat: 0 } },
-  { id: "rose", name: "Rose", look: "Trader", skin: "#f0b8a0", hair: "#5b2434", primaryCloth: "#8f3049", secondaryCloth: "#f08bb0", leather: "#6a3b35", metal: "#ffd5dc", parts: { head: 5, hair: 0, torso: 6, legs: 6, back: 0, tool: 0, hat: 0 } },
-  { id: "ash", name: "Ash", look: "Guard", skin: "#d2c4ad", hair: "#2a2e35", primaryCloth: "#4a4f5a", secondaryCloth: "#9aa3ad", leather: "#37312d", metal: "#cbd1d8", parts: { head: 6, hair: 0, torso: 7, legs: 7, back: 0, tool: 0, hat: 0 } },
-  { id: "mint", name: "Mint", look: "Builder", skin: "#f2d2ad", hair: "#0f332d", primaryCloth: "#146b5a", secondaryCloth: "#14f195", leather: "#4b3a22", metal: "#dbfff1", parts: { head: 7, hair: 0, torso: 0, legs: 0, back: 0, tool: 0, hat: 0 } },
-];
-const BUILDING_COLOR_PRESETS = [
-  { id: "default", name: "Default", primary: null, secondary: "#ffd76e" },
-  { id: "paper", name: "Paper / Brick", primary: "#f6e7c8", secondary: "#d6604f" },
-  { id: "harbor", name: "Harbor Blue", primary: "#3f8ab5", secondary: "#7dcfe8" },
-  { id: "grove", name: "Grove Mint", primary: "#35b87a", secondary: "#14f195" },
-  { id: "sun", name: "Sun Gold", primary: "#e0b54a", secondary: "#ffe0a6" },
-  { id: "violet", name: "Violet Neon", primary: "#9263c4", secondary: "#9945ff" },
-  { id: "rose", name: "Rose Clay", primary: "#f08bb0", secondary: "#d6604f" },
-  { id: "slate", name: "Slate Ice", primary: "#4a4f5a", secondary: "#7dcfe8" },
-];
-function normalizePresetHex(value, fallback = "#999999") {
-  const s = String(value || "").trim();
-  return /^#[0-9a-fA-F]{6}$/.test(s) ? s.toLowerCase() : fallback;
-}
-function presetHexToNumber(value, fallback) {
-  const s = normalizePresetHex(value, "");
-  return s ? parseInt(s.slice(1), 16) : fallback;
-}
-function characterPresetById(id) {
-  return CHARACTER_COLOR_PRESETS.find((p) => p.id === id) || CHARACTER_COLOR_PRESETS[0];
-}
-function buildingPresetById(id) {
-  return BUILDING_COLOR_PRESETS.find((p) => p.id === id) || BUILDING_COLOR_PRESETS[0];
-}
-function characterPresetActive(profile, preset) {
-  // Color presets should only decide skin/clothes/material colors.
-  // Shape/body-part choices stay independently editable.
-  const palette = profile?.palette || profile || {};
-  return CHARACTER_COLOR_KEYS.every((k) => normalizePresetHex(palette?.[k], "") === normalizePresetHex(preset[k], ""));
-}
-
-function loadVisualSettings() {
-  try {
-    const raw = JSON.parse(localStorage.getItem("solcraft:visual.v1") || "{}");
-    return {
-      warmth: Number.isFinite(Number(raw.warmth)) ? Math.max(0, Math.min(1, Number(raw.warmth))) : 0.62,
-      texture: Number.isFinite(Number(raw.texture)) ? Math.max(0, Math.min(1, Number(raw.texture))) : 0.18,
-      shadows: raw.shadows === false ? false : true,
-      quality: pickChoice(raw.quality, VISUAL_QUALITY_CHOICES, "fast"),
-      motion: pickChoice(raw.motion, MOTION_FEEL_CHOICES, "classic"),
-      cameraZoom: clampCameraZoom(raw.cameraZoom, 1),
-      cameraYaw: normalizeCameraYaw(raw.cameraYaw, Math.PI / 4),
-    };
-  } catch {
-    return { warmth: 0.64, texture: 0.18, shadows: true, quality: "fast", motion: "classic", cameraZoom: 1, cameraYaw: Math.PI / 4 };
-  }
-}
-function saveVisualSettings(v) {
-  const next = {
-    warmth: Math.max(0, Math.min(1, Number(v?.warmth ?? 0.62))),
-    texture: Math.max(0, Math.min(1, Number(v?.texture ?? 0.18))),
-    shadows: v?.shadows !== false,
-    quality: pickChoice(v?.quality, VISUAL_QUALITY_CHOICES, "fast"),
-    motion: pickChoice(v?.motion, MOTION_FEEL_CHOICES, "classic"),
-    cameraZoom: clampCameraZoom(v?.cameraZoom, 1),
-    cameraYaw: normalizeCameraYaw(v?.cameraYaw, Math.PI / 4),
-  };
-  try { localStorage.setItem("solcraft:visual.v1", JSON.stringify(next)); } catch {}
-  return next;
-}
-function clampUiScale(value, fallback = 1) {
-  const n = Number(value);
-  if (!Number.isFinite(n)) return fallback;
-  return Math.max(UI_SCALE_MIN, Math.min(UI_SCALE_MAX, Math.round(n * 100) / 100));
-}
-function uiScalePct(value) {
-  return `${Math.round(clampUiScale(value) * 100)}%`;
-}
-function clampCameraZoom(value, fallback = 1) {
-  const n = Number(value);
-  if (!Number.isFinite(n)) return fallback;
-  return Math.max(CAMERA_ZOOM_MIN, Math.min(CAMERA_ZOOM_MAX, Math.round(n * 100) / 100));
-}
-function cameraZoomPct(value) {
-  return `${Math.round(clampCameraZoom(value, 1) * 100)}%`;
-}
-function normalizeCameraYaw(value, fallback = Math.PI / 4) {
-  const n = Number(value);
-  const base = Number.isFinite(n) ? n : fallback;
-  const tau = Math.PI * 2;
-  return ((base % tau) + tau) % tau;
-}
-function cameraYawDeg(value) {
-  return Math.round(normalizeCameraYaw(value, Math.PI / 4) * 180 / Math.PI) % 360;
-}
-function loadUiSettings() {
-  try {
-    const raw = JSON.parse(localStorage.getItem(UI_SETTINGS_KEY) || "{}");
-    return {
-      uiScale: clampUiScale(raw.uiScale, 1),
-      menuScale: clampUiScale(raw.menuScale, 1),
-    };
-  } catch {
-    return { uiScale: 1, menuScale: 1 };
-  }
-}
-function saveUiSettings(v) {
-  const next = {
-    uiScale: clampUiScale(v?.uiScale, 1),
-    menuScale: clampUiScale(v?.menuScale, 1),
-  };
-  try { localStorage.setItem(UI_SETTINGS_KEY, JSON.stringify(next)); } catch {}
-  return next;
-}
-function readAckedClientVersion() {
-  try { return String(localStorage.getItem(UPDATE_ACK_KEY) || ""); } catch { return ""; }
-}
-function writeAckedClientVersion(version) {
-  const v = String(version || "");
-  if (!v) return;
-  try { localStorage.setItem(UPDATE_ACK_KEY, v); } catch {}
-}
-
-const PROCEDURAL_ICON: Record<string, string> = {
-  axe: "🪓", wood: "🪓", pickaxe: "⛏", stone: "⛏", hammer: "🔨", build: "🔨", shovel: "▰", demolish: "▰", sword: "⚔", attack: "⚔", capture: "⚑", claim: "⚑",
-  settings: "⚙", sound: "♪", logout: "↩", exit: "↩", energy: "⚡", gold: "●", heart: "♥", walk: "↗", inspect: "⌕", interact: "◆", wait: "…",
-};
-function UiIcon({ name, fallback = "•" }: any) {
-  const glyph = PROCEDURAL_ICON[String(name || "").toLowerCase()] || fallback || "•";
-  return <span className={`ui-ico ui-ico-proc ui-ico-${String(name || "x").toLowerCase()}`} aria-hidden="true"><span>{glyph}</span></span>;
-}
-
-
-
-async function api(path, body) {
-  try {
-    const res = body
-      ? await fetch(path, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) })
-      : await fetch(path);
-    return await res.json();
-  } catch (e) {
-    return { ok: false, msg: "network" };
-  }
-}
-
-function shortWallet(addr) {
-  return addr ? `${addr.slice(0, 4)}…${addr.slice(-4)}` : "Not connected";
-}
-function bytesToBase64(bytes) {
-  let s = "";
-  const u = new Uint8Array(bytes);
-  for (let i = 0; i < u.length; i++) s += String.fromCharCode(u[i]);
-  return btoa(s);
-}
-function phantomProvider() {
-  const w = typeof window !== "undefined" ? window : {};
-  const p = w.phantom?.solana || w.solana;
-  return p?.isPhantom ? p : null;
-}
-async function loadLoginGateConfig() {
-  const cfg = await api("/api/auth/config");
-  if (cfg?.ok && cfg.loginGate) return cfg.loginGate;
-  return null;
-}
-function loginGateText(gate) {
-  if (!gate?.enabled) return "No token gate configured for this world.";
-  if (!gate.configured) return "Token gate is enabled, but admin must configure token mint and RPC endpoint.";
-  return `Requires at least ${gate.minUi || 1} ${gate.tokenLabel || "$CRAFTS"} in your Phantom wallet.`;
-}
-async function connectAndSignPhantom() {
-  const provider = phantomProvider();
-  if (!provider) throw new Error("Phantom wallet was not found. Install Phantom or enable the extension, then try again. You can still use Spectate read-only without a wallet.");
-  const conn = await provider.connect();
-  const wallet = (conn?.publicKey || provider.publicKey)?.toString?.();
-  if (!wallet) throw new Error("Phantom did not return a Solana wallet.");
-  const tokenCheck = await api("/api/auth/token-check", { wallet });
-  if (!tokenCheck?.ok) throw new Error(tokenCheck?.msg || "This wallet does not meet the token requirement.");
-  const challenge = await api("/api/auth/challenge", { wallet });
-  if (!challenge?.ok) throw new Error(challenge?.msg || "Could not create wallet challenge.");
-  const encoded = new TextEncoder().encode(challenge.message);
-  const signed = await provider.signMessage(encoded, "utf8");
-  const signature = bytesToBase64(signed.signature || signed);
-  return { wallet, message: challenge.message, signature, loginGate: tokenCheck?.loginGate || challenge?.loginGate || null };
-}
 
 export default function mount() {
   const root = document.getElementById("solcraft-root");
   if (!root) return;
-  root.className = "sc-root";
-  root.replaceChildren(); // hot-reload safe: no double HUD/canvas ghosts
-
-  const worldEl = document.createElement("div");
-  worldEl.className = "sc-world";
-  const hudEl = document.createElement("div");
-  hudEl.className = "sc-hud";
-  root.append(worldEl, hudEl);
-  const preventGameContext = (ev) => { if (root.contains(ev.target)) { ev.preventDefault(); return false; } };
-  root.addEventListener("contextmenu", preventGameContext, { capture: true });
-  hudEl.addEventListener("contextmenu", preventGameContext, { capture: true });
-  worldEl.addEventListener("contextmenu", preventGameContext, { capture: true });
-  document.addEventListener("contextmenu", preventGameContext, { capture: true });
-
-  /* region roots — each its own tradjs render target */
-  const mk = (cls) => { const d = document.createElement("div"); if (cls) d.className = cls; hudEl.appendChild(d); return d; };
-  const topEl = mk("sc-top");
-  const hudRoot = document.createElement("div"); topEl.appendChild(hudRoot);
-  const actionsRoot = document.createElement("div"); topEl.appendChild(actionsRoot);
-  const utilityRoot = mk("");
-  const minimapEl = configureMinimapCanvas(document.createElement("canvas"), {
-    onOpen: () => { if (ST.screen === "playing") { ST.modal = "worldmap"; paint(true); } },
+  const {
+    worldEl, hudEl, hudRoot, actionsRoot, utilityRoot, minimapEl, chatEl,
+    bottomRoot, toastEl, noticeRoot, channelEl, ctxEl, tipEl, vignetteEl,
+    guideRoot, modalRoot, menuRoot,
+  } = createHudRoots(root, {
+    onOpenMap: () => { if (ST.screen === "playing") { ST.modal = "worldmap"; paint(true); } },
   });
-  hudEl.appendChild(minimapEl);
-  const chatEl = mk("");
-  const bottomRoot = mk("");
-  const toastEl = document.createElement("div"); toastEl.className = "toast"; hudEl.appendChild(toastEl);
-  const noticeRoot = mk("");
-  const channelEl = document.createElement("div"); channelEl.className = "channel";
-  channelEl.innerHTML = `<div id="sc-ch-label">Chopping…</div><div class="cbar"><i id="sc-ch-fill"></i></div>`;
-  hudEl.appendChild(channelEl);
-  const ctxEl = document.createElement("div"); ctxEl.className = "ctx"; ctxEl.style.display = "none"; hudEl.appendChild(ctxEl);
-  const tipEl = document.createElement("div"); tipEl.className = "tip"; tipEl.style.display = "none"; hudEl.appendChild(tipEl);
-  const vignetteEl = document.createElement("div"); vignetteEl.className = "sc-vignette"; hudEl.appendChild(vignetteEl);
-  const guideRoot = mk("");
-  const modalRoot = mk("");
-  const menuRoot = mk("");
 
   const perf = createPerfOverlay(root, {
     enabled: perfOverlayEnabledFromUrl(window.location.search, window.localStorage),
@@ -2917,19 +2678,6 @@ export default function mount() {
   }
 
   /* ---------- inspect / preview intent ---------- */
-  function npcTalkLine(p) {
-    const name = p?.name || p?.title || "Wanderer";
-    const carrying = Number(p?.resourceAmount || 0) > 0 && p?.resource
-      ? ` I am carrying ${Math.floor(Number(p.resourceAmount || 0))} ${String(p.resource)} from the frontier.`
-      : Number(p?.coins || 0) > 0
-        ? ` I have ${Math.floor(Number(p.coins || 0))} coins for the road.`
-        : " I am watching the road between the capital and the settlements.";
-    if (p?.role === "trader") return `${name}: Donate supplies to earn trust with the Empire, or leave me to gather resources.${carrying}`;
-    if (p?.role === "warrior") return `${name}: Keep your blade sheathed unless you want the Empire to remember it.${carrying}`;
-    if (p?.role === "traveler") return `${name}: Roads, camps, and Wonders draw travelers like me.${carrying}`;
-    return `${name}: The frontier is busy today.${carrying}`;
-  }
-
   function worldObjectPreviewForCell(c) {
     if (!c) return null;
     const d = world.doodadVisible(c.x, c.z);
