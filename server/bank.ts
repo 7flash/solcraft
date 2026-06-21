@@ -2,6 +2,7 @@
 import { createMeasure } from "measure-fn";
 import { db, metaGet, metaSet } from "./db";
 import { getPlayer } from "./playerStore";
+import { getBankDeposit, listBankDeposits, upsertBankDeposit, getBankScan, listBankScans, upsertBankScan, listBankWithdrawals, insertBankWithdrawal, updateBankWithdrawal, insertBankError, listBankErrors, bankTableAvailable } from "./bankTables";
 
 const bankMeasure = createMeasure("bank", { maxResultLength: 220 });
 const META_BANK_SETTINGS = "solcraft:bank:settings:v1";
@@ -114,12 +115,25 @@ async function createBankClient() {
     throw new Error(`Sowl bank SDK is not available. Install/configure package 'sowl'. ${e?.message || e || ""}`.trim());
   }
 }
-function deposits() { return readJson(META_BANK_DEPOSITS, {}); }
-function scans() { return readJson(META_BANK_SCANS, {}); }
-function withdrawals() { return readJson(META_BANK_WITHDRAWS, []); }
-function saveWithdrawals(rows: any[]) { writeJson(META_BANK_WITHDRAWS, rows.slice(-500)); }
-function bankErrors() { return readJson(META_BANK_ERRORS, []); }
+function deposits() {
+  if (bankTableAvailable()) return Object.fromEntries(listBankDeposits().map((d: any) => [String(d.playerId), d]));
+  return readJson(META_BANK_DEPOSITS, {});
+}
+function scans() {
+  if (bankTableAvailable()) return Object.fromEntries(listBankScans().map((d: any) => [String(d.playerId), d]));
+  return readJson(META_BANK_SCANS, {});
+}
+function withdrawalRows(playerId?: number, limit = 500) {
+  if (bankTableAvailable()) return listBankWithdrawals(playerId, limit);
+  const rows = readJson(META_BANK_WITHDRAWS, []);
+  return playerId ? rows.filter((r: any) => Number(r.playerId) === Number(playerId)) : rows;
+}
+function withdrawals() { return withdrawalRows(undefined, 500); }
+function saveWithdrawals(rows: any[]) { if (!bankTableAvailable()) writeJson(META_BANK_WITHDRAWS, rows.slice(-500)); }
+function bankErrors() { return bankTableAvailable() ? listBankErrors(100) : readJson(META_BANK_ERRORS, []); }
 function recordBankError(action: string, error: any, extra: any = {}) {
+  insertBankError(action, error, extra);
+  if (bankTableAvailable()) return;
   const rows = bankErrors();
   rows.push({ ts: Date.now(), action, msg: String(error?.message || error || "Bank action failed"), ...extra });
   writeJson(META_BANK_ERRORS, rows.slice(-100));
@@ -131,9 +145,9 @@ function bankPlayerById(id: any) {
 
 export function bankStatusForPlayer(p: any) {
   const s = bankSettings();
-  const dep = deposits()[String(p.id)] || null;
-  const scan = scans()[String(p.id)] || null;
-  const rows = withdrawals().filter((r: any) => Number(r.playerId) === Number(p.id)).slice(-20).reverse();
+  const dep = bankTableAvailable() ? getBankDeposit(p.id) : deposits()[String(p.id)] || null;
+  const scan = bankTableAvailable() ? getBankScan(p.id) : scans()[String(p.id)] || null;
+  const rows = withdrawalRows(p.id, 20).slice(-20).reverse();
   const bankRaw = BigInt(Math.max(0, Math.floor(Number(p?.inv?.g || 0)))).toString();
   return {
     ok: true,
@@ -177,6 +191,7 @@ export function bankAdminStatus() {
     withdrawals: w.slice(-100).reverse(),
     lastErrors: bankErrors().slice(-50).reverse(),
     summary: {
+      tableMode: bankTableAvailable(),
       enabled: !!s.enabled,
       dryRunOnly: !!s.dryRunOnly,
       withdrawalsLive: !s.dryRunOnly,
@@ -195,15 +210,15 @@ export async function ensureDepositWallet(p: any) {
   if (!s.enabled) return { ok: false, reasonCode: "BANK_DISABLED", msg: "Bank deposits are not enabled yet." };
   if (!p.wallet) return { ok: false, reasonCode: "WALLET_REQUIRED", msg: "Connect Phantom first." };
   const all = deposits();
-  const existing = all[String(p.id)];
+  const existing = bankTableAvailable() ? getBankDeposit(p.id) : all[String(p.id)];
   if (existing?.address) return { ok: true, deposit: existing, alreadyExisted: true, status: bankStatusForPlayer(p) };
   return bankMeasure.measure({ start: () => `generate deposit player=${p.id}`, end: (r: any) => ({ ok: r.ok, address: r.deposit?.address?.slice?.(0, 8) }), budget: 1200 }, async () => {
     const sowl = await createBankClient();
     try {
       const result = await sowl.bank.generateDepositWallet({ userId: String(p.id), label: `solcrafts:${p.id}` });
       const deposit = { depositId: result.depositId, address: result.address, wallet: p.wallet, createdAt: Date.now(), alreadyExisted: !!result.alreadyExisted };
-      all[String(p.id)] = deposit;
-      writeJson(META_BANK_DEPOSITS, all);
+      upsertBankDeposit(p.id, deposit);
+      if (!bankTableAvailable()) { all[String(p.id)] = deposit; writeJson(META_BANK_DEPOSITS, all); }
       return { ok: true, deposit, alreadyExisted: !!result.alreadyExisted, status: bankStatusForPlayer(p) };
     } finally { sowl.close?.(); }
   }).catch((e: any) => ({ ok: false, reasonCode: "BANK_DEPOSIT_FAILED", msg: String(e?.message || e || "Could not generate deposit wallet.") }));
@@ -216,7 +231,7 @@ export async function scanBankDeposits(p: any, limit = 50) {
   if (!depRes.ok) return depRes;
   const dep = depRes.deposit;
   const byPlayer = scans();
-  const prev = byPlayer[String(p.id)] || {};
+  const prev = bankTableAvailable() ? (getBankScan(p.id) || {}) : byPlayer[String(p.id)] || {};
   return bankMeasure.measure({ start: () => `scan deposits player=${p.id}`, end: (r: any) => ({ ok: r.ok, credited: r.creditedUi, found: r.deposits?.length || 0 }), budget: 2500 }, async () => {
     const sowl = await createBankClient();
     try {
@@ -238,7 +253,8 @@ export async function scanBankDeposits(p: any, limit = 50) {
         p.inv = inv;
       }
       byPlayer[String(p.id)] = { ts: Date.now(), latestSignature: result.latestSignature || prev.latestSignature || null, scanned: result.scanned || 0, signatures: Array.from(seen).slice(-1000), deposits: [...(prev.deposits || []), ...fresh].slice(-200), creditedRaw: String((BigInt(prev.creditedRaw || "0") + creditRaw)), creditedUi: rawToUi(BigInt(prev.creditedRaw || "0") + creditRaw, s.decimals) };
-      writeJson(META_BANK_SCANS, byPlayer);
+      upsertBankScan(p.id, byPlayer[String(p.id)]);
+      if (!bankTableAvailable()) writeJson(META_BANK_SCANS, byPlayer);
       return { ok: true, creditedRaw: creditRaw.toString(), creditedUi: rawToUi(creditRaw, s.decimals), deposits: fresh, scan: byPlayer[String(p.id)], status: bankStatusForPlayer(p) };
     } finally { sowl.close?.(); }
   }).catch((e: any) => ({ ok: false, reasonCode: "BANK_SCAN_FAILED", msg: String(e?.message || e || "Could not scan deposit wallet."), status: bankStatusForPlayer(p) }));
@@ -282,7 +298,7 @@ export async function requestBankWithdrawal(p: any, amountUi: string | number, t
 
     try {
       if (s.dryRunOnly) {
-        rows.push(row); saveWithdrawals(rows);
+        rows.push(row); insertBankWithdrawal(row); saveWithdrawals(rows);
         return { ok: true, withdrawal: row, status: bankStatusForPlayer(p), msg: `Withdrawal request created for ${row.amountUi} ${s.tokenLabel}. It will be sent when transfers are enabled.` };
       }
 
@@ -300,7 +316,7 @@ export async function requestBankWithdrawal(p: any, amountUi: string | number, t
         row.signature = result?.signature || null;
         row.sentAt = Date.now();
         row.amountUi = result?.amountUi || row.amountUi;
-        rows.push(row); saveWithdrawals(rows);
+        rows.push(row); insertBankWithdrawal(row); updateBankWithdrawal(row.id, { status: row.status, signature: row.signature, sentAt: row.sentAt, amountUi: row.amountUi }); saveWithdrawals(rows);
         return { ok: true, withdrawal: row, ...row, status: bankStatusForPlayer(p), msg: `Withdrawal sent: ${row.amountUi} ${s.tokenLabel}.` };
       } finally { sowl.close?.(); }
     } catch (e: any) {
@@ -310,7 +326,7 @@ export async function requestBankWithdrawal(p: any, amountUi: string | number, t
       row.status = "failed";
       row.failedAt = Date.now();
       row.error = String(e?.message || e || "Token send failed");
-      rows.push(row); saveWithdrawals(rows);
+      rows.push(row); insertBankWithdrawal(row); updateBankWithdrawal(row.id, { status: row.status, error: row.error, failedAt: row.failedAt }); saveWithdrawals(rows);
       recordBankError("withdraw", e, { playerId: p.id, to, amountUi: row.amountUi });
       return { ok: false, reasonCode: "BANK_WITHDRAW_FAILED", msg: row.error, status: bankStatusForPlayer(p), withdrawal: row };
     }
