@@ -1,5 +1,6 @@
 // @ts-nocheck
 /** @jsxImportSource tradjs/client */
+import { t } from "../i18n";
 import { guideSummaryForRows, guideTabCount, visibleGuideRows } from "./questPanelModel";
 
 export function QuestPanelView(props: any) {
@@ -13,22 +14,22 @@ export function QuestPanelView(props: any) {
 
   return <>
     <div className="guide-summary">
-      <span className="guide-chip ok">{summary.done}/{summary.total} complete</span>
-      <span className="guide-chip">{summary.claimed} claimed</span>
-      {summary.claimable ? <span className="guide-chip wait">{summary.claimable} rewards ready</span> : null}
+      <span className="guide-chip ok">{t("guide.summaryComplete", "{done}/{total} complete", { done: summary.done, total: summary.total })}</span>
+      <span className="guide-chip">{t("guide.summaryClaimed", "{claimed} claimed", { claimed: summary.claimed })}</span>
+      {summary.claimable ? <span className="guide-chip wait">{t("guide.summaryRewardsReady", "{count} rewards ready", { count: summary.claimable })}</span> : null}
       <div className="meter"><i style={{ width: `${summary.pct}%` }} /></div>
     </div>
     <div className="guide-tabs">
       {tabs.map(([id, label]) => <button key={id} className={activeTab === id ? "btn primary" : "btn"} onClick={() => onTab(id)}>{label} {guideTabCount(rows, id)}</button>)}
     </div>
     <div className="guide-list">
-      {visible.length ? visible.map((row) => <GuidePanelCard row={row} onClaim={onClaim} />) : <div className="tiny">No cards in this section yet.</div>}
+      {visible.length ? visible.map((row) => <GuidePanelCard row={row} onClaim={onClaim} />) : <div className="tiny">{t("guide.emptySection", "No cards in this section yet.")}</div>}
     </div>
   </>;
 }
 
 function GuidePanelCard({ row, onClaim }: any) {
-  const status = row.claimed ? "Claimed" : row.done ? "Ready" : "To do";
+  const status = row.claimed ? t("guide.statusClaimed", "Claimed") : row.done ? t("guide.statusReady", "Ready") : t("guide.statusTodo", "To do");
   return <div className={"guide-card" + (row.done ? " done" : "") + (row.claimed ? " claimed" : "")}>
     <div className="guide-glyph">{row.glyph || "◇"}</div>
     <div>
@@ -38,8 +39,8 @@ function GuidePanelCard({ row, onClaim }: any) {
       <div className="guide-meta">
         <span className={"guide-chip " + (row.done ? "ok" : "wait")}>{status}</span>
         <span className="guide-chip">{row.rewardText}</span>
-        {row.done && !row.claimed ? <button className="btn primary" onClick={() => onClaim(row.id)}>Claim</button> : null}
-        {row.claimed ? <span className="guide-chip ok">✓ reward</span> : null}
+        {row.done && !row.claimed ? <button className="btn primary" onClick={() => onClaim(row.id)}>{t("guide.claim", "Claim")}</button> : null}
+        {row.claimed ? <span className="guide-chip ok">{t("guide.reward", "✓ reward")}</span> : null}
       </div>
     </div>
   </div>;

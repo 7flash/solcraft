@@ -68,6 +68,7 @@ import { formatBuildingChatCard, formatKeepRallyChatCard, formatLocationChatCard
 import { NotificationRailView } from "../client/ui/notificationRail";
 import { GameChatView } from "../client/ui/gameChat";
 import { CapitalServicePanelView } from "../client/ui/capitalServicePanel";
+import { t, tArray } from "../client/i18n";
 import { createHudRoots } from "../client/ui/hudRoots";
 import { npcTalkLine } from "../client/ui/npcDialogue";
 import { api } from "../client/game/httpClient";
@@ -98,33 +99,33 @@ const REMOTE_FULL_RIG_RADIUS = 16;
 const REMOTE_FULL_RIG_BUDGET = 24;
 const CLIENT_BOOT_AT = Date.now();
 const WALKTHROUGH_KEY = "solcraft:firstGuide:v2";
-const GUIDE_TABS = [
+const GUIDE_TABS = tArray("guide.tabs", [
   ["actions", "Actions"],
   ["buildings", "Buildings"],
   ["economy", "Economy"],
   ["skills", "Skills"],
   ["done", "Done"],
-];
+]);
 
 const WONDER_PLAZA_SIZE = SHARED_WONDER_PLAZA_SIZE || 9;
 const WONDER_PLAZA_RADIUS = WORLD_WONDER_PLAZA_RADIUS || 4;
 const WONDER_PLAZA_TILES = SHARED_WONDER_PLAZA_TILES || 81;
-const WONDER_AI_TIME_HINT = "usually 5–25s";
-const WONDER_BUILD_TIME_HINT = `${Math.max(1, Math.round((WORLD_WONDER_BUILD_MS || 45000) / 1000))}s construction`;
+const WONDER_AI_TIME_HINT = t("wonder.aiTimeHint", "usually 5–25s");
+const WONDER_BUILD_TIME_HINT = t("wonder.buildTimeHint", "{seconds}s construction", { seconds: Math.max(1, Math.round((WORLD_WONDER_BUILD_MS || 45000) / 1000)) });
 const WONDER_FOOTPRINT_CHOICES = [3, 5, 7, 9];
-const WONDER_MODE_CHOICES = [
+const WONDER_MODE_CHOICES = tArray("wonder.modeChoices", [
   { id: "district", name: "District / many tiles", text: "Multiple towers, halls, gardens, pylons, and accents spread across the plaza." },
   { id: "single", name: "Big single landmark", text: "One dominant monument centered on the plaza with support props." },
-];
-const WONDER_PALETTES = [
+]);
+const WONDER_PALETTES = tArray("wonder.palettes", [
   { id: "solar", name: "Solar gold", colors: ["#fff0a8", "#ffd76e", "#c79337", "#14f195"] },
   { id: "arcane", name: "Arcane violet", colors: ["#f3ead7", "#9945ff", "#5a2d91", "#7dcfe8"] },
   { id: "emerald", name: "Emerald mint", colors: ["#dfffee", "#14f195", "#0d7054", "#7dcfe8"] },
   { id: "ember", name: "Ember red", colors: ["#ffe3c2", "#ffb45e", "#d6604f", "#8e3d26"] },
   { id: "frost", name: "Frost blue", colors: ["#ecfbff", "#b8e9ff", "#7dcfe8", "#31507d"] },
   { id: "royal", name: "Royal prism", colors: ["#fff0a8", "#9945ff", "#4d287f", "#ffd76e"] },
-];
-const WONDER_NAME_PRESETS = [
+]);
+const WONDER_NAME_PRESETS = tArray("wonder.namePresets", [
   "Crystal Skyscraper",
   "Solar Citadel",
   "Arcane Observatory",
@@ -133,7 +134,7 @@ const WONDER_NAME_PRESETS = [
   "Frost Beacon",
   "Ember Forge Cathedral",
   "Moonlit Archive",
-];
+]);
 function normalizeWonderFootprintClient(v) { const n = Math.trunc(Number(v || 9)); return WONDER_FOOTPRINT_CHOICES.includes(n) ? n : 9; }
 function wonderRadiusClient(v) { return Math.max(1, Math.floor((normalizeWonderFootprintClient(v) - 1) / 2)); }
 function wonderTilesClient(v) { const s = normalizeWonderFootprintClient(v); return s * s; }
@@ -284,7 +285,7 @@ export default function mount() {
     const key = kind === "menu" ? "menuScale" : "uiScale";
     ST.ui = { ...(ST.ui || { uiScale: 1, menuScale: 1 }), [key]: clampUiScale(value, 1) };
     saveUiPrefs(ST.ui);
-    if (toast) say(`${kind === "menu" ? "Menu" : "Interface"} scale ${uiScalePct(ST.ui[key])}`, 900);
+    if (toast) say(t(kind === "menu" ? "toast.menuScale" : "toast.interfaceScale", kind === "menu" ? "Menu scale {value}" : "Interface scale {value}", { value: uiScalePct(ST.ui[key]) }), 900);
   }
   function stepUiScale(kind, delta) {
     const key = kind === "menu" ? "menuScale" : "uiScale";
@@ -294,7 +295,7 @@ export default function mount() {
   function resetUiScale(kind = "all") {
     if (kind === "menu") setUiScale("menu", 1, true);
     else if (kind === "ui") setUiScale("ui", 1, true);
-    else { ST.ui = { uiScale: 1, menuScale: 1 }; saveUiPrefs(ST.ui); say("Interface and menu scale reset.", 1000); }
+    else { ST.ui = { uiScale: 1, menuScale: 1 }; saveUiPrefs(ST.ui); say(t("toast.interfaceMenuScaleReset", "Interface and menu scale reset."), 1000); }
   }
   applyUiSettings();
   loadLoginGateConfig().then((gate) => { if (gate) { ST.loginGate = gate; paint(true); } }).catch(() => {});
@@ -309,8 +310,8 @@ export default function mount() {
   }, { passive: true });
 
   function toggleUiSound() { ST.uiMuted = !ST.uiMuted; saveSoundPrefs(); }
-  function toggleMusicSound() { ST.musicMuted = !ST.musicMuted; saveSoundPrefs(); if (!ST.musicMuted) { loadBackgroundMusicSetting().finally(() => { sfx.resume(); say("Music on.", 1200); }); } }
-  function startMusicNow() { ST.musicMuted = false; saveSoundPrefs(); loadBackgroundMusicSetting().finally(() => { sfx.resume(); say("Music started.", 1200); }); }
+  function toggleMusicSound() { ST.musicMuted = !ST.musicMuted; saveSoundPrefs(); if (!ST.musicMuted) { loadBackgroundMusicSetting().finally(() => { sfx.resume(); say(t("toast.musicOn", "Music on."), 1200); }); } }
+  function startMusicNow() { ST.musicMuted = false; saveSoundPrefs(); loadBackgroundMusicSetting().finally(() => { sfx.resume(); say(t("toast.musicStarted", "Music started."), 1200); }); }
 
   function walkthroughStorageKey() {
     return `${WALKTHROUGH_KEY}:${ST.auth?.pid || ST.profile.wallet || "local"}`;
@@ -330,7 +331,7 @@ export default function mount() {
   }
   function skipWalkthrough() {
     markWalkthroughDone();
-    say("Tutorial skipped. Capital NPCs will host deeper guidance later.", 1800);
+    say(t("toast.tutorialSkipped", "Tutorial skipped. Capital NPCs will host deeper guidance later."), 1800);
     paint(true);
   }
   function restartWalkthrough() {
@@ -340,9 +341,9 @@ export default function mount() {
     if (started) {
       ST.panel = null;
       ST.modal = null;
-      say("Tutorial restarted.", 1800);
+      say(t("toast.tutorialRestarted", "Tutorial restarted."), 1800);
     } else {
-      say("Tutorial reset. It will start when you enter as a player.", 2200);
+      say(t("toast.tutorialReset", "Tutorial reset. It will start when you enter as a player."), 2200);
     }
     paint(true);
   }
@@ -367,13 +368,13 @@ export default function mount() {
     if (!ST.walkthrough?.active) return;
     // Selection alone should not complete Chop/Mine/Capture. Those steps advance
     // only after the server confirms the actual completed action.
-    if (ST.walkthrough.step === "build" && kind === "build") return advanceWalkthroughTo("done", "Build cards explain cost, footprint, and construction time.");
+    if (ST.walkthrough.step === "build" && kind === "build") return advanceWalkthroughTo("done", t("toast.buildGuideDone", "Build cards explain cost, footprint, and construction time."));
   }
   function completeWalkthroughAction(kind) {
     if (!ST.walkthrough?.active) return;
-    if (ST.walkthrough.step === "chop" && kind === "chop") return advanceWalkthroughTo("mine", "Tree chopped. Next try Mine (3) on stone.");
-    if (ST.walkthrough.step === "mine" && kind === "mine") return advanceWalkthroughTo("claim", "Stone mined. Next select Capture (4) to expand connected territory.");
-    if (ST.walkthrough.step === "claim" && kind === "claim") return advanceWalkthroughTo("build", "Land captured. Build next to raise limits and make the camp useful.");
+    if (ST.walkthrough.step === "chop" && kind === "chop") return advanceWalkthroughTo("mine", t("toast.treeChoppedNext", "Tree chopped. Next try Mine (3) on stone."));
+    if (ST.walkthrough.step === "mine" && kind === "mine") return advanceWalkthroughTo("claim", t("toast.stoneMinedNext", "Stone mined. Next select Capture (4) to expand connected territory."));
+    if (ST.walkthrough.step === "claim" && kind === "claim") return advanceWalkthroughTo("build", t("toast.landCapturedNext", "Land captured. Build next to raise limits and make the camp useful."));
   }
   function syncWalkthroughFromGuideRows() {
     if (!ST.walkthrough?.active || !ST.me) return;
@@ -423,7 +424,7 @@ export default function mount() {
     clearTimeout(appearanceSaveT);
     appearanceSaveT = setTimeout(() => act("profileAppearance", { appearance: ST.characterProfile }), 350);
   }
-  function saveLiveCharacterProfile(msg = "Character updated.") {
+  function saveLiveCharacterProfile(msg = t("toast.characterUpdated", "Character updated.")) {
     ST.characterProfile = saveCharacterProfile(ST.characterProfile);
     refreshOwnRigSoon();
     pushAppearanceToServer();
@@ -467,7 +468,7 @@ export default function mount() {
     ST.characterProfile.body = ST.profile.body;
     ST.characterProfile.hat = ST.profile.hat;
     ST.characterProfile.skinColor = preset.skin;
-    saveLiveCharacterProfile(`${preset.name} colors applied.`);
+    saveLiveCharacterProfile(t("toast.colorsApplied", "{name} colors applied.", { name: preset.name }));
   }
   function setCharacterPart(key, value) {
     if (!["head", "torso", "legs", "back"].includes(String(key || ""))) return;
@@ -509,7 +510,7 @@ export default function mount() {
     const next = normalizeCameraYaw(value, ST.visual?.cameraYaw ?? Math.PI / 4);
     ST.visual = saveVisualSettings({ ...ST.visual, cameraYaw: next });
     world?.refreshCameraRotation?.();
-    if (toast) say(`Camera rotated ${cameraYawDeg(next)}°`, 900);
+    if (toast) say(t("toast.cameraRotated", "Camera rotated {degrees}°", { degrees: cameraYawDeg(next) }), 900);
     paint(true);
     return next;
   }
@@ -521,7 +522,7 @@ export default function mount() {
     world?.refreshCameraZoom?.();
     world?.refreshCameraRotation?.();
     world?.refreshWindow?.(true);
-    say("Camera reset.", 900);
+    say(t("toast.cameraReset", "Camera reset."), 900);
     paint(true);
   }
   function setMapView() {
@@ -599,7 +600,7 @@ export default function mount() {
   function readFaceFile(ev) {
     const file = ev?.target?.files?.[0];
     if (!file) return;
-    if (!file.type?.startsWith("image/")) { sfx.err(); say("That is not an image file."); return; }
+    if (!file.type?.startsWith("image/")) { sfx.err(); say(t("toast.notImage", "That is not an image file.")); return; }
     const rd = new FileReader();
     rd.onload = () => {
       const img = new Image();
@@ -614,7 +615,7 @@ export default function mount() {
         ctx.drawImage(img, 0, 0, w, h);
         setFaceImage(cv.toDataURL("image/jpeg", 0.82));
       };
-      img.onerror = () => { sfx.err(); say("Portrait could not be loaded. Try another image."); };
+      img.onerror = () => { sfx.err(); say(t("toast.portraitLoadFailed", "Portrait could not be loaded. Try another image.")); };
       img.src = String(rd.result || "");
     };
     rd.readAsDataURL(file);
@@ -651,18 +652,18 @@ export default function mount() {
   function shareHereInChat() {
     const msg = chatShareHereMessage();
     act("chat", { msg });
-    say("Shared your location.", 1100);
+    say(t("toast.sharedLocation", "Shared your location."), 1100);
   }
   function shareInspectedBuildingInChat() {
     const uid = ST.inspect || ST.wonderViewUid || 0;
     const b = uid ? world.buildPool.get(uid) : null;
-    if (!b) return say("Select a building first.", 1200);
+    if (!b) return say(t("toast.selectBuildingFirst", "Select a building first."), 1200);
     const def = LIB_BY_ID[b.kind];
     const msg = b.kind === "keep"
       ? formatKeepRallyChatCard({ uid, x: b.x, z: b.z, label: b.nm || "Keep raid", hp: b.hp, maxHp: b.maxHp, coins: b.stored })
       : formatBuildingChatCard({ uid, x: b.x, z: b.z, kind: b.kind, label: b.nm || def?.name || b.kind });
     act("chat", { msg });
-    say(b.kind === "keep" ? "Rally shared in chat." : "Shared building location.", 1200);
+    say(b.kind === "keep" ? t("toast.rallyShared", "Rally shared in chat.") : t("toast.buildingLocationShared", "Shared building location."), 1200);
   }
   function openChatCardFromElement(el) {
     const x = readNum(el, "x", 0);
@@ -931,14 +932,14 @@ export default function mount() {
       return;
     }
     ST.modal = null; paint(true);
-    if (!world.pathTo(x, z)) say("That point is too far to walk from here. Try moving in smaller steps or use a discovered travel point.", 2600);
+    if (!world.pathTo(x, z)) say(t("toast.tooFarWalk", "That point is too far to walk from here. Try moving in smaller steps or use a discovered travel point."), 2600);
   }
 
   async function act(type, payload = {}) {
     if (ST.updateRequired) return { ok: false, msg: "refresh required" };
     if (!ST.auth) return { ok: false };
     if (ST.spectator && !["move", "movePath", "adminMapTeleport", "adminDemolishAt", "adminSpawnKeep", "profileAppearance", "setupProfile", "homeStart", "homeFinish", "homeCancel", "home"].includes(type)) {
-      say("Spectator mode is read-only. Connect Phantom to claim, craft, build, trade, or collect. Spectators are visible as ghosts but cannot pick up coins.", 2200);
+      say(t("toast.spectatorReadonly", "Spectator mode is read-only. Connect Phantom to claim, craft, build, trade, or collect. Spectators are visible as ghosts but cannot pick up coins."), 2200);
       return { ok: false, msg: "spectator" };
     }
     const r = await api("/api/action", { pid: ST.auth.pid, secret: ST.auth.secret, type, ...payload });
@@ -971,7 +972,7 @@ export default function mount() {
       return null;
     }
     if (!ST.wonderName) ST.wonderName = currentWonderNameFallback();
-    if (ST.wonderBusy) { say("World Wonder AI is already generating. The foundation will start after the plan is ready.", 1800); return null; }
+    if (ST.wonderBusy) { say(t("toast.wonderAiBusy", "World Wonder AI is already generating. The foundation will start after the plan is ready."), 1800); return null; }
     if (ST.wonderRecipe && ST.wonderRecipe.prompt === prompt && Number(ST.wonderRecipe.footprint || 9) === currentWonderSize() && String(ST.wonderRecipe.mode || "district") === currentWonderMode() && String(ST.wonderRecipe.paletteId || "solar") === currentWonderPalette().id) return ST.wonderRecipe;
     ST.wonderPrompt = prompt;
     ST.wonderBusy = true; ST.wonderMsg = `Generating real AI plan… ${wonderFactsLine()}. Coins are not spent yet.`; paint(true);
@@ -988,10 +989,10 @@ export default function mount() {
         palette: currentWonderPalette().colors,
       });
     } catch (e) {
-      r = { ok: false, msg: e?.message || "Wonder generator failed." };
+      r = { ok: false, msg: e?.message || t("toast.wonderGeneratorFailed", "Wonder generator failed.") };
     }
     ST.wonderBusy = false;
-    if (!r || !r.ok || !r.recipe) { sfx.err(); ST.wonderMsg = r?.msg || "Wonder generator failed."; say(ST.wonderMsg, 2600); paint(true); return null; }
+    if (!r || !r.ok || !r.recipe) { sfx.err(); ST.wonderMsg = r?.msg || t("toast.wonderGeneratorFailed", "Wonder generator failed."); say(ST.wonderMsg, 2600); paint(true); return null; }
     ST.wonderRecipe = r.recipe;
     ST.wonderName = r.recipe?.name || ST.wonderName || currentWonderNameFallback();
     ST.wonderFootprint = r.recipe?.footprint || ST.wonderFootprint;
@@ -1002,11 +1003,11 @@ export default function mount() {
     return r.recipe;
   }
   async function placeWorldWonderAt(x, z) {
-    if (ST.wonderPlacing) { say("World Wonder placement is already running. Wait for the current request.", 1800); return; }
+    if (ST.wonderPlacing) { say(t("toast.wonderPlacementBusy", "World Wonder placement is already running. Wait for the current request."), 1800); return; }
     const promptBefore = cleanWonderPromptClient(ST.wonderPrompt);
     const placeKey = `${x},${z}:${promptBefore}`;
     if (Date.now() - Number(ST.wonderLastPlaceAt || 0) < 3500 && ST.wonderLastPlaceKey === placeKey) {
-      say("Already founding that Wonder. Wait for the server response.", 1800);
+      say(t("toast.wonderAlreadyFounding", "Already founding that Wonder. Wait for the server response."), 1800);
       return;
     }
     ST.wonderPlacing = true;
@@ -1076,7 +1077,7 @@ export default function mount() {
       startPlaying();
     } catch (e) {
       sfx.err();
-      say(e?.message || "Spectator mode failed.", 2600);
+      say(e?.message || t("toast.spectatorModeFailed", "Spectator mode failed."), 2600);
       ST.joining = false; paint(true);
     }
   }
@@ -1102,7 +1103,7 @@ export default function mount() {
     const loaded = await poll(true);
     if (loaded) {
       if (ST.needsProfile || (ST.me && !ST.me.profileDone)) { ST.modal = "intro"; paint(true); }
-      else say("Welcome back. Your flag is ready.", 3200);
+      else say(t("toast.welcomeBack", "Welcome back. Your flag is ready."), 3200);
     }
   }
 
@@ -1918,7 +1919,7 @@ export default function mount() {
         if (token !== activeMoveToken) return;
         moveBusy = false;
         const now = performance.now();
-        if (now - moveErrorAt > 900) { moveErrorAt = now; sfx.err(); say("Network hiccup — keeping movement synced.", 1600); }
+        if (now - moveErrorAt > 900) { moveErrorAt = now; sfx.err(); say(t("toast.networkHiccup", "Network hiccup — keeping movement synced."), 1600); }
         // Do not throw away the user's target on a transient request failure.
         // Snap to the last confirmed tile, then let the next click/path continue cleanly.
         stopOptimisticMovement(confirmedMove.x, confirmedMove.z);
@@ -1961,7 +1962,7 @@ export default function mount() {
         const now = performance.now();
         if (now - lowEnergyToastAt > 2600) {
           lowEnergyToastAt = now;
-          say("Low energy — keep moving, then rest to refill.", 1200);
+          say(t("toast.lowEnergy", "Low energy — keep moving, then rest to refill."), 1200);
         }
       }
       const projected = projectedMoveDistance(from, to);
@@ -1988,7 +1989,7 @@ export default function mount() {
       const freeRoadStep = freeRoadTravelCellClient(from.x, from.z) || freeRoadTravelCellClient(x, z);
       const energyBeforeStep = clientEnergyNow();
       if (!freeRoadStep && energyBeforeStep < clientMoveCost()) {
-        say("Out of energy. Roads and World Wonder districts are free to travel.", 2200);
+        say(t("toast.outOfEnergy", "Out of energy. Roads and World Wonder districts are free to travel."), 2200);
         walkQueue.length = 0; pendingWalk = null; return false;
       }
       const hopDur = travelStepDuration(from, { x, z });
@@ -2315,7 +2316,7 @@ export default function mount() {
     });
   }
   function selectAdminTool(tool = "demolish") {
-    if (!isAdminPlayer()) { sfx.err(); say("Admin tools are only available to the world admin.", 1800); return; }
+    if (!isAdminPlayer()) { sfx.err(); say(t("toast.adminOnly", "Admin tools are only available to the world admin."), 1800); return; }
     const same = ST.mode === "admin" && ST.tool === "admin" && ST.adminTool === tool;
     if (same) { closeTools(); ST.adminTool = "demolish"; ST.adminMsg = ""; }
     else {
@@ -2335,7 +2336,7 @@ export default function mount() {
         ST.adminMsg = r.note || "Admin cleanup complete.";
         say(ST.adminMsg, 1800);
         pollSoon(); paint(true);
-      } else if (r) { sfx.err(); say(r.msg || "Nothing to remove there.", 2200); }
+      } else if (r) { sfx.err(); say(r.msg || t("toast.nothingToRemove", "Nothing to remove there."), 2200); }
     });
   }
 
@@ -2467,7 +2468,7 @@ export default function mount() {
   function setTool(t) { ST.tool = t; updateHints(); paint(); }
   function doGather(kind) {
     const next = kind === "stone" ? "stone" : "wood";
-    if (ST.tool === next) { closeTools(); say(`${next === "wood" ? "Wood axe" : "Stone pick"} packed away.`, 1100); paint(); return; }
+    if (ST.tool === next) { closeTools(); say(next === "wood" ? t("toast.woodToolPacked", "Wood axe packed away.") : t("toast.stoneToolPacked", "Stone pick packed away."), 1100); paint(); return; }
     selectGatherTool(next, true);
   }
   function selectGatherTool(kind, announce = false) {
@@ -2475,7 +2476,7 @@ export default function mount() {
     ST.tool = next;
     ST.mode = "explore"; ST.placing = null;
     updateHints();
-    if (announce) say(next === "wood" ? "Wood tool selected — trees are highlighted." : "Stone tool selected — rocks are highlighted.", 1400);
+    if (announce) say(next === "wood" ? t("toast.woodToolSelected", "Wood tool selected — trees are highlighted.") : t("toast.stoneToolSelected", "Stone tool selected — rocks are highlighted."), 1400);
     paint();
   }
   function gatherDoodadFromContext(x, z, doodad) {
@@ -2488,10 +2489,10 @@ export default function mount() {
     act("claim", { x, z }).then((r) => { if (r && r.ok) { sfx.claim(); world.shockwave(x, z); completeWalkthroughAction("claim"); pollSoon(); } updateHints(); paint(); });
   }
   function selectCaptureTool() {
-    if (ST.tool === "claim") { closeTools(); say("Capture flag tucked away.", 1100); paint(); return; }
+    if (ST.tool === "claim") { closeTools(); say(t("toast.capturePacked", "Capture flag tucked away."), 1100); paint(); return; }
     ST.tool = "claim"; ST.mode = "explore"; ST.placing = null; ST.modal = null; ST.panel = null;
     updateHints();
-    say("Capture selected — click any free non-capital tile. Each tile costs stone.", 1500);
+    say(t("toast.captureSelected", "Capture selected — click any free non-capital tile. Each tile costs stone."), 1500);
     paint();
   }
   function doClaim() { return selectCaptureTool(); }
@@ -2820,12 +2821,12 @@ export default function mount() {
           else world.pathToNear(c.x, c.z);
           return;
         }
-        sfx.err(); say("Sword selected — click a Keep, building, or nearby settler.", 1500);
+        sfx.err(); say(t("toast.swordSelected", "Sword selected — click a Keep, building, or nearby settler."), 1500);
         return;
       }
     }
     if (ST.tool === "build" && c) {
-      if (!canOpenBuildTile(c)) { sfx.err(); say("Choose one of your empty captured tiles to build.", 1600); return; }
+      if (!canOpenBuildTile(c)) { sfx.err(); say(t("toast.chooseCapturedTile", "Choose one of your empty captured tiles to build."), 1600); return; }
       openObjectPreview(buildTilePreviewForCell(c));
       return;
     }
@@ -2839,7 +2840,7 @@ export default function mount() {
     if ((ST.tool === "wood" || ST.tool === "stone") && c) {
       const want = ST.tool === "wood" ? "tree" : "rock";
       const d = world.doodadVisible(c.x, c.z);
-      if (d && d !== want) { sfx.err(); say(ST.tool === "wood" ? "Use the stone pick for rocks." : "Use the wood axe for trees."); return; }
+      if (d && d !== want) { sfx.err(); say(ST.tool === "wood" ? t("toast.useStonePick", "Use the stone pick for rocks.") : t("toast.useWoodAxe", "Use the wood axe for trees.")); return; }
       if (d === want && !world.buildPoolAt(c.x, c.z)) {
         if (cheb(c.x, c.z, world.me.x, world.me.z) <= 1) startChop(c.x, c.z);
         else world.pathToNear(c.x, c.z);
@@ -2861,7 +2862,7 @@ export default function mount() {
     }
     if ((ST.tool === "siege" || ST.tool === "sword") && c) {
       const target = world.buildPoolAt(c.x, c.z);
-      if (!target || !ST.me || target.owner === ST.me.id) { sfx.err(); say("Sword targets Keeps, buildings, and settlers."); return; }
+      if (!target || !ST.me || target.owner === ST.me.id) { sfx.err(); say(t("toast.swordTargets", "Sword targets Keeps, buildings, and settlers.")); return; }
       if (cheb(target.x, target.z, world.me.x, world.me.z) <= 1) doRaid(target.uid);
       else world.pathToNear(target.x, target.z);
       return;
@@ -2885,7 +2886,7 @@ export default function mount() {
     }
     if (ST.mode === "demolish" && hitB) {
       if (ST.me && hitB.b.owner === ST.me.id) act("demolish", { uid: hitB.uid }).then((r) => { if (r && r.ok) sfx.demolish(); });
-      else { sfx.err(); say("Not your building."); }
+      else { sfx.err(); say(t("toast.notYourBuilding", "Not your building.")); }
       return;
     }
     if (hitB) { openBuildingInspect(hitB); return; }
@@ -2930,7 +2931,7 @@ export default function mount() {
     if (ST.screen !== "playing" || ST.updateRequired) return;
     const tag = document.activeElement?.tagName;
     if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
-    if (ev.key === "F8") { ev.preventDefault(); const on = perf.toggle(); say(on ? "Performance overlay on" : "Performance overlay off", 900); return; }
+    if (ev.key === "F8") { ev.preventDefault(); const on = perf.toggle(); say(on ? t("toast.perfOn", "Performance overlay on") : t("toast.perfOff", "Performance overlay off"), 900); return; }
     const k = ev.key.toLowerCase();
     if (isMoveKey(ev.key)) {
       const mk = normalizeMoveKey(ev.key);
@@ -3049,31 +3050,28 @@ export default function mount() {
         </div>
         <main className="ui31-login-shell">
           <section className="ui31-login-card">
-            <p className="ui31-kicker"><span className="login-pulse" /> Shared frontier</p>
-            <h1>World of <span>SolCrafts</span></h1>
-            <p className="ui31-login-copy">Explore from the capital, gather resources, claim land, and grow a settlement outward on one shared map.</p>
-            <div className="ui31-login-loop" aria-label="Core loop">
-              <div><b>01</b><span>Explore</span></div>
-              <div><b>02</b><span>Gather</span></div>
-              <div><b>03</b><span>Claim</span></div>
-              <div><b>04</b><span>Build</span></div>
+            <p className="ui31-kicker"><span className="login-pulse" /> {t("login.kicker", "Shared frontier")}</p>
+            <h1>{t("login.titlePrefix", "World of")} <span>{t("login.titleAccent", "SolCrafts")}</span></h1>
+            <p className="ui31-login-copy">{t("login.copy", "Explore from the capital, gather resources, claim land, and grow a settlement outward on one shared map.")}</p>
+            <div className="ui31-login-loop" aria-label={t("login.coreLoopAria", "Core loop")}>
+              {tArray("login.loop", ["Explore", "Gather", "Claim", "Build"]).map((label, i) => <div><b>{String(i + 1).padStart(2, "0")}</b><span>{label}</span></div>)}
             </div>
             <div className="ui31-login-actions">
-              <button className="ui31-play" data-click="join-game" disabled={!canJoin}>{ST.joining ? "Checking…" : !hasPhantom ? "Install Phantom" : "Enter world"}</button>
-              <button className="ui31-secondary" data-click="spectate-game" disabled={ST.joining}>Spectate</button>
-              {ST.auth ? <button className="ui31-secondary" data-click="forget-session" disabled={ST.joining}>Forget session</button> : null}
+              <button className="ui31-play" data-click="join-game" disabled={!canJoin}>{ST.joining ? t("login.checking", "Checking…") : !hasPhantom ? t("login.installPhantom", "Install Phantom") : t("login.enterWorld", "Enter world")}</button>
+              <button className="ui31-secondary" data-click="spectate-game" disabled={ST.joining}>{t("login.spectate", "Spectate")}</button>
+              {ST.auth ? <button className="ui31-secondary" data-click="forget-session" disabled={ST.joining}>{t("login.forgetSession", "Forget session")}</button> : null}
             </div>
             <div className={"ui31-login-status" + (!hasPhantom || gateProblem ? " bad" : "") }>
-              <b>{!hasPhantom ? "Phantom wallet required" : gate?.enabled ? "Wallet checked by server" : "Wallet login"}</b>
-              <span>{!hasPhantom ? "Install or enable Phantom to play. Spectate remains available without a wallet." : loginGateText(gate)}</span>
+              <b>{!hasPhantom ? t("login.phantomRequiredTitle", "Phantom wallet required") : gate?.enabled ? t("login.walletCheckedTitle", "Wallet checked by server") : t("login.walletLoginTitle", "Wallet login")}</b>
+              <span>{!hasPhantom ? t("login.phantomRequiredBody", "Install or enable Phantom to play. Spectate remains available without a wallet.") : loginGateText(gate)}</span>
             </div>
             {ST.loginMsg ? <div className="ui31-login-message">{ST.loginMsg}</div> : null}
           </section>
           <aside className="ui31-capital-card">
             <div className="ui31-capital-mini"><div className="pad" /><div className="flag" /><div className="roof" /></div>
-            <p className="ui31-kicker">Capital services</p>
-            <h2>Start near the capital</h2>
-            <p>Banking, appearance, guide, and reward systems are moving into world buildings and NPCs instead of permanent HUD menus.</p>
+            <p className="ui31-kicker">{t("login.capitalKicker", "Capital services")}</p>
+            <h2>{t("login.capitalTitle", "Start near the capital")}</h2>
+            <p>{t("login.capitalText", "Banking, appearance, guide, and reward systems are moving into world buildings and NPCs instead of permanent HUD menus.")}</p>
           </aside>
         </main>
       </div>
@@ -3940,7 +3938,7 @@ export default function mount() {
       case "intro-submit": return submitIntroName();
       case "modal-close": ST.modal = null; ST.wonderViewUid = null; ST.wonderViewError = ""; stopWonderViewer(); paint(true); return;
       case "panel-close": ST.panel = null; ST.serviceAccess = ""; paint(true); return;
-      case "char-sync": world.refreshOwnRig?.(); say("Character synced.", 900); return;
+      case "char-sync": world.refreshOwnRig?.(); say(t("toast.characterSynced", "Character synced."), 900); return;
       case "bank-refresh": return loadBankStatus();
       case "bank-deposit": return bankAction("deposit");
       case "bank-scan": return bankAction("scan");
@@ -4000,7 +3998,7 @@ export default function mount() {
         if (action === "open-trade") { if (cheb(p.x, p.z, world.me.x, world.me.z) <= 1) openTrade(); else world.pathToNear(p.x, p.z); return; }
         if (action === "talk-npc") {
           if (cheb(p.x, p.z, world.me.x, world.me.z) <= 1) say(npcTalkLine(p), 4200);
-          else { say("Walk closer to talk.", 1400); world.pathToNear(p.x, p.z); }
+          else { say(t("toast.walkCloserToTalk", "Walk closer to talk."), 1400); world.pathToNear(p.x, p.z); }
           return;
         }
         if (action === "attack-npc") {
@@ -4738,11 +4736,11 @@ export default function mount() {
     if (ST.screen !== "playing" || !ST.walkthrough?.active || ST.updateRequired || ST.modal || ST.needsProfile || !ST.me?.profileDone) return <div />;
     const step = ST.walkthrough.step;
     const meta = {
-      chop: { panel: "chop", title: "Step 1: Axe", text: "Select the axe and click a tree. Wood drops as pickups on the map.", btn: "Select axe", click: "gather-wood" },
-      mine: { panel: "mine", title: "Step 2: Pickaxe", text: "Select the pickaxe and click stone. The cursor tells you what can be worked.", btn: "Select pickaxe", click: "gather-stone" },
-      claim: { panel: "claim", title: "Step 3: Capture", text: "Select capture, stand on any open tile outside the capital, and claim it.", btn: "Select capture", click: "claim" },
-      build: { panel: "build", title: "Step 4: Build", text: "Select the hammer, click an empty captured tile, then choose a building in the right panel.", btn: "Open build", click: "select-build" },
-    }[step] || { panel: "chop", title: "Step 1: Axe", text: "Start by gathering wood.", btn: "Select axe", click: "gather-wood" };
+      chop: { panel: "chop", title: t("walkthrough.chop.title", "Step 1: Axe"), text: t("walkthrough.chop.text", "Select the axe and click a tree. Wood drops as pickups on the map."), btn: t("walkthrough.chop.button", "Select axe"), click: "gather-wood" },
+      mine: { panel: "mine", title: t("walkthrough.mine.title", "Step 2: Pickaxe"), text: t("walkthrough.mine.text", "Select the pickaxe and click stone. The cursor tells you what can be worked."), btn: t("walkthrough.mine.button", "Select pickaxe"), click: "gather-stone" },
+      claim: { panel: "claim", title: t("walkthrough.claim.title", "Step 3: Capture"), text: t("walkthrough.claim.text", "Select capture, stand on any open tile outside the capital, and claim it."), btn: t("walkthrough.claim.button", "Select capture"), click: "claim" },
+      build: { panel: "build", title: t("walkthrough.build.title", "Step 4: Build"), text: t("walkthrough.build.text", "Select the hammer, click an empty captured tile, then choose a building in the right panel."), btn: t("walkthrough.build.button", "Open build"), click: "select-build" },
+    }[step] || { panel: "chop", title: t("walkthrough.fallback.title", "Step 1: Axe"), text: t("walkthrough.fallback.text", "Start by gathering wood."), btn: t("walkthrough.fallback.button", "Select axe"), click: "gather-wood" };
     const place = walkthroughPlacement(meta.panel);
     return <div className="walkthrough-layer">
       <div className="walkthrough-scrim" />
@@ -4751,14 +4749,14 @@ export default function mount() {
         <div className="walkthrough-progress">{Math.max(1, WALK_STEPS.indexOf(step) + 1)} / {WALK_STEPS.length}</div>
         <h3>{meta.title}</h3>
         <p>{meta.text}</p>
-        <div className="tiny">Basics stay here while you play. Skip anytime.</div>
-        <div className="walkthrough-actions"><button className="btn primary" data-click={meta.click} data-panel={meta.panel}>{meta.btn}</button><button className="btn" data-click="guide-skip">Skip</button></div>
+        <div className="tiny">{t("walkthrough.note", "Basics stay here while you play. Skip anytime.")}</div>
+        <div className="walkthrough-actions"><button className="btn primary" data-click={meta.click} data-panel={meta.panel}>{meta.btn}</button><button className="btn" data-click="guide-skip">{t("walkthrough.skip", "Skip")}</button></div>
       </div>
     </div>;
   }
 
   function ModalLayer() {
-    if (ST.updateRequired) return <div className="modal-wrap"><div className="modal" style={{ width: "min(420px,94vw)", textAlign: "center" }}><h2>Update ready</h2><p className="tiny">{ST.updateReason || "A new game build is ready. Refresh when convenient."}</p><button className="btn primary" data-click="reload-page">Refresh and continue</button></div></div>;
+    if (ST.updateRequired) return <div className="modal-wrap"><div className="modal" style={{ width: "min(420px,94vw)", textAlign: "center" }}><h2>{t("update.title", "Update ready")}</h2><p className="tiny">{ST.updateReason || t("update.reason", "A new game build is ready. Refresh when convenient.")}</p><button className="btn primary" data-click="reload-page">{t("update.refresh", "Refresh and continue")}</button></div></div>;
     if (ST.screen === "playing" && ST.me && (ST.needsProfile || !ST.me.profileDone)) return <div className="modal-wrap"><IntroModal /></div>;
     if (ST.screen !== "playing" || !ST.modal) return <div />;
     return (
