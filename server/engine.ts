@@ -45,6 +45,7 @@ import { devCommandsEnabled, isAdminPlayerName } from "./adminAuth";
 import { buildingAt, buildingCacheStats, deleteBuilding, getBuilding, hydrateBuildingStore, insertBuilding } from "./buildingStore";
 import { claimTileAt, deleteTile, hydrateTileStore, insertTile, insertTiles, tileAt, tileCacheStats } from "./tileStore";
 import { deleteLoot, getLoot, hydrateLootStore, insertLoot, lootAt, lootCacheStats } from "./lootStore";
+import { allPlayers, getPlayer, hydratePlayerStore, insertPlayer, playerByWallet, playerCacheStats, touchPlayerSeen } from "./playerStore";
 
 type Player = ReturnType<typeof db.players.get> & Record<string, any>;
 type Building = Record<string, any>;
@@ -157,7 +158,8 @@ const live = new Map<number, Live>();
 function isSpectatorLike(row: any) {
   return !!row && !row.wallet && String(row.secret || "").startsWith("spectator:");
 }
-for (const q of db.players.select().all() as Player[]) {
+hydratePlayerStore();
+for (const q of allPlayers() as Player[]) {
   live.set(q.id, { id: q.id, name: q.name, body: q.body, hat: q.hat, x: q.x, z: q.z, hp: q.hp, equip: q.equip as Equip, faceImage: q.faceImage || null, appearance: parseAppearance((q as any).appearance), level: q.level || 1, xp: q.xp || 0, lastSeen: q.lastSeen || 0, spectator: isSpectatorLike(q), spawnX: q.spawnX ?? q.x ?? 0, spawnZ: q.spawnZ ?? q.z ?? 0 });
 }
 hydrateBuildingStore();
@@ -345,11 +347,11 @@ export function transientEventStatus() {
 
 /* ---------- auth ---------- */
 export function auth(pid: number, secret: string): Player | null {
-  const p = db.players.get(pid) as Player | null;
+  const p = getPlayer(pid) as Player | null;
   if (!p || p.secret !== secret) return null;
   /* throttle the lastSeen write — one per 15s, not one per poll */
   const t = now();
-  if (t - (p.lastSeen || 0) > 15000) p.lastSeen = t;
+  touchPlayerSeen(p, t, 15000);
   const l = live.get(p.id);
   if (l) l.lastSeen = t; else liveTouch(p);
   return p;
@@ -663,10 +665,10 @@ const channels = new Map<number, { x: number; z: number; until: number; type?: "
 const clearChannel = (pid: number) => channels.delete(pid);
 
 function playerById(id: number): Player | null {
-  return db.players.get(id) as Player | null;
+  return getPlayer(id) as Player | null;
 }
 function isStarterTile(x: number, z: number): Player | null {
-  for (const q of db.players.select().all() as Player[]) {
+  for (const q of allPlayers() as Player[]) {
     if (Math.max(Math.abs(x - q.spawnX), Math.abs(z - q.spawnZ)) <= SPAWN_HALF) return q;
   }
   return null;
@@ -768,7 +770,7 @@ function writeGuideClaims(p: Player, claims: Set<string>) {
 }
 export function adminResetGuideRewards(playerId: number, opts: { clearVisits?: boolean } = {}) {
   const id = Number(playerId || 0);
-  const p = db.players.get(id) as Player | null;
+  const p = getPlayer(id) as Player | null;
   if (!p) return { ok: false, msg: "player not found", reasonCode: "PLAYER_NOT_FOUND" };
   metaSet(guideClaimKey(p), "[]");
   if (opts.clearVisits) metaSet(guideFlagKey(p), "{}");
@@ -1158,7 +1160,7 @@ function sourceForMine(uid: number): GoldSource | null { return readGoldSources(
 function sourceInView(ax: number, az: number, r: number) {
   return [] as any[];
 }
-function notifyAll(kind: string, msg: string) { for (const q of db.players.select().all() as Player[]) pushEvent(q.id, kind, msg); }
+function notifyAll(kind: string, msg: string) { for (const q of allPlayers() as Player[]) pushEvent(q.id, kind, msg); }
 export function adminSpawnGoldSource(x: number, z: number, state: string = "barb") {
   return { ok: false, msg: "Gold Sources/Ruins are deprecated. Coins now spawn as pickups on claimed territory." };
 }
@@ -1264,7 +1266,7 @@ export function siegeGoldSource(p: Player, idOrX: any, zMaybe?: any) {
   return err("Old gold ruins are deprecated. Use bombs against neutral Keeps; coins now come from territory coin pickups and Keep breaches.");
 }
 export function adminUsers() {
-  return (db.players.select().all() as Player[]).map((p) => {
+  return (allPlayers() as Player[]).map((p) => {
     const e = energyNow(p);
     const ownedTiles = db.tiles.select().where({ owner: p.id }).count();
     const ownedBuildings = nonBombBuildings(p.id).length;
@@ -1295,7 +1297,7 @@ export function adminUsers() {
   }).sort((a, b) => b.tiles - a.tiles || b.buildings - a.buildings || a.id - b.id);
 }
 export function adminUpdateUser(id: number, fields: Record<string, any>) {
-  const p = db.players.get(Number(id || 0)) as Player | null;
+  const p = getPlayer(Number(id || 0)) as Player | null;
   if (!p) return { ok: false, msg: "player not found" };
   const inv = { ...(p.inv || {}) } as any;
   const num = (v: any, fallback = 0) => Math.max(0, Number(v ?? fallback) || 0);
@@ -1390,7 +1392,7 @@ export function creditCraftsFeePool(amount: number) {
 }
 export function economyStatus() {
   const goldSources = readGoldSources();
-  const players = db.players.select().all() as Player[];
+  const players = allPlayers() as Player[];
   const buildings = db.buildings.select().all() as Building[];
   const tiles = db.tiles.select().all() as any[];
   const redemptions = db.redemptions.select().all() as any[];
@@ -1518,7 +1520,7 @@ function distributeBuildingRewards() {
     buildingResourceTick();
   }
 
-  for (const p of db.players.select().all() as Player[]) {
+  for (const p of allPlayers() as Player[]) {
     const cap = tileCapacityFor(p);
     const owned = ownedTileCount(p);
     if (owned <= cap) continue;
@@ -1549,7 +1551,7 @@ export async function join(name: string, body: number, hat: number, walletAuth: 
   return measureSync(`join wallet`, () => {
     const hasName = String(name || "").trim().length > 0;
     const cleanName = hasName ? String(name || "").trim().slice(0, 18) : "Wanderer";
-    const existing = db.players.select().where({ wallet }).first() as Player | null;
+    const existing = playerByWallet(wallet) as Player | null;
     const secret = crypto.randomUUID();
 
     if (existing) {
@@ -1574,7 +1576,7 @@ export async function join(name: string, body: number, hat: number, walletAuth: 
     const [ox, oz] = spawnOrigin(idx);
     metaSet("spawnIndex", String(idx + 1));
     const pal = playerPalette(idx + 1);
-    const p = db.players.insert({
+    const p = insertPlayer({
       name: hasName ? cleanName : "Wanderer",
       secret, body: pal.body, hat: pal.hat, wallet,
       x: ox, z: oz, spawnX: ox, spawnZ: oz,
@@ -1606,7 +1608,7 @@ export function joinSpectator(name = "Spectator", appearance?: any) {
   const [ox, oz] = spectatorSpawnPoint(idx);
   const secret = `spectator:${crypto.randomUUID()}`;
   const pal = playerPalette(idx + 1000);
-  const p = db.players.insert({
+  const p = insertPlayer({
     name: String(name || "Spectator").trim().slice(0, 18) || "Spectator",
     secret, body: pal.body, hat: pal.hat, wallet: null,
     x: ox, z: oz, spawnX: ox, spawnZ: oz,
@@ -1822,7 +1824,7 @@ function resolveArmedBombs(opts: { force?: boolean; reason?: string } = {}) {
     if (!liveBomb || liveBomb.kind !== "bomb") continue;
     const end = normalizeBombFuseEnd(liveBomb, t);
     if (!opts.force && end > t) continue;
-    const owner = db.players.get(liveBomb.owner) as Player | null;
+    const owner = getPlayer(liveBomb.owner) as Player | null;
     if (!owner) { deleteBuilding(liveBomb); bump(); continue; }
     try {
       detonateBomb(owner, liveBomb);
@@ -1840,7 +1842,7 @@ export function adminBombsStatus() {
   const t = now();
   const bombs = (db.buildings.select().where({ kind: "bomb" }).all() as Building[]).map((b: any) => {
     const end = normalizeBombFuseEnd(b as Building, t);
-    const owner = db.players.get(Number(b.owner || 0)) as Player | null;
+    const owner = getPlayer(Number(b.owner || 0)) as Player | null;
     return {
       id: b.id, owner: b.owner, ownerName: owner?.name || `#${b.owner}`, kind: b.kind, variant: b.nm || "popper",
       x: b.x, z: b.z, hp: b.hp, maxHp: b.maxHp, accAt: b.accAt || 0, cdUntil: end,
@@ -1890,7 +1892,7 @@ export function maintainWorld(t = now()) {
 
   for (const l of live.values()) {
     if (l.spectator || t - l.lastSeen > ACTIVE_PLAYER_WINDOW_MS) continue;
-    const p = db.players.get(l.id) as Player | null;
+    const p = getPlayer(l.id) as Player | null;
     if (p) maintainActivePlayer(p, t);
   }
 }
@@ -1919,7 +1921,7 @@ export function ensureWorldTickStarted() {
 }
 
 export function worldTickStatus() {
-  return { started: worldTickStarted, running: worldTickRunning, lastTickAt: worldTickAt, lastSlowTickAt: worldSlowTickAt, tickMs: WORLD_TICK_MS, slowTickMs: WORLD_SLOW_TICK_MS, events: transientEventStatus(), buildingCache: buildingCacheStats(), tileCache: tileCacheStats(), lootCache: lootCacheStats() };
+  return { started: worldTickStarted, running: worldTickRunning, lastTickAt: worldTickAt, lastSlowTickAt: worldSlowTickAt, tickMs: WORLD_TICK_MS, slowTickMs: WORLD_SLOW_TICK_MS, events: transientEventStatus(), playerCache: playerCacheStats(), buildingCache: buildingCacheStats(), tileCache: tileCacheStats(), lootCache: lootCacheStats() };
 }
 
 /* ============================================================
@@ -3245,7 +3247,7 @@ export function redeem(p: Player, gold: number) { return redeemStart(p, gold); }
    on-chain holder balances and calls this per holder share.
    Total minute pool = ENERGY_POOL_PER_PLAYER × activeCount(). */
 export function syncCraftsBalance(wallet: string, balance: number): boolean {
-  const p = db.players.select().where({ wallet }).first() as Player | null;
+  const p = playerByWallet(wallet) as Player | null;
   if (!p) return false;
   p.tokenBalance = Math.max(0, Number(balance) || 0);
   dropStats(p.id);
@@ -3329,7 +3331,7 @@ const SWORD_COST = Math.max(1, Number(process.env.SOLCRAFT_SWORD_ENERGY_COST || 
 const SWORD_PLAYER_DAMAGE = Math.max(1, Number(process.env.SOLCRAFT_SWORD_PLAYER_DAMAGE || 4) || 4);
 
 export function fight(p: Player, targetId: number) {
-  const target = db.players.get(Number(targetId || 0)) as Player | null;
+  const target = getPlayer(Number(targetId || 0)) as Player | null;
   if (!target) return err("Target gone.");
   if (target.id === p.id) return err("That is you.");
   if (cheb(target.x, target.z, p.x, p.z) > 1) return err("Stand beside that settler to attack.");
@@ -3548,7 +3550,7 @@ export function acceptOffer(p: Player, offerId: number) {
   gain(p, { [o.gRes]: o.gAmt });
   o.open = 0;
   bump();
-  const seller = db.players.get(o.byId) as Player | null;
+  const seller = getPlayer(o.byId) as Player | null;
   if (seller) {
     const inv = { ...seller.inv };
     inv[o.wRes] = (inv[o.wRes] || 0) + o.wAmt;

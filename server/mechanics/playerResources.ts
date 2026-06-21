@@ -1,6 +1,6 @@
 // @ts-nocheck
-import { db } from "../db";
 import { PACK_SIZE } from "../shared";
+import { allPlayers, getPlayer } from "../playerStore";
 
 export const PLAYER_RESOURCE_KEYS = ["w", "s", "p", "f", "g", "sh", "sc"] as const;
 export const BOMB_IDS = new Set(["cracker", "snare", "popper", "thumper", "cutter", "sapper", "breacher", "quake"]);
@@ -76,13 +76,13 @@ export function displayPlayerResources(p: any) {
 }
 
 export function listPlayerResources() {
-  return (db.players.select().all() as any[])
+  return (allPlayers() as any[])
     .map(displayPlayerResources)
     .sort((a, b) => Number(b.lastSeen || 0) - Number(a.lastSeen || 0) || Number(a.id) - Number(b.id));
 }
 
 export function playerById(id: any) {
-  const p = db.players.get(Number(id || 0)) as any;
+  const p = getPlayer(Number(id || 0)) as any;
   if (!p) throw Object.assign(new Error("Player not found"), { status: 404, reasonCode: "PLAYER_NOT_FOUND" });
   return p;
 }

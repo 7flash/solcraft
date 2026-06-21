@@ -1,4 +1,4 @@
-export const DB_SCHEMA_VERSION = 9;
+export const DB_SCHEMA_VERSION = 10;
 
 export function applyProductionDbSchema(db: { exec(sql: string): unknown }) {
   // Coordinates and ownership: current hot range queries plus future ECS/chunk adapters.
@@ -52,6 +52,15 @@ export function applyProductionDbSchema(db: { exec(sql: string): unknown }) {
   db.exec("CREATE INDEX IF NOT EXISTS idx_loot_xz_id ON loot(x, z, id)");
   db.exec("CREATE INDEX IF NOT EXISTS idx_loot_id_xz ON loot(id, x, z)");
   db.exec("CREATE INDEX IF NOT EXISTS idx_loot_kind_createdAt ON loot(kind, createdAt)");
+
+  // Stage 10: player store / ECS identity preparation. These indexes support
+  // id/wallet hydration, active-player windows, starter-plot scans, and future
+  // player-component dirty replay without changing the legacy players table.
+  db.exec("CREATE INDEX IF NOT EXISTS idx_players_id_lastSeen ON players(id, lastSeen)");
+  db.exec("CREATE INDEX IF NOT EXISTS idx_players_wallet_id ON players(wallet, id)");
+  db.exec("CREATE INDEX IF NOT EXISTS idx_players_spawn_xz ON players(spawnX, spawnZ)");
+  db.exec("CREATE INDEX IF NOT EXISTS idx_players_profileDone_lastSeen ON players(profileDone, lastSeen)");
+  db.exec("CREATE INDEX IF NOT EXISTS idx_players_level_xp_lastSeen ON players(level, xp, lastSeen)");
 
 }
 

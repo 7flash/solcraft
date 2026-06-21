@@ -1,6 +1,7 @@
 // @ts-nocheck
 import { createMeasure } from "measure-fn";
 import { db, metaGet, metaSet } from "./db";
+import { getPlayer } from "./playerStore";
 
 const bankMeasure = createMeasure("bank", { maxResultLength: 220 });
 const META_BANK_SETTINGS = "solcraft:bank:settings:v1";
@@ -125,7 +126,7 @@ function recordBankError(action: string, error: any, extra: any = {}) {
 }
 function bankPlayerById(id: any) {
   const n = Number(id);
-  return Number.isFinite(n) ? db.players.get(n) as any : null;
+  return Number.isFinite(n) ? getPlayer(n) as any : null;
 }
 
 export function bankStatusForPlayer(p: any) {

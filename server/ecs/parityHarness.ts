@@ -24,7 +24,11 @@ export type ParityResult = {
   reason?: string;
 };
 
-function cloneJson<T>(value: T): T {
+function cloneState<T>(value: T): T {
+  const sc = (globalThis as any).structuredClone;
+  if (typeof sc === "function") {
+    try { return sc(value); } catch {}
+  }
   return JSON.parse(JSON.stringify(value));
 }
 
@@ -41,8 +45,8 @@ function stable(value: unknown) {
 }
 
 export function runParityCase<State>(testCase: ParityCase<State>, legacy: LegacyActionRunner<State>, ecs: EcsActionRunner<State>): ParityResult {
-  const legacyState = cloneJson(testCase.state);
-  const ecsState = cloneJson(testCase.state);
+  const legacyState = cloneState(testCase.state);
+  const ecsState = cloneState(testCase.state);
   const legacyResult = legacy(legacyState, testCase.playerId, testCase.action);
   const ecsResult = ecs(ecsState, testCase.playerId, testCase.action);
   const projectedLegacy = testCase.project(legacyState);
