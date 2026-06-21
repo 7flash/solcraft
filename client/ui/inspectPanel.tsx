@@ -103,6 +103,7 @@ export function InspectPanelView(props: any) {
       {b.kind === "worldwonder" ? <button className="ui30-btn" data-click="inspect-walk-near">Walk near</button> : null}
       {vm.mine && !isFoundation && b.kind !== "worldwonder" ? <button className="ui30-btn" disabled={maxLvl} data-click="inspect-upgrade">{maxLvl ? "Max level" : `Upgrade · ${formatCost(upCost)}`}</button> : null}
       {vm.mine && !isFoundation ? <button className="ui30-btn" disabled={missingHp <= 0} data-click="inspect-repair">{missingHp <= 0 ? "Full health" : `Repair · ${formatCost(repCost)}`}</button> : null}
+      {!vm.mine && b.kind === "keep" ? <button className="ui30-btn ui30-keep-tribute" data-click="inspect-donate-keep">Donate 10🪙</button> : null}
       {!vm.mine && (b.kind === "keep" || b.kind === "bomb") ? <button className="ui30-btn danger" disabled={!!keepPressure && !keepPressure.canRaid} data-click="inspect-raid">{keepPressure && !keepPressure.canRaid ? "Recover first" : "Raid"}</button> : null}
       {!vm.mine && b.kind !== "worldwonder" ? <button className="ui30-btn" data-click="inspect-walk-near">Walk closer</button> : null}
       {vm.mine ? <button className="ui30-btn danger" data-click="inspect-demolish">{isFoundation ? "Remove foundation" : "Demolish"}</button> : null}

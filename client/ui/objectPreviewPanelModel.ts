@@ -19,6 +19,14 @@ export type ObjectPreview = {
   resourceAmount?: number;
 };
 
+function previewResourceName(value: any) {
+  const v = String(value || "");
+  if (v === "w") return t("resources.wood", "wood");
+  if (v === "s") return t("resources.stone", "stone");
+  if (v === "f") return t("resources.food", "food");
+  return v || t("resources.supplies", "supplies");
+}
+
 export function objectPreviewTitle(p: ObjectPreview | null | undefined): string {
   if (!p) return "";
   if (p.name) return p.name;
@@ -63,8 +71,9 @@ export function objectPreviewDescription(p: ObjectPreview | null | undefined): s
   if (p.kind === "npc") {
     const role = objectPreviewRoleLabel(p.role, p.title);
     const coins = Number(p.coins || 0) > 0 ? t("objectPreview.desc.npcCoins", " They carry about {coins} coins.", { coins: Math.floor(Number(p.coins || 0)) }) : "";
+    const carried = Number(p.resourceAmount || 0) > 0 && p.resource ? t("objectPreview.desc.npcResource", " They gathered about {amount} {resource} from nearby frontier work.", { amount: Math.floor(Number(p.resourceAmount || 0)), resource: previewResourceName(p.resource) }) : "";
     const danger = Number(p.attack || 0) > 0 ? t("objectPreview.desc.npcDanger", " If attacked, they fight back for about {attack} health.", { attack: Math.floor(Number(p.attack || 0)) }) : "";
-    return `${t("objectPreview.desc.npcBase", "{role} crossing the frontier between the capital and player settlements.", { role })}${coins}${danger}`;
+    return `${t("objectPreview.desc.npcBase", "{role} crossing the frontier between the capital and player settlements.", { role })}${coins}${carried}${danger}`;
   }
   if (p.kind === "buildTile") return t("objectPreview.desc.buildTile", "An empty captured tile. Choose the building you want here; construction starts immediately and completes over time.");
   if (p.kind === "keep") {

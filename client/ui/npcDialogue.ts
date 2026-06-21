@@ -1,10 +1,18 @@
 // @ts-nocheck
 import { t } from "../i18n";
 
+function npcResourceName(value: any) {
+  const v = String(value || "");
+  if (v === "w") return t("resources.wood", "wood");
+  if (v === "s") return t("resources.stone", "stone");
+  if (v === "f") return t("resources.food", "food");
+  return v || t("resources.supplies", "supplies");
+}
+
 export function npcTalkLine(p: any) {
   const name = p?.name || p?.title || t("objectPreview.roles.wanderer", "Wanderer");
   const carrying = Number(p?.resourceAmount || 0) > 0 && p?.resource
-    ? t("npc.carryingResource", " I am carrying {amount} {resource} from the frontier.", { amount: Math.floor(Number(p.resourceAmount || 0)), resource: String(p.resource) })
+    ? t("npc.carryingResource", " I am carrying {amount} {resource} from the frontier.", { amount: Math.floor(Number(p.resourceAmount || 0)), resource: npcResourceName(p.resource) })
     : Number(p?.coins || 0) > 0
       ? t("npc.carryingCoins", " I have {coins} coins for the road.", { coins: Math.floor(Number(p.coins || 0)) })
       : t("npc.watchingRoad", " I am watching the road between the capital and the settlements.");

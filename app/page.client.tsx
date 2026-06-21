@@ -2499,6 +2499,7 @@ export default function mount() {
   function doHome() { ST.tool = "home"; updateHints(); paint(); startHomeCast(); }
   function doFight() { if (!ST.near.g) return; act("fight", { target: ST.near.g.id }).then((r) => { if (r && r.ok) sfx.hit(); }); }
   function doRaid(uid) { const target = uid != null ? uid : (ST.near.r && ST.near.r.uid); if (target == null) return; act("raid", { uid: target }).then((r) => { if (r && r.ok) sfx.raid(); }); }
+  function doDonateKeep(uid, amount = 10) { const target = uid != null ? uid : (ST.near.r && ST.near.r.uid); if (target == null) return; act("donateKeep", { uid: target, amount }).then((r) => { if (r && r.ok) { sfx.coin(); pollSoon(); paint(true); } }); }
   function doUseOrDestroy() { if (ST.near.i) return doInteract(); if (ST.near.r) return doRaid(ST.near.r.uid); }
 
   function buildingTooCloseClient(x, z) {
@@ -3931,6 +3932,7 @@ export default function mount() {
       case "inspect-share": return shareInspectedBuildingInChat();
       case "inspect-use": return useBuildingClient(ST.inspect);
       case "inspect-raid": return doRaid(ST.inspect);
+      case "inspect-donate-keep": return doDonateKeep(ST.inspect, 10);
       case "inspect-upgrade": return act("upgrade", { uid: ST.inspect });
       case "inspect-repair": return act("repair", { uid: ST.inspect });
       case "inspect-demolish": return act("demolish", { uid: ST.inspect }).then((r) => { if (r && r.ok) { sfx.demolish(); closeInspectPanel(); } });
@@ -4795,7 +4797,7 @@ export default function mount() {
     const m = ST.me;
     if (ST.screen !== "playing" || !m) return "x";
     /* energy/hp deliberately EXCLUDED — the ticker mutates them in place */
-    return [m.name, m.level, m.territory, m.built, m.maxE, m.msIndex, JSON.stringify(m.inv), JSON.stringify(m.equip),
+    return [m.name, m.level, m.territory, m.built, m.maxE, m.msIndex, JSON.stringify(m.factions || {}), JSON.stringify(m.inv), JSON.stringify(m.equip),
       (m.pack || []).filter(Boolean).length, ST.mode, ST.placing, ST.tool, ST.destroying, ST.channel && ST.channel.kind, ST.near.i && ST.near.i.label, ST.goldSources && ST.goldSources.map(g=>g.id+g.state+(g.stored||0)).join(",")].join("|");
   }
   function actionsSig() { return ST.screen !== "playing" ? "x" : [ST.uiMuted ? 1 : 0, ST.musicMuted ? 1 : 0, ST.panel || "", ST.ui?.uiScale || 1, ST.visual?.cameraZoom || 1, ST.walkthrough?.active ? 1 : 0, ST.walkthrough?.step || ""].join("|"); }
@@ -4803,7 +4805,7 @@ export default function mount() {
     if (ST.screen !== "playing") return "x";
     const m = ST.me;
     const b = ST.panel === "inspect" ? world.buildPool.get(ST.inspect) : null;
-    return [ST.panel, ST.objectPreview && JSON.stringify(ST.objectPreview), JSON.stringify(ST.visual || {}) || "", ST.questTab || "", ST.inspect || "", ST.inspectDraft && JSON.stringify(ST.inspectDraft), b && [b.level, Math.ceil(b.hp), b.maxHp, b.nm, b.cl, b.constructUntil || 0, Math.floor((constructionStateForBuilding(b)?.progress || 1) * 20)].join(":"), JSON.stringify(ST.characterProfile), ST.capitalService && JSON.stringify(ST.capitalService), ST.serviceAccess || "", m && JSON.stringify(m.inv), m && JSON.stringify(m.pack), m && JSON.stringify(m.skills), m && JSON.stringify(m.skillXp), m && m.wallet, m && m.strongbox, m && m.vaultGold, m && JSON.stringify(m.wonders), ST.wonderPrompt || "", ST.wonderName || "", ST.wonderFootprint || 9, ST.wonderMode || "district", ST.wonderPaletteId || "solar", ST.wonderBusy ? 1 : 0, ST.wonderPlacing ? 1 : 0, ST.wonderRecipe?.name || "", ST.wonderRecipe?.footprint || "", ST.wonderRecipe?.paletteId || "", ST.wonderMsg || "", m && m.biome, m && JSON.stringify(m.guideQuests), m && JSON.stringify(m.guideSummary), ST.uiMuted ? 1 : 0, ST.musicMuted ? 1 : 0, ST.ui?.uiScale || 1, ST.ui?.menuScale || 1, ST.visual?.cameraZoom || 1].join("|");
+    return [ST.panel, ST.objectPreview && JSON.stringify(ST.objectPreview), JSON.stringify(ST.visual || {}) || "", ST.questTab || "", ST.inspect || "", ST.inspectDraft && JSON.stringify(ST.inspectDraft), b && [b.level, Math.ceil(b.hp), b.maxHp, b.nm, b.cl, b.constructUntil || 0, Math.floor((constructionStateForBuilding(b)?.progress || 1) * 20)].join(":"), JSON.stringify(ST.characterProfile), ST.capitalService && JSON.stringify(ST.capitalService), ST.serviceAccess || "", m && JSON.stringify(m.inv), m && JSON.stringify(m.pack), m && JSON.stringify(m.factions || {}), m && JSON.stringify(m.skills), m && JSON.stringify(m.skillXp), m && m.wallet, m && m.strongbox, m && m.vaultGold, m && JSON.stringify(m.wonders), ST.wonderPrompt || "", ST.wonderName || "", ST.wonderFootprint || 9, ST.wonderMode || "district", ST.wonderPaletteId || "solar", ST.wonderBusy ? 1 : 0, ST.wonderPlacing ? 1 : 0, ST.wonderRecipe?.name || "", ST.wonderRecipe?.footprint || "", ST.wonderRecipe?.paletteId || "", ST.wonderMsg || "", m && m.biome, m && JSON.stringify(m.guideQuests), m && JSON.stringify(m.guideSummary), ST.uiMuted ? 1 : 0, ST.musicMuted ? 1 : 0, ST.ui?.uiScale || 1, ST.ui?.menuScale || 1, ST.visual?.cameraZoom || 1].join("|");
   }
   function bottomSig() {
     if (ST.screen !== "playing") return "x";

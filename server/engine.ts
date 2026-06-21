@@ -40,6 +40,7 @@ import { craftDestroyToolFor, tunedDestroySpecFor } from "./mechanics/destroyToo
 import { capitalBlocksPlayerTerritory } from "./capitalRules";
 import { tileCapacityForProgress, tileCapacityExplanation } from "./progressionRules";
 import { FOUNDATION_KIND, isFoundationBuildKind, foundationChoiceLabel } from "./foundationRules";
+import { adjustFactionStanding, factionDeltaText, factionSummaryForWire, factionTileCapacityBonus, readFactionStanding } from "./factionRules";
 
 type Player = ReturnType<typeof db.players.get> & Record<string, any>;
 type Building = Record<string, any>;
@@ -367,10 +368,10 @@ function resourceCap(p: Player, res: string): number { return resourceCapFor(sci
 function storageCaps(p: Player) { return storageCapsFor(scienceContext(), p); }
 function scienceStatus(p: Player) { return scienceStatusFor(scienceContext(), p); }
 function tileCapacityFor(p: Player): number {
-  // Tile ownership is progression-gated, not just building-spam gated.
-  // Houses help a little, but level gained from helpful MMO actions is the
-  // main expansion path so throwaway accounts cannot cheaply out-expand active players.
-  return tileCapacityForProgress({ level: p.level || 1, buildings: nonBombBuildings(p.id) as any[] });
+  // Tile ownership is progression-gated. XP/level remain the main path, while
+  // faction standing adds a small frontier trust bonus without replacing levels.
+  const base = tileCapacityForProgress({ level: p.level || 1, buildings: nonBombBuildings(p.id) as any[] });
+  return base + factionTileCapacityBonus(readFactionStanding(p.id));
 }
 function ownedTileCount(p: Player): number {
   return db.tiles.select().where({ owner: p.id }).count();
@@ -379,7 +380,9 @@ function tileCapacityBlockReason(p: Player, action = "claim"): string {
   const owned = ownedTileCount(p);
   const cap = tileCapacityFor(p);
   if (owned < cap) return "";
-  return `Tile limit reached (${owned}/${cap}). ${tileCapacityExplanation({ level: p.level || 1, buildings: nonBombBuildings(p.id) as any[] })}`;
+  const factionBonus = factionTileCapacityBonus(readFactionStanding(p.id));
+  const factionText = factionBonus ? ` Faction standing adds +${factionBonus} trusted frontier tiles.` : "";
+  return `Tile limit reached (${owned}/${cap}). ${tileCapacityExplanation({ level: p.level || 1, buildings: nonBombBuildings(p.id) as any[] })}${factionText}`;
 }
 function energyRefillPerMinute(p: Player) {
   return tokenRegenPerMin(Number(p.tokenBalance || 0));
@@ -1886,7 +1889,7 @@ export function snapshot(p: Player, q: { rev: number; ax: number; az: number; ch
       treesChopped: p.treesChopped, planksMade: p.planksMade,
       gearCrafted: p.gearCrafted, tradesDone: p.tradesDone, equippedOnce: !!p.equippedOnce,
       clientVersion: "", requiredVersion: clientRequiredVersion(), updateReason: clientUpdateReason(), profileDone: !!(p as any).profileDone, spectator: isSpectator(p),
-      tileCap: tileCapacityFor(p), storageCap: storageCaps(p), tuning: publicGameTuning(), quests: gameQuestTuning(),
+      tileCap: tileCapacityFor(p), storageCap: storageCaps(p), tuning: publicGameTuning(), quests: gameQuestTuning(), factions: factionSummaryForWire(p.id),
       guideQuests: guide.rows, guideSummary: { done: guide.done, total: guide.total, claimed: guide.claimed, claimable: guide.claimable, pct: guide.pct }, bank: bankStatusForPlayer(p),
     } as any;
 
@@ -2040,6 +2043,7 @@ function collectLoot(p: Player, l: any) {
   let note = "";
   if (l.kind === "wood") { const amt = Math.max(1, Math.floor(Number(l.gid || 5) || 5)); gain(p, { w: amt }); note = `+${amt} wood 🪵`; }
   else if (l.kind === "stone") { const amt = Math.max(1, Math.floor(Number(l.gid || 4) || 4)); gain(p, { s: amt }); note = `+${amt} stone 🪨`; }
+  else if (l.kind === "food") { const amt = Math.max(1, Math.floor(Number(l.gid || 3) || 3)); gain(p, { f: amt }); note = `+${amt} food 🌾`; }
   else if (l.kind === "gold") {
     const baseAmt = Math.max(1, Math.floor(Number(l.gid || 3) || 3));
     const land = tileAt(l.x, l.z) as any;
@@ -2760,7 +2764,7 @@ function scatterGold(x: number, z: number, amount: number) {
     try { db.loot.insert({ x: x + dx, z: z + dz, kind: "gold", gid: String(amt) }); } catch {}
   }
 }
-function scatterResource(x: number, z: number, kind: "wood" | "stone" | "gold", amount: number) {
+function scatterResource(x: number, z: number, kind: "wood" | "stone" | "food" | "gold", amount: number) {
   let left = Math.max(0, Math.floor(amount));
   if (!left) return;
   const spots = [[0,0], [1,0], [-1,0], [0,1], [0,-1], [1,1], [-1,-1], [1,-1], [-1,1]];
@@ -2777,6 +2781,23 @@ function markProceduralNpcGone(x: number, z: number) {
   if (row) row.state = "gone";
   else db.doodads.insert({ x, z, state: "gone" });
 }
+
+function npcGatheredResourceBonus(npc: any) {
+  // NPCs are drawn toward productive frontier infrastructure. Their carried
+  // supplies increase near player camps, which makes guarding resource hubs useful.
+  const rows = db.buildings.select().where(inBox(Number(npc.x || 0), Number(npc.z || 0), 8)).all() as Building[];
+  let bonus = 0;
+  let source = "frontier";
+  for (const b of rows) {
+    if (!b || !Number(b.owner || 0) || isUnderConstruction(b)) continue;
+    const lvl = Math.max(1, Math.floor(Number(b.level || 1)));
+    if (npc.resource === "w" && b.kind === "lumber") { bonus += 2 * lvl; source = "nearby Lumber Camp"; }
+    else if (npc.resource === "s" && b.kind === "quarry") { bonus += 2 * lvl; source = "nearby Quarry"; }
+    else if (npc.resource === "f" && b.kind === "farm") { bonus += 2 * lvl; source = "nearby Farm"; }
+  }
+  return { bonus: Math.min(24, bonus), source };
+}
+
 function simpleInvBag(inv: any) {
   return { ...(inv || {}) } as any;
 }
@@ -2820,9 +2841,13 @@ function destroyBuilding(attacker: Player, b: Building, cause = "siege") {
   const owner = playerById(b.owner);
   if (b.owner === 0 && b.kind === "keep") {
     const result = resolveKeepVaultBreak(keepVaultContext(), attacker, b);
-    pushEvent(attacker.id, "fill", result.note);
+    addXp(attacker, 40);
+    const delta = { empire: 18, bandits: -14 };
+    const standing = adjustFactionStanding(attacker.id, delta);
+    const rep = factionDeltaText(delta, standing);
+    pushEvent(attacker.id, "fill", `${result.note} ${rep} +40 XP.`);
     if (result.nextKeep?.ok) sysChat(`♜ A new Keep appeared at ${result.nextKeep.x}, ${result.nextKeep.z} with ${Math.floor(Number(result.nextKeep.gold || 0))} coins inside.`);
-    logEconomyEvent("keepVaultBreak", { attacker: attacker.id, keep: b.id, stored: result.stored, spawnedCoins: result.spawnedCoins, filledTiles: result.filledTiles, nextKeep: result.nextKeep });
+    logEconomyEvent("keepVaultBreak", { attacker: attacker.id, keep: b.id, stored: result.stored, spawnedCoins: result.spawnedCoins, filledTiles: result.filledTiles, nextKeep: result.nextKeep, factions: standing });
   } else if (def?.storage && Number(b.stored || 0) > 0) {
     const stored = Math.max(0, Math.floor(Number(b.stored || 0)));
     const loot = Math.floor(stored * VAULT_LOOT_SHARE);
@@ -3259,14 +3284,19 @@ export function attackNpc(p: Player, x: number, z: number) {
   spend(p, { e: SWORD_COST });
   p.hp = Math.max(1, Number(live.hp || MAX_HP) - Math.max(1, Math.floor(Number(npc.attack || 3))));
   markProceduralNpcGone(x, z);
+  const gathered = npcGatheredResourceBonus(npc);
+  const carriedAmount = Math.max(1, Math.floor(Number(npc.resourceAmount || 1) + gathered.bonus));
   if (npc.coins) scatterGold(x, z, npc.coins);
-  if (npc.resource === "w") scatterResource(x, z, "wood", npc.resourceAmount || 1);
-  if (npc.resource === "s") scatterResource(x, z, "stone", npc.resourceAmount || 1);
-  if (npc.resource === "f") scatterResource(x, z, "gold", Math.max(1, Math.floor((npc.resourceAmount || 1) / 2)));
+  if (npc.resource === "w") scatterResource(x, z, "wood", carriedAmount);
+  if (npc.resource === "s") scatterResource(x, z, "stone", carriedAmount);
+  if (npc.resource === "f") scatterResource(x, z, "food", carriedAmount);
   addXp(p, XP.fight);
   autoTrainSkill(p, "warrior", npc.role === "warrior" ? 5 : 2);
+  const delta = { empire: -8, bandits: 2 };
+  const standing = adjustFactionStanding(p.id, delta);
+  const rep = factionDeltaText(delta, standing);
   bump(); liveTouch(p);
-  return ok({ note: `${npc.title || "Traveler"} defeated. Loot dropped nearby.`, player: { hp: p.hp, maxHp: MAX_HP }, npc: { id: npc.id, x, z } });
+  return ok({ note: `${npc.title || "Traveler"} defeated. Loot dropped nearby${gathered.bonus ? ` from ${gathered.source}` : ""}. ${rep}`, player: { hp: p.hp, maxHp: MAX_HP }, npc: { id: npc.id, x, z }, factions: factionSummaryForWire(p.id) });
 }
 
 export function donateNpc(p: Player, x: number, z: number) {
@@ -3281,9 +3311,34 @@ export function donateNpc(p: Player, x: number, z: number) {
   else return err("Donate 2 food or 3 wood.", "DONATION_NEEDS_SUPPLIES");
   const heal = 3;
   p.hp = Math.min(MAX_HP, Math.max(1, Number(p.hp || MAX_HP)) + heal);
-  addXp(p, 1);
-  liveTouch(p);
-  return ok({ note: `Donated supplies to ${npc.title || "traveler"}. +${heal}♥ goodwill.`, player: { hp: p.hp, maxHp: MAX_HP }, inv: p.inv });
+  markProceduralNpcGone(x, z);
+  addXp(p, 8);
+  autoTrainSkill(p, "vigor", 3);
+  const delta = { empire: 8, bandits: -1 };
+  const standing = adjustFactionStanding(p.id, delta);
+  const rep = factionDeltaText(delta, standing);
+  bump(); liveTouch(p);
+  return ok({ note: `Donated supplies to ${npc.title || "traveler"}. +${heal}♥ goodwill, +8 XP. ${rep}`, player: { hp: p.hp, maxHp: MAX_HP }, inv: p.inv, factions: factionSummaryForWire(p.id) });
+}
+
+export function donateKeep(p: Player, uid: number, rawAmount = 10) {
+  const b = db.buildings.get(uid) as Building | null;
+  if (!b || Number(b.owner || 0) !== 0 || b.kind !== "keep") return err("That is not a neutral Keep.");
+  if (cheb(b.x, b.z, p.x, p.z) > 1) return err("Walk beside the Keep first.");
+  const amount = Math.max(1, Math.min(50, Math.floor(Number(rawAmount || 10))));
+  const have = Math.floor(Number(p.inv?.g || 0));
+  if (have < amount) return err(`Keep tribute needs ${amount}🪙.`, "DONATION_NEEDS_COINS");
+  spend(p, { g: amount });
+  b.stored = Math.max(0, Math.floor(Number(b.stored || 0)) + amount);
+  b.hp = Math.min(Number(b.maxHp || b.hp || 1), Math.max(1, Number(b.hp || 1)) + Math.max(1, Math.floor(amount / 2)));
+  b.accAt = now();
+  markBuildingUsed(b);
+  addXp(p, Math.max(4, Math.floor(amount / 2)));
+  const delta = { empire: -Math.max(1, Math.floor(amount / 5)), bandits: Math.max(2, Math.ceil(amount / 2)) };
+  const standing = adjustFactionStanding(p.id, delta);
+  const rep = factionDeltaText(delta, standing);
+  bump(); liveTouch(p);
+  return ok({ note: `Paid ${amount}🪙 tribute to ${b.nm || "the Keep"}. Bandits remember. ${rep}`, keep: { uid: b.id, hp: b.hp, maxHp: b.maxHp, stored: b.stored }, inv: p.inv, factions: factionSummaryForWire(p.id) });
 }
 
 /* Siege targets infrastructure only: enemy buildings and destroy tools.
@@ -3307,7 +3362,9 @@ export function raid(p: Player, uid: number) {
   const dmg = b.kind === "bomb" ? SIEGE_TOOL_DMG + siegeBonus : (isNeutralKeep ? keepHit.damage : Math.max(2, 2 + Math.floor(siegeBonus / 3)));
   const r = damageBuilding(p, b, dmg, "siege");
 
-  if (r.ok && keepHit) {
+  if (r.ok && keepHit && db.buildings.get(b.id)) {
+    const delta = { empire: 1, bandits: -1 };
+    const standing = adjustFactionStanding(p.id, delta);
     let coins = 0;
     if (b.hp > 0 && keepHit.coins > 0) {
       coins = Math.min(Math.max(0, Math.floor(Number(b.stored || 0))), Math.floor(keepHit.coins));
@@ -3316,8 +3373,10 @@ export function raid(p: Player, uid: number) {
         gain(p, { g: coins });
       }
     }
-    (r as any).note = keepRaidNote({ baseNote: (r as any).note || "Raid landed.", backlash: keepHit.backlash, coins });
+    const rep = factionDeltaText(delta, standing);
+    (r as any).note = `${keepRaidNote({ baseNote: (r as any).note || "Raid landed.", backlash: keepHit.backlash, coins })} ${rep}`;
     (r as any).player = { hp: p.hp, maxHp: MAX_HP };
+    (r as any).factions = factionSummaryForWire(p.id);
     if (coins) (r as any).coins = coins;
     sysChat(`${p.name} struck ${b.nm || "a Keep"} at ${b.x}, ${b.z}.`);
   }
@@ -3492,6 +3551,7 @@ function dispatchInner(p: Player, body: any) {
     case "fight": return fight(p, Number(body.target || body.targetId || 0));
     case "attackNpc": return attackNpc(p, body.x | 0, body.z | 0);
     case "donateNpc": return donateNpc(p, body.x | 0, body.z | 0);
+    case "donateKeep": return donateKeep(p, body.uid | 0, Number(body.amount || 10));
     case "siege": return body.sourceId || body.sourceX != null ? siegeGoldSource(p, body.sourceId || body.sourceX, body.sourceZ) : raid(p, body.uid | 0);
     case "siegeSource": return siegeGoldSource(p, body.sourceId || body.x, body.z);
     case "raid": return raid(p, body.uid | 0);
