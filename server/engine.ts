@@ -41,6 +41,7 @@ import { capitalBlocksPlayerTerritory } from "./capitalRules";
 import { tileCapacityForProgress, tileCapacityExplanation } from "./progressionRules";
 import { FOUNDATION_KIND, isFoundationBuildKind, foundationChoiceLabel } from "./foundationRules";
 import { adjustFactionStanding, factionDeltaText, factionSummaryForWire, factionTileCapacityBonus, readFactionStanding } from "./factionRules";
+import { devCommandsEnabled, isAdminPlayerName } from "./adminAuth";
 
 type Player = ReturnType<typeof db.players.get> & Record<string, any>;
 type Building = Record<string, any>;
@@ -56,9 +57,8 @@ function isPlayerBaseProtectedBuilding(b: Building | null | undefined) {
   if (b.kind === "bomb") return false;
   return true;
 }
-const ADMIN_PLAYER_NAMES = new Set(["second"]);
 function isAdminPlayer(p: Player) {
-  return ADMIN_PLAYER_NAMES.has(String(p?.name || "").trim().toLowerCase());
+  return isAdminPlayerName(String(p?.name || ""));
 }
 const COST_GLYPH: Record<string, string> = { e: "⚡", w: "🪵", p: "📦", s: "🪨", f: "🌾", g: "🪙", sh: "◈", sc: "🔬" };
 function costPart(res: string, amt: number) { return `${Math.ceil(Number(amt || 0))}${COST_GLYPH[res] || res}`; }
@@ -3571,6 +3571,7 @@ export function sendChat(p: Player, msg: string) {
   const m = String(msg || "").trim().slice(0, 120);
   if (!m) return err("Empty.");
   if (m === "/loaded") {
+    if (!devCommandsEnabled() || !isAdminPlayer(p)) return err("Unknown command.", "UNKNOWN_CHAT_COMMAND");
     gain(p, { w: 100, p: 20, s: 100, f: 50, g: 200, sh: 10 });
     const { maxE } = settleEnergy(p);
     p.energy = maxE;

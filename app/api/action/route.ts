@@ -1,5 +1,8 @@
 import { createMeasure } from "measure-fn";
 import { auth, dispatch, ensureWorldTickStarted } from "@server/engine";
+import { actionRatePolicy, validateActionBody } from "@server/actionValidation";
+import { jsonError, noStoreHeaders, playerIdFrom, readJsonLimited, secretFrom } from "@server/apiGuard";
+import { checkRateLimit, rateLimitHeaders } from "@server/rateLimit";
 
 const httpMeasure = createMeasure("http", { maxResultLength: 180 });
 
@@ -26,16 +29,31 @@ export async function POST(req: Request) {
     budget: 140,
     maxResultLength: 140,
   }, async () => {
-    body = await req.json().catch(() => ({}));
-    playerId = Number(body.pid) || 0;
-    const p = auth(playerId, String(body.secret || ""));
-    if (!p) return Response.json({ ok: false, msg: "auth", reasonCode: "AUTH" }, { status: 401 });
+    try {
+      body = await readJsonLimited(req, 260_000);
+    } catch (e: any) {
+      return jsonError(e?.message || "Bad request body.", { status: e?.status || 400, reasonCode: e?.reasonCode || "BAD_JSON" });
+    }
+
+    playerId = playerIdFrom(req, body.pid);
+    const p = auth(playerId, String(secretFrom(req, body.secret || "")));
+    if (!p) return Response.json({ ok: false, msg: "auth", reasonCode: "AUTH" }, { status: 401, headers: noStoreHeaders() });
+
+    const validated = validateActionBody({ ...body, pid: p.id });
+    if (!validated.ok) return jsonError(validated.msg, { status: 400, reasonCode: validated.reasonCode });
+    body = validated.body;
+
+    const totalLimit = checkRateLimit(`action:${p.id}`, { capacity: 60, refillPerSec: 16, cost: 1 });
+    if (!totalLimit.ok) return jsonError("Too many actions. Slow down for a moment.", { status: 429, reasonCode: "RATE_LIMITED", headers: rateLimitHeaders(totalLimit) });
+    const actionLimit = checkRateLimit(`action:${p.id}:${String(body.type || "")}`, actionRatePolicy(String(body.type || "")));
+    if (!actionLimit.ok) return jsonError("That action is being used too quickly.", { status: 429, reasonCode: "RATE_LIMITED", headers: rateLimitHeaders(actionLimit) });
+
     const result = await httpMeasure.measure({
       start: () => `dispatch ${String(body?.type || "?")} player=${p.id}`,
       end: (r: any) => actionMeasureFields(r, body, p),
       budget: 40,
       maxResultLength: 160,
     }, async () => dispatch(p, body));
-    return Response.json(result ?? { ok: false, msg: "action failed", reasonCode: "ACTION_FAILED" });
+    return Response.json(result ?? { ok: false, msg: "action failed", reasonCode: "ACTION_FAILED" }, { headers: noStoreHeaders() });
   });
 }

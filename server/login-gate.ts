@@ -115,7 +115,7 @@ export async function walletTokenBalanceRaw(wallet: string, settings = loginGate
     let raw = 0n;
     for (const acc of accounts) {
       const amount = acc?.account?.data?.parsed?.info?.tokenAmount?.amount;
-      if (amount != null && /^d+$/.test(String(amount))) raw += BigInt(String(amount));
+      if (amount != null && /^\d+$/.test(String(amount))) raw += BigInt(String(amount));
     }
     return { amountRaw: raw.toString(), amountUi: rawToUi(raw, settings.decimals), accounts: accounts.length };
   });

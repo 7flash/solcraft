@@ -8,7 +8,9 @@
     "web": "bun run server.ts",
     "game": "bun run game-server.ts",
     "check": "bun run scripts/check.ts",
-    "clean": "bun -e \"import { rmSync } from 'fs'; for (const p of ['node_modules','bun.lock','bun.lockb']) { try { rmSync(p,{recursive:true,force:true}); } catch {} }\""
+    "clean": "bun -e \"import { rmSync } from 'fs'; for (const p of ['node_modules','bun.lock','bun.lockb']) { try { rmSync(p,{recursive:true,force:true}); } catch {} }\"",
+    "test:ecs": "bun test server/ecs/*.test.ts",
+    "test:ecs:watch": "bun test --watch server/ecs/*.test.ts"
   },
   "dependencies": {
     "measure-fn": "4.0.4",

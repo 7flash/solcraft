@@ -5,6 +5,7 @@
    game/shared.ts hashes so the DB stays tiny.
    ============================================================ */
 import { Database, z } from "sqlite-zod-orm";
+import { DB_SCHEMA_VERSION, applyProductionDbSchema } from "./dbSchema";
 
 export const db = new Database(process.env.SOLCRAFT_DB || "solcraft.db", {
   players: z.object({
@@ -146,19 +147,9 @@ db.exec("CREATE INDEX IF NOT EXISTS idx_redemptions_status ON redemptions(status
 db.exec("CREATE INDEX IF NOT EXISTS idx_players_wallet ON players(wallet)");
 db.exec("CREATE INDEX IF NOT EXISTS idx_wallet_challenges_wallet_nonce ON walletChallenges(wallet, nonce)");
 
-// Stage 6 production indexes: each one mirrors a current query shape and is
-// intentionally additive, so existing live DB files migrate in-place safely.
-db.exec("CREATE INDEX IF NOT EXISTS idx_tiles_owner_xz ON tiles(owner, x, z)");
-db.exec("CREATE INDEX IF NOT EXISTS idx_buildings_owner_kind ON buildings(owner, kind)");
-db.exec("CREATE INDEX IF NOT EXISTS idx_buildings_kind_xz ON buildings(kind, x, z)");
-db.exec("CREATE INDEX IF NOT EXISTS idx_buildings_kind_cdUntil ON buildings(kind, cdUntil)");
-db.exec("CREATE INDEX IF NOT EXISTS idx_doodads_state_updated ON doodads(state, updatedAt)");
-db.exec("CREATE INDEX IF NOT EXISTS idx_loot_kind_xz ON loot(kind, x, z)");
-db.exec("CREATE INDEX IF NOT EXISTS idx_players_lastSeen ON players(lastSeen)");
-db.exec("CREATE INDEX IF NOT EXISTS idx_offers_open ON offers(open)");
-db.exec("CREATE INDEX IF NOT EXISTS idx_events_target_id ON events(target, id)");
-db.exec("CREATE INDEX IF NOT EXISTS idx_redemptions_player_status ON redemptions(player, status)");
-db.exec("CREATE INDEX IF NOT EXISTS idx_wallet_challenges_wallet_used ON walletChallenges(wallet, used)");
+// Stage 7 production schema: additive indexes only. Keep this centralized so
+// ECS migrations and current SQLite query shapes evolve from one checklist.
+applyProductionDbSchema(db);
 
 export function metaGet(k: string, dflt = ""): string {
   const row = db.meta.select().where({ k }).first();
@@ -169,3 +160,11 @@ export function metaSet(k: string, v: string) {
   if (row) (row as any).v = v;
   else db.meta.insert({ k, v });
 }
+
+export const CURRENT_DB_SCHEMA_VERSION = DB_SCHEMA_VERSION;
+export function ensureDbSchemaVersion() {
+  const current = Number(metaGet("solcraft:db:schemaVersion", "0")) || 0;
+  if (current < DB_SCHEMA_VERSION) metaSet("solcraft:db:schemaVersion", String(DB_SCHEMA_VERSION));
+  return { current: Math.max(current, DB_SCHEMA_VERSION), target: DB_SCHEMA_VERSION };
+}
+ensureDbSchemaVersion();
