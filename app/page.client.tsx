@@ -24,11 +24,13 @@ import {
   skillLvl, tradePostAt, upgradeCost, xpForLevel,
 } from "../game/shared";
 import {
-  M, ME, buildBanner, buildRig, buildRock, buildTree, lootMesh,
+  M, ME, buildBanner, buildRock, buildTree, lootMesh,
   makeBuildingGroup, makeLabel, makeSfx,
 } from "../client/meshes";
 import { loadAtlasRuntimeConfig, terrainMats, tickVisualTextures, setTerrainVisualPrefs } from "../client/textures";
 import { capitalBuildingsInView, capitalLabelVisibleForPlayer } from "../client/world/capitalLayout";
+import { makePlayerBillboard } from "../client/world/playerBillboard";
+import { playerBillboardSignature } from "../client/world/playerBillboardModel";
 import { capitalServiceForBuilding, capitalServiceAvailable } from "../client/world/capitalServices";
 import { capitalBlocksNaturalResource, capitalBlocksPlayerTerritory } from "../game/capitalRules";
 import { FOUNDATION_KIND, FOUNDATION_BUILD_KINDS, foundationChoiceLabel } from "../game/foundationRules";
@@ -288,7 +290,7 @@ function writeAckedClientVersion(version) {
 }
 
 const PROCEDURAL_ICON: Record<string, string> = {
-  axe: "🪓", wood: "🪓", pickaxe: "⛏", stone: "⛏", hammer: "🔨", build: "🔨", shovel: "▰", demolish: "▰", capture: "⚑", claim: "⚑",
+  axe: "🪓", wood: "🪓", pickaxe: "⛏", stone: "⛏", hammer: "🔨", build: "🔨", shovel: "▰", demolish: "▰", sword: "⚔", attack: "⚔", capture: "⚑", claim: "⚑",
   settings: "⚙", sound: "♪", logout: "↩", exit: "↩", energy: "⚡", gold: "●", heart: "♥", walk: "↗", inspect: "⌕", interact: "◆", wait: "…",
 };
 function UiIcon({ name, fallback = "•" }: any) {
@@ -1556,18 +1558,19 @@ export default function mount() {
       if (ST.tool === "stone") return "pickaxe";
       if (ST.tool === "build" || ST.tool === "craft" || ST.tool === "spawn" || ST.tool === "siege") return "hammer";
       if (ST.tool === "demolish" || ST.mode === "demolish") return "shovel";
-      if (ST.tool === "claim") return "spear";
+      if (ST.tool === "claim") return "capture";
+      if (ST.tool === "sword" || ST.tool === "siege") return "sword";
       if (ST.tool === "use" || ST.tool === "home") return "staff";
       return "none";
     }
     function ensureRig(force = false) {
       if (!ST.me) return;
       const heldTool = heldToolForState();
-      const sig = JSON.stringify([ST.me.body, ST.me.hat, ST.me.equip, ST.characterProfile?.palette, ST.characterProfile?.parts, ST.characterProfile?.showBack, heldTool]);
+      const sig = playerBillboardSignature({ body: ST.me.body, hat: ST.me.hat, heldTool, palette: ST.characterProfile?.palette });
       if (!force && sig === rigSig) return;
       rigSig = sig;
-      if (rig) player.remove(rig);
-      rig = buildRig(ST.me.body, ST.me.hat, ST.me.equip || {}, { legacyRig: true, lit: true, palette: ST.characterProfile?.palette, dollParts: ST.characterProfile?.parts, showBack: ST.characterProfile?.showBack === true, heldTool, name: ST.me.name });
+      if (rig) { rig.traverse?.((o) => o?.userData?.dispose?.()); player.remove(rig); }
+      rig = makePlayerBillboard({ body: ST.me.body, hat: ST.me.hat, heldTool, palette: ST.characterProfile?.palette, name: ST.me.name });
       player.add(rig);
     }
     const homeBanner = new THREE.Group(); let bannerOwner = 0; scene.add(homeBanner);
@@ -1973,19 +1976,7 @@ export default function mount() {
     }
 
     function makeRemoteLitePlayer(q) {
-      const g = new THREE.Group();
-      const bodyColor = Number(q.body || 0xf29c72);
-      const ring = new THREE.Mesh(new THREE.RingGeometry(0.22, 0.28, 18), new THREE.MeshBasicMaterial({ color: bodyColor, transparent: true, opacity: 0.38, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide }));
-      ring.rotation.x = -Math.PI / 2;
-      ring.position.y = 0.02;
-      g.add(ring);
-      const body = new THREE.Mesh(new THREE.CylinderGeometry(0.16, 0.20, 0.34, 8), M(bodyColor, { roughness: 0.85 }));
-      body.position.y = 0.34;
-      body.castShadow = false;
-      g.add(body);
-      const head = new THREE.Mesh(new THREE.SphereGeometry(0.13, 8, 6), M(0xf3ead7, { roughness: 0.9 }));
-      head.position.y = 0.63;
-      g.add(head);
+      const g = makePlayerBillboard({ body: q.body, hat: q.hat, palette: q.appearance?.palette, heldTool: "none", name: q.name });
       g.add(makeLabel(`${q.name || "Player"} · Lv ${q.level || 1}`, "#cfe8ff"));
       return g;
     }
@@ -2015,7 +2006,7 @@ export default function mount() {
           if (mode === "ghost") {
             group.add(makeRemoteGhostSpectator(q));
           } else if (mode === "full") {
-            group.add(buildRig(q.body, q.hat, q.equip || {}, { legacyRig: true, name: q.name, palette: q.appearance?.palette, dollParts: q.appearance?.parts, showBack: q.appearance?.showBack }));
+            group.add(makePlayerBillboard({ body: q.body, hat: q.hat, palette: q.appearance?.palette, heldTool: "none", name: q.name }));
             group.add(makeLabel(`${q.name || "Player"} · Lv ${q.level || 1}`, "#cfe8ff"));
           } else {
             group.add(makeRemoteLitePlayer(q));
@@ -2227,11 +2218,6 @@ export default function mount() {
       // This prevents the annoying forward-then-snap-back when energy is empty.
       if (!canStartLocalStep()) { walkQueue.length = 0; pendingWalk = null; return false; }
       const from = { x: me.x, z: me.z };
-      const freeRoadStep = freeRoadTravelCellClient(from.x, from.z) || freeRoadTravelCellClient(x, z);
-      if (!freeRoadStep && clientEnergyNow() < clientMoveCost()) {
-        say("Out of energy. Rest a moment before moving farther.", 1800);
-        walkQueue.length = 0; pendingWalk = null; return false;
-      }
       const hopDur = travelStepDuration(from, { x, z });
       walking = true;
       me.x = x; me.z = z;
@@ -2732,7 +2718,7 @@ export default function mount() {
     if (ST.tool === "claim") { closeTools(); say("Capture flag tucked away.", 1100); paint(); return; }
     ST.tool = "claim"; ST.mode = "explore"; ST.placing = null; ST.modal = null; ST.panel = null;
     updateHints();
-    say("Capture selected — click a highlighted frontier tile. Each tile costs 2 stone.", 1500);
+    say("Capture selected — click any free non-capital tile. Each tile costs stone.", 1500);
     paint();
   }
   function doClaim() { return selectCaptureTool(); }
@@ -2845,11 +2831,23 @@ export default function mount() {
     }
     return false;
   }
+
+  function buildTilePreviewForCell(c) {
+    if (!c || !ST.me) return null;
+    return { kind: "buildTile", x: c.x, z: c.z, name: "Build site", biome: biomeAt(c.x, c.z).name };
+  }
+  function canOpenBuildTile(c) {
+    if (!c || !ST.me) return false;
+    const t = world.tileOwner.get(key(c.x, c.z));
+    if (!t || Number(t.owner || 0) !== Number(ST.me.id)) return false;
+    if (capitalBlocksPlayerTerritory(c.x, c.z)) return false;
+    if (world.buildPoolAt(c.x, c.z)) return false;
+    return true;
+  }
   function claimableHere(x, z) {
     const t = world.tileOwner.get(key(x, z));
     if (!ST.me || t) return false;
     if (capitalBlocksPlayerTerritory(x, z)) return false;
-    if (!touchesOwnLand(x, z)) return false;
     const b = world.buildPoolAt(x, z);
     return !b;
   }
@@ -3036,6 +3034,28 @@ export default function mount() {
       else adminDemolishAt(c.x, c.z, hitB?.uid || 0, false);
       return;
     }
+    if (ST.tool === "sword") {
+      if (hitB) {
+        if (cheb(hitB.b.x, hitB.b.z, world.me.x, world.me.z) <= 1) doRaid(hitB.uid);
+        else world.pathToNear(hitB.b.x, hitB.b.z);
+        return;
+      }
+      if (c) {
+        const targetPlayer = (ST.players || []).find((q) => q && q.id !== ST.me?.id && q.x === c.x && q.z === c.z);
+        if (targetPlayer) {
+          if (cheb(c.x, c.z, world.me.x, world.me.z) <= 1) act("fight", { targetId: targetPlayer.id }).then((r) => { if (r?.ok) { sfx.hit(); pollSoon(); } });
+          else world.pathToNear(c.x, c.z);
+          return;
+        }
+        sfx.err(); say("Sword selected — click a Keep, building, or nearby settler.", 1500);
+        return;
+      }
+    }
+    if (ST.tool === "build" && c) {
+      if (!canOpenBuildTile(c)) { sfx.err(); say("Choose one of your empty captured tiles to build.", 1600); return; }
+      openObjectPreview(buildTilePreviewForCell(c));
+      return;
+    }
     if (((ST.mode === "place" && ST.placing) || (ST.placing === "worldwonder" && ST.tool === "wonder")) && c) {
       const bad = canPlaceAt(c.x, c.z);
       if (bad) { sfx.err(); say(bad); return; }
@@ -3066,9 +3086,9 @@ export default function mount() {
       plantDestroy(c.x, c.z);
       return;
     }
-    if (ST.tool === "siege" && c) {
+    if ((ST.tool === "siege" || ST.tool === "sword") && c) {
       const target = world.buildPoolAt(c.x, c.z);
-      if (!target || !ST.me || target.owner === ST.me.id) { sfx.err(); say("Siege targets buildings and destroy tools — not settlers. Very civilized chaos."); return; }
+      if (!target || !ST.me || target.owner === ST.me.id) { sfx.err(); say("Sword targets Keeps, buildings, and settlers."); return; }
       if (cheb(target.x, target.z, world.me.x, world.me.z) <= 1) doRaid(target.uid);
       else world.pathToNear(target.x, target.z);
       return;
@@ -3154,6 +3174,7 @@ export default function mount() {
     else if (k === "3" || k === "b") selectBuildTool();
     else if (k === "4") selectDemolishTool();
     else if (k === "5" || k === "c" || k === " ") selectCaptureTool();
+    else if (k === "6" || k === "x") doAttackTool();
     else if (k === "e" || k === "t") doUseTool();
     else if (k === "i") say("Banking is moving to the capital bank.", 1400);
     else if (k === "r") say("Crafting will move to workshop buildings.", 1400);
@@ -3317,11 +3338,10 @@ export default function mount() {
       });
     }
     const resourceRows = [
-      ["w", "Wood", "🪵", "Warehouse raises wood/stone/plank/shard storage. Lumber Camp helps create more tree nodes."],
-      ["s", "Stone", "🪨", "Warehouse raises wood/stone/plank/shard storage. Quarry helps create more rock nodes."],
-      ["p", "Planks", "📦", "Warehouse raises plank storage. Craft planks from wood and protect your supply."],
-      ["f", "Food", "🌾", "Granary raises food storage. Farms produce food over time."],
-      ["sh", "Shards", "◈", "Warehouse raises shard storage. Stone Keep slowly creates shards later."],
+      ["w", "Wood", "🪵", "Storage is limited. Lumber Camp helps create more tree nodes."],
+      ["s", "Stone", "🪨", "Storage is limited. Mine helps create more rock nodes."],
+      ["f", "Food", "🌾", "Food restores health after raids and dangerous fights."],
+      ["g", "Coins", "🪙", "Coins come from pickups, markets, and Keep raids."],
     ];
     for (const [key, name, glyph, body] of resourceRows) {
       const cap = Number(caps[key] || 0);
@@ -3458,7 +3478,7 @@ export default function mount() {
   function selectBuildTool() {
     if (ST.mode === "build" || ST.mode === "place") closeTools();
     else {
-      ST.mode = "build"; ST.placing = FOUNDATION_KIND; ST.tool = "build";
+      ST.mode = "build"; ST.placing = null; ST.tool = "build";
     }
     updateHints(); paint(); syncBuildScrollSoon();
   }
@@ -3473,11 +3493,11 @@ export default function mount() {
       openWonderPlanner("Type one Wonder prompt, choose size/style if needed, then click a valid map tile. No separate plan/place step.");
       return;
     }
-    if (id !== FOUNDATION_KIND) { sfx.err(); say("Place a foundation first, then choose the final building from its panel.", 2400); return; }
-    ST.placing = FOUNDATION_KIND; ST.mode = "place"; ST.tool = "build";
-    const def = LIB_BY_ID[FOUNDATION_KIND];
-    if (def) say(`Foundation selected. Place it on owned land, then inspect it to choose House, Lumber Camp, Mine, Farm, or Market.`, 4200);
-    updateHints(); paint(); syncBuildScrollSoon();
+    if (!ST.objectPreview || ST.objectPreview.kind !== "buildTile") { sfx.err(); say("Select a captured tile first, then choose a building in the right panel.", 2400); return; }
+    const target = ST.objectPreview;
+    act("place", { kind: id, x: target.x, z: target.z }).then((r) => {
+      if (r?.ok) { sfx.build(); world.shockwave(target.x, target.z, 0xffe2a8); ST.objectPreview = null; ST.panel = null; closeTools(); pollSoon(); paint(true); say(r.note || "Construction started.", 1800); }
+    });
   }
   function selectCraftTool() {
     if (ST.mode === "craft" || ST.tool === "craft") closeTools();
@@ -3622,8 +3642,9 @@ export default function mount() {
     startHomeCast();
   }
   function doAttackTool() {
-    if (ST.tool === "siege") return closeTools(), paint();
-    ST.tool = "siege"; ST.mode = "explore"; ST.placing = null; updateHints(); say("Siege selected — click an enemy building or destroy tool. Cities are the target, not settlers.", 1800); paint();
+    if (ST.tool === "sword") return closeTools(), paint();
+    ST.tool = "sword"; ST.mode = "explore"; ST.placing = null; ST.modal = null;
+    updateHints(); say("Sword selected — click Keeps, buildings, or settlers to attack. Energy limits attacks, not walking.", 1800); paint();
   }
   function plantDestroy(x = world.me.x, z = world.me.z) {
     const spec = destroySpec();
@@ -4110,13 +4131,21 @@ export default function mount() {
           enterWonderPlacement();
           return;
         }
-        if (id !== FOUNDATION_KIND) { sfx.err(); say("Place a foundation first, then choose the final building from its panel.", 2400); return; }
-        ST.placing = FOUNDATION_KIND; ST.mode = "place"; ST.tool = "build"; ST.modal = null;
-        say("Foundation selected. Place it on owned land, then inspect it to choose the building.", 2600);
-        updateHints(); paint(true); syncBuildScrollSoon(); return;
+        if (!ST.objectPreview || ST.objectPreview.kind !== "buildTile") { sfx.err(); say("Click a captured tile first, then choose what to build from the right panel.", 2400); return; }
+        const target = ST.objectPreview;
+        return act("place", { kind: id, x: target.x, z: target.z }).then((r) => {
+          if (r?.ok) { sfx.build(); world.shockwave(target.x, target.z, 0xffe2a8); ST.objectPreview = null; ST.panel = null; closeTools(); pollSoon(); paint(true); say(r.note || "Construction started.", 1800); }
+        });
       }
-      case "foundation-build": {
+      case "foundation-build":
+      case "build-tile-choice": {
         const kind = readStr(el, "id");
+        const target = ST.objectPreview || {};
+        if (target.kind === "buildTile") {
+          return act("place", { kind, x: target.x, z: target.z }).then((r) => {
+            if (r?.ok) { sfx.build(); world.shockwave(target.x, target.z, 0xffe2a8); ST.objectPreview = null; ST.panel = null; closeTools(); pollSoon(); paint(true); say(r.note || `${foundationChoiceLabel(kind)} construction started.`, 1800); }
+          });
+        }
         return act("completeFoundation", { uid: ST.inspect, kind }).then((r) => {
           if (r?.ok) { sfx.build(); pollSoon(); paint(true); say(`${foundationChoiceLabel(kind)} construction started.`, 1800); }
         });
@@ -4934,7 +4963,7 @@ export default function mount() {
       chop: { panel: "chop", title: "Step 1: Axe", text: "Select the axe and click a tree. Wood drops as pickups on the map.", btn: "Select axe", click: "gather-wood" },
       mine: { panel: "mine", title: "Step 2: Pickaxe", text: "Select the pickaxe and click stone. The cursor tells you what can be worked.", btn: "Select pickaxe", click: "gather-stone" },
       claim: { panel: "claim", title: "Step 3: Capture", text: "Select capture and click connected highlighted land to grow your border.", btn: "Select capture", click: "claim" },
-      build: { panel: "build", title: "Step 4: Build", text: "Select the hammer, place a foundation, then inspect it to choose a building.", btn: "Open build", click: "select-build" },
+      build: { panel: "build", title: "Step 4: Build", text: "Select the hammer, click an empty captured tile, then choose a building in the right panel.", btn: "Open build", click: "select-build" },
     }[step] || { panel: "chop", title: "Step 1: Axe", text: "Start by gathering wood.", btn: "Select axe", click: "gather-wood" };
     const place = walkthroughPlacement(meta.panel);
     return <div className="walkthrough-layer">

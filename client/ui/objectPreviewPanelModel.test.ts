@@ -18,3 +18,12 @@ test("keep chat cards explain coordination loop", () => {
   assert.match(text, /55\/120 HP/);
   assert.match(text, /30 coins/);
 });
+
+test("build tile preview offers building choice instead of walking primary", () => {
+  const p = { kind: "buildTile" as const, x: 7, z: 3, name: "Build site" };
+  assert.equal(objectPreviewTitle(p), "Build site");
+  assert.match(objectPreviewDescription(p), /Choose the building/i);
+  assert.equal(objectPreviewPrimaryAction(p), "choose-building");
+  assert.equal(objectPreviewActionLabel("choose-building"), "Choose building");
+  assert.equal(objectPreviewShouldShowPrimary(p), true);
+});

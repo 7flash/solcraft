@@ -49,7 +49,7 @@ export function PlayerHudView(props: any) {
         pct={vm.energyPct}
         fillId="sc-e-fill"
         valueId="sc-e-now"
-        tip={`Energy ${vm.energyNow} / ${vm.maxEnergy}. Movement and world actions spend energy; it refills over time.`}
+        tip={`Energy ${vm.energyNow} / ${vm.maxEnergy}. Movement stays free; energy limits gathering, claiming, building, and attacks.`}
       />
       <Meter
         kind="health"
@@ -68,7 +68,7 @@ export function PlayerHudView(props: any) {
       <ResourceChip icon="🪵" label="Wood" value={m.inv?.w || 0} cap={m.storageCap?.w || 250} tip={`Wood ${m.inv?.w || 0}. Storage cap: ${m.storageCap?.w || 250}.`} />
       <ResourceChip icon="🪨" label="Stone" value={m.inv?.s || 0} cap={m.storageCap?.s || 250} tip={`Stone ${m.inv?.s || 0}. Storage cap: ${m.storageCap?.s || 250}.`} />
       <ResourceChip icon="🌾" label="Food" value={m.inv?.f || 0} cap={m.storageCap?.f || 250} tip={`Food ${m.inv?.f || 0}. Farms and crops provide food for recovery.`} />
-      <ResourceChip icon="◈" label="Shards" value={m.inv?.sh || 0} cap={m.storageCap?.sh || 250} tip={`Shards ${m.inv?.sh || 0}. Storage cap: ${m.storageCap?.sh || 250}.`} />
+      <ResourceChip icon="🪙" label="Coins" value={m.inv?.g || 0} cap={m.storageCap?.g || 999999} tip={`Coins ${m.inv?.g || 0}. Earn coins from territory, markets, and Keep raids.`} />
     </section>
 
     {primaryWarning ? <section className={`ui31-hud-note ${primaryWarning.cls || "warn"}`} data-tip-title={primaryWarning.title} data-tip-body={primaryWarning.body}>

@@ -7,10 +7,9 @@ export type RibbonModeSnapshot = {
 };
 
 /**
- * Pure selector for the secondary/top ribbon.
- * Stage 16 rule: the bottom HUD is a direct toolbelt. Axe, Pickaxe, Shovel,
- * and Capture do not open nested ribbons. Hammer/Build is the only primary
- * toolbelt slot that opens a selection ribbon by default.
+ * Secondary/top ribbon selector. Build is now tile-first: Hammer does not open
+ * a top build strip. The player clicks an owned tile and chooses the building
+ * from the right-side panel.
  */
 export function ribbonModeForState(s: RibbonModeSnapshot): RibbonMode {
   const mode = String(s.mode || "");
@@ -19,7 +18,7 @@ export function ribbonModeForState(s: RibbonModeSnapshot): RibbonMode {
 
   if (mode === "admin" || tool === "admin") return "admin";
   if (mode === "wonder" || tool === "wonder" || placing === "worldwonder") return "wonder";
-  if (mode === "build" || mode === "place" || tool === "build") return "build";
+  if ((mode === "place" && !!placing) || (mode === "build" && !!placing)) return "build";
   if (mode === "teleport" || tool === "teleport") return "teleport";
   if (mode === "tools") return "tools";
   if (mode === "craft" || tool === "craft") return "craft";

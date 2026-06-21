@@ -21,7 +21,7 @@ const BASE_CELL_SLOTS = {
   doll: ["skin0", "skin1", "skin2", "skin3", "skin4", "skin5", "skin6", "skin7", "hair0", "hair1", "hair2", "hair3", "hair4", "hair5", "hair6", "hair7", "hat0", "hat1", "hat2", "hat3", "hat4", "hat5", "hat6", "hat7", "torso0", "torso1", "torso2", "torso3", "torso4", "torso5", "torso6", "torso7", "legs0", "legs1", "legs2", "legs3", "legs4", "legs5", "legs6", "legs7", "back0", "back1", "back2", "back3", "back4", "back5", "back6", "back7"],
 } as const;
 
-export const TOOL_IDS = ["axe", "pickaxe", "hammer", "shovel", "capture"] as const;
+export const TOOL_IDS = ["axe", "pickaxe", "hammer", "shovel", "capture", "sword"] as const;
 export type ToolId = (typeof TOOL_IDS)[number];
 
 export const CURSOR_IDS = ["default", "walk", "inspect", "interact", "denied", "select", "wait", "target", "pin", "chat", "drag", "close"] as const;
@@ -44,13 +44,13 @@ export const ATLAS_CATALOG: Record<AtlasId, AtlasCatalogEntry> = {
   tool: {
     id: "tool",
     label: "Tools",
-    cols: 5,
+    cols: 6,
     rows: 3,
-    cells: 5,
+    cells: 6,
     runtimeFile: "tool_atlas_clean.png",
     defaultMode: "procedural",
     slots: TOOL_ATLAS_SLOTS,
-    notes: "Fallback-first dedicated atlas contract for five active tools: bottom toolbelt icons, in-hand character overlays, and active tool cursor sprites. Tool art no longer belongs in the doll atlas.",
+    notes: "Fallback-first dedicated atlas contract for six active tools: bottom toolbelt icons, in-hand character overlays, and active tool cursor sprites. Tool art no longer belongs in the doll atlas.",
   },
   cursor: {
     id: "cursor",
@@ -61,7 +61,7 @@ export const ATLAS_CATALOG: Record<AtlasId, AtlasCatalogEntry> = {
     runtimeFile: "cursor_atlas_clean.png",
     defaultMode: "procedural",
     slots: CURSOR_IDS,
-    notes: "Fallback-first dedicated atlas contract for neutral/non-tool browser cursors: default movement, inspect/interact, denied/select, wait/target/share/chat states. Active axe/pickaxe/hammer/shovel/capture cursor art lives in the tool atlas.",
+    notes: "Fallback-first dedicated atlas contract for neutral/non-tool browser cursors: default movement, inspect/interact, denied/select, wait/target/share/chat states. Active axe/pickaxe/hammer/shovel/capture/sword cursor art lives in the tool atlas.",
   },
 };
 

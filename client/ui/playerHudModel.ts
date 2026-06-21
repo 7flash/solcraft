@@ -63,11 +63,10 @@ export function limitAdviceRows(m: any): LimitAdviceRow[] {
   }
 
   const resourceRows: Array<[string, string, string, string]> = [
-    ["w", "Wood", "🪵", "Warehouse raises wood/stone/plank/shard storage. Lumber Camp helps create more tree nodes."],
-    ["s", "Stone", "🪨", "Warehouse raises wood/stone/plank/shard storage. Quarry helps create more rock nodes."],
-    ["p", "Planks", "📦", "Warehouse raises plank storage. Craft planks from wood and protect your supply."],
-    ["f", "Food", "🌾", "Granary raises food storage. Farms produce food over time."],
-    ["sh", "Shards", "◈", "Warehouse raises shard storage. Stone Keep slowly creates shards later."],
+    ["w", "Wood", "🪵", "Storage is limited. Build settlement infrastructure before gathering too much wood."],
+    ["s", "Stone", "🪨", "Storage is limited. Stone fuels capture and construction."],
+    ["f", "Food", "🌾", "Food restores health after raids and dangerous fights."],
+    ["g", "Coins", "🪙", "Coins come from pickups, markets, and Keep raids."],
   ];
 
   for (const [key, name, glyph, body] of resourceRows) {

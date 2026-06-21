@@ -1958,11 +1958,11 @@ export function move(p: Player, x: number, z: number) {
     return err(doodadAt(x, z) ? "That tree blocks the path. Walk around it or chop it first." : "That spot is occupied.");
   }
   const e = settleEnergy(p);
-  const moveCost = moveEnergyCostFor(p, p.x, p.z, x, z);
-  const usableEnergy = e.energy;
-  if (moveCost > 0 && usableEnergy < moveCost) return err("Out of energy. Rest for a moment before moving farther.", "NO_ENERGY_REQUIRED");
-  const spendNow = Math.min(moveCost, Math.max(0, usableEnergy));
-  p.energy = Math.max(0, usableEnergy - spendNow);
+  // Walking must never hard-stop the player. Energy is now primarily an action
+  // throttle for gathering, claiming, building, and fighting. Calling
+  // settleEnergy() here still lets energy recover naturally while the player
+  // is travelling, and resting recovers it faster because no actions spend it.
+  p.energy = e.energy;
   p.energyAt = now();
   p.x = x; p.z = z;
   clearChannel(p.id); // moving away cancels any in-progress channel
@@ -2139,6 +2139,7 @@ function buildPadProblem(p: Player, x: number, z: number, kind = "", recipeLike:
   if (!center || center.owner !== p.id) return `Build on YOUR claimed land. ${def?.name || "This building"} also needs a clear claimed ${pad}.`;
   if (buildingAt(x, z)) return "Occupied.";
   if (doodadAt(x, z)) return "Clear the tree or rock on the center tile first.";
+  if (isFoundationBuildKind(kind)) return null;
   for (const [dx, dz] of buildPadOffsets(kind)) {
     const sx = x + dx, sz = z + dz;
     const st = tileAt(sx, sz);
@@ -2201,7 +2202,6 @@ export function claim(p: Player, x: number, z: number) {
     return err("Player territory is protected. Expand into open frontier or siege neutral Keeps for coins.", "BASE_PROTECTED");
   }
   if (capitalBlocksPlayerTerritory(x, z)) return err("The capital plaza is public land. Build settlements outside the service ring.", "CAPITAL_RESERVED");
-  if (!touchesOwnLand(p, x, z)) return err("Claims must touch your own land.");
   const capReason = tileCapacityBlockReason(p, "claim");
   if (capReason) return err(capReason);
 
@@ -2481,7 +2481,8 @@ export function place(p: Player, kind: string, x: number, z: number, prompt = ""
   if (def.weapon) return err("Destroy tools are deployed from Deploy (6), not the building menu.");
   if ([BARB_CAMP_KIND, "wall", "gate"].includes(kind)) return err("That legacy structure is disabled. Cities stay walkable with normal buildings and one free tile of street around each.");
   if (kind === "worldwonder") return placeWorldWonder(p, x, z, prompt, recipe);
-  if (String(kind) !== FOUNDATION_KIND) return err("Place a foundation first, then choose the building from its panel.", "FOUNDATION_REQUIRED");
+  if (String(kind) === FOUNDATION_KIND) return err("Choose the final building from the selected tile panel.", "FOUNDATION_REMOVED");
+  if (!isFoundationBuildKind(kind)) return err("Choose House, Lumber Camp, Mine, Farm, or Market.", "BUILD_KIND_DISABLED");
   if (capitalBlocksPlayerTerritory(x, z)) return err("The capital plaza is reserved for public buildings.", "CAPITAL_RESERVED");
   const territory = db.tiles.select().where({ owner: p.id }).count();
   if (territory < (def.unlock || 0)) return err(`Unlocks at ${def.unlock} tiles.`);
@@ -2509,7 +2510,7 @@ export function place(p: Player, kind: string, x: number, z: number, prompt = ""
   addXp(p, def.decor ? 2 : XP.build);
   autoTrainSkill(p, "mason", def.decor ? 2 : 6);
   refreshMilestones(p);
-  return ok({ uid: (b as any).id, buildMs, note: `Foundation placed. Inspect it to choose what to build here.` });
+  return ok({ uid: (b as any).id, buildMs, note: `${def.name} construction started. It will finish in about ${Math.round(buildMs / 1000)}s.` });
 }
 
 export function completeFoundation(p: Player, uid: number, kind: string) {
@@ -3183,8 +3184,25 @@ export function dropPack(p: Player, idx: number) {
 }
 
 /* ---------- combat ---------- */
+const SWORD_COST = Math.max(1, Number(process.env.SOLCRAFT_SWORD_ENERGY_COST || 4) || 4);
+const SWORD_PLAYER_DAMAGE = Math.max(1, Number(process.env.SOLCRAFT_SWORD_PLAYER_DAMAGE || 4) || 4);
+
 export function fight(p: Player, targetId: number) {
-  return err("Settlers are citizens, not targets. Use Siege on buildings and destroy tools.");
+  const target = db.players.get(Number(targetId || 0)) as Player | null;
+  if (!target) return err("Target gone.");
+  if (target.id === p.id) return err("That is you.");
+  if (cheb(target.x, target.z, p.x, p.z) > 1) return err("Stand beside that settler to attack.");
+  const live = settleEnergy(p);
+  if (live.energy < SWORD_COST) return err(`Need ${SWORD_COST}⚡ to swing your sword.`, "NO_ATTACK_ENERGY");
+  spend(p, { e: SWORD_COST });
+  const victimLive = settleEnergy(target);
+  target.hp = Math.max(1, Number(victimLive.hp || MAX_HP) - SWORD_PLAYER_DAMAGE);
+  (target as any).lastFoodHealAt = 0;
+  liveTouch(p); liveTouch(target);
+  pushEvent(target.id, "raid", `⚔ ${p.name} struck you for ${SWORD_PLAYER_DAMAGE}♥ damage.`);
+  pushEvent(p.id, "raid", `⚔ You struck ${target.name || "a settler"} for ${SWORD_PLAYER_DAMAGE}♥ damage.`);
+  bump();
+  return ok({ note: `Sword hit: -${SWORD_PLAYER_DAMAGE}♥.`, player: { hp: p.hp, maxHp: MAX_HP }, target: { id: target.id, hp: target.hp, maxHp: MAX_HP } });
 }
 
 /* Siege targets infrastructure only: enemy buildings and destroy tools.
@@ -3192,9 +3210,8 @@ export function fight(p: Player, targetId: number) {
 export function raid(p: Player, uid: number) {
   const b = db.buildings.get(uid) as Building | null;
   if (!b) return err("Gone.");
-  if (b.owner === p.id) return err("That's yours.");
-  if (cheb(b.x, b.z, p.x, p.z) > 1) return err("Stand beside it to siege it.");
-  if (energyNow(p).energy < RAID_COST) return err(`Need ${RAID_COST}⚡ to siege.`);
+  if (cheb(b.x, b.z, p.x, p.z) > 1) return err("Stand beside it to attack it.");
+  if (energyNow(p).energy < RAID_COST) return err(`Need ${RAID_COST}⚡ to attack.`);
   const siegeBonus = gearStat(p.equip as Equip, "atk") + skillAtk(p.skills as Skills);
   const isNeutralKeep = Number(b.owner || 0) === 0 && b.kind === "keep";
   let keepHit: any = null;
@@ -3206,7 +3223,7 @@ export function raid(p: Player, uid: number) {
 
   spend(p, { e: RAID_COST });
   if (keepHit) p.hp = keepHit.playerHpAfter;
-  const dmg = b.kind === "bomb" ? SIEGE_TOOL_DMG + siegeBonus : (isNeutralKeep ? keepHit.damage : 1);
+  const dmg = b.kind === "bomb" ? SIEGE_TOOL_DMG + siegeBonus : (isNeutralKeep ? keepHit.damage : Math.max(2, 2 + Math.floor(siegeBonus / 3)));
   const r = damageBuilding(p, b, dmg, "siege");
 
   if (r.ok && keepHit) {

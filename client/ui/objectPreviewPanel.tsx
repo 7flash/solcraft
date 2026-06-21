@@ -2,6 +2,14 @@
 /** @jsxImportSource tradjs/client */
 import { objectPreviewActionLabel, objectPreviewDescription, objectPreviewGlyph, objectPreviewPrimaryAction, objectPreviewShouldShowPrimary, objectPreviewTitle } from "./objectPreviewPanelModel";
 
+const BUILD_CHOICES = [
+  ["cottage", "House", "🏠", "Expands your settlement and supports future services."],
+  ["lumber", "Lumber Camp", "🪵", "Improves wood gathering and frontier growth."],
+  ["quarry", "Mine", "⛏", "Improves stone gathering and building flow."],
+  ["farm", "Farm", "🌾", "Grows crops; food restores health over time."],
+  ["market", "Market", "🪙", "Turns settlement activity into coins."],
+];
+
 export function ObjectPreviewPanelView({ preview }: any) {
   const p = preview || null;
   if (!p) return <div />;
@@ -29,8 +37,14 @@ export function ObjectPreviewPanelView({ preview }: any) {
       {p.maxHp ? <span><b>{Math.max(0, Math.floor(Number(p.hp || 0)))}/{Math.floor(Number(p.maxHp || 0))}</b><em>HP when shared</em></span> : null}
       {p.coins ? <span><b>{Math.floor(Number(p.coins || 0))}🪙</b><em>reported inside</em></span> : null}
     </div> : null}
+    {p.kind === "buildTile" ? <div className="ui44-build-choices" aria-label="Choose building for selected tile">
+      {BUILD_CHOICES.map(([id, name, icon, text]) => <button className="ui44-build-choice" data-click="build-tile-choice" data-id={id}>
+        <b><span>{icon}</span>{name}</b>
+        <small>{text}</small>
+      </button>)}
+    </div> : null}
     <div className="inspect-actions">
-      {showPrimary ? <button className="btn primary" data-click="object-preview-primary" data-object-action={primary}>{objectPreviewActionLabel(primary)}</button> : null}
+      {showPrimary && p.kind !== "buildTile" ? <button className="btn primary" data-click="object-preview-primary" data-object-action={primary}>{objectPreviewActionLabel(primary)}</button> : null}
       <button className="btn" data-click="object-preview-walk-near">Walk near</button>
       <button className="btn" data-click="object-preview-close">Close</button>
     </div>

@@ -8,39 +8,15 @@ export function isBuildRibbonOpen(s: ActionBarSnapshot): boolean {
   return s.mode === "build" || s.mode === "place" || s.tool === "build";
 }
 
-export function isAxeActive(s: ActionBarSnapshot): boolean {
-  return s.tool === "wood";
-}
+export function isAxeActive(s: ActionBarSnapshot): boolean { return s.tool === "wood"; }
+export function isPickaxeActive(s: ActionBarSnapshot): boolean { return s.tool === "stone"; }
+export function isCaptureActive(s: ActionBarSnapshot): boolean { return s.tool === "claim"; }
+export function isSwordActive(s: ActionBarSnapshot): boolean { return s.tool === "sword" || s.tool === "siege"; }
+export function isDemolishActive(s: ActionBarSnapshot): boolean { return s.mode === "demolish" || s.tool === "demolish"; }
+export function isTeleportRibbonOpen(s: ActionBarSnapshot): boolean { return s.mode === "teleport" || s.tool === "teleport"; }
+export function isToolsRibbonOpen(s: ActionBarSnapshot): boolean { return s.mode === "tools" || s.tool === "use" || s.tool === "spawn" || s.mode === "spawn" || s.mode === "spawnPlace"; }
+export function isMorePanelOpen(s: ActionBarSnapshot): boolean { return s.panel === "more"; }
 
-export function isPickaxeActive(s: ActionBarSnapshot): boolean {
-  return s.tool === "stone";
-}
-
-export function isCaptureActive(s: ActionBarSnapshot): boolean {
-  return s.tool === "claim";
-}
-
-export function isDemolishActive(s: ActionBarSnapshot): boolean {
-  return s.mode === "demolish" || s.tool === "demolish";
-}
-
-// Kept for legacy callers/tests while teleport moves out of the bottom toolbelt.
-export function isTeleportRibbonOpen(s: ActionBarSnapshot): boolean {
-  return s.mode === "teleport" || s.tool === "teleport";
-}
-
-// Kept for legacy callers/tests while the nested Tools ribbon is no longer primary UI.
-export function isToolsRibbonOpen(s: ActionBarSnapshot): boolean {
-  return s.mode === "tools" || s.tool === "use" || s.tool === "spawn" || s.mode === "spawn" || s.mode === "spawnPlace";
-}
-
-export function isMorePanelOpen(s: ActionBarSnapshot): boolean {
-  return s.panel === "more";
-}
-
-/**
- * UI-only active-state reducer for the bottom toolbelt.
- */
 export function actionBarActive(s: ActionBarSnapshot): Record<string, boolean> {
   return {
     "gather-wood": isAxeActive(s),
@@ -48,8 +24,7 @@ export function actionBarActive(s: ActionBarSnapshot): Record<string, boolean> {
     "select-build": isBuildRibbonOpen(s),
     "demolish-tool": isDemolishActive(s),
     "capture-tool": isCaptureActive(s),
-
-    // legacy keys stay false/derived so older test/import call-sites do not crash
+    "siege-tool": isSwordActive(s),
     "explore-mode": (s.mode || "explore") === "explore" && (s.tool || "none") === "none",
     "tools-toggle": isToolsRibbonOpen(s),
     claim: isCaptureActive(s),

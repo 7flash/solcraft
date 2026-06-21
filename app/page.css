@@ -1579,3 +1579,17 @@ input:focus,select:focus{border-color:var(--line2);box-shadow:0 0 0 3px rgba(20,
 .ui30-foundation-choice span{font-size:12px;line-height:1.25;color:#b8c2d0;font-weight:750;}
 .ui30-foundation-choice em{font-style:normal;font-size:12px;color:#9bffd9;font-weight:950;align-self:end;}
 @media(max-width:760px){.ui30-foundation-grid{grid-template-columns:1fr;}}
+
+/* Stage 44 — action energy, tile-first building, sword tool */
+.ui2-toolbelt-stack{width:min(456px,calc(100vw - 14px))!important;}
+.ui2-toolbelt-bar{grid-template-columns:repeat(6,minmax(0,1fr));}
+.ui2-toolbelt-slot[data-tool-cursor="sword"].on .ico{filter:none;box-shadow:inset 0 0 0 1px rgba(255,215,110,.35),0 8px 18px rgba(224,96,76,.18);}
+.sc-root[data-tool-cursor="sword"] .sc-world,
+.sc-root[data-tool-cursor="sword"] .sc-world canvas{cursor:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='32' height='32' viewBox='0 0 32 32'><path d='M7 27 L23 7' stroke='%23f3ead7' stroke-width='5' stroke-linecap='round'/><path d='M7 27 L23 7' stroke='%23242933' stroke-width='2' stroke-linecap='round'/><path d='M18 6 L25 3 L22 10 Z' fill='%23ffd76e' stroke='%233b2607' stroke-width='2'/><path d='M5 24 L11 30' stroke='%23ffd76e' stroke-width='4' stroke-linecap='round'/></svg>") 7 7, crosshair;}
+.notice-rail{top:calc(var(--safe-y) + 92px)!important;bottom:auto!important;left:50%!important;translate:-50% 0!important;transform-origin:top center!important;width:min(420px,calc(100vw - 24px))!important;}
+.ui44-build-choices{display:grid;gap:8px;margin:10px 0 4px;}
+.ui44-build-choice{display:grid;gap:3px;text-align:left;border:1px solid rgba(243,234,215,.14);border-radius:16px;background:linear-gradient(180deg,rgba(255,255,255,.08),rgba(255,255,255,.035));color:var(--paper);padding:10px 11px;cursor:pointer;font-family:inherit;}
+.ui44-build-choice:hover{border-color:rgba(255,215,110,.38);background:rgba(255,215,110,.10);}
+.ui44-build-choice b{display:flex;gap:8px;align-items:center;font-size:13px;}
+.ui44-build-choice small{color:#b9af9d;font-size:11px;line-height:1.25;}
+@media(max-width:720px){.ui2-toolbelt-stack{width:min(414px,calc(100vw - 10px))!important}.notice-rail{top:calc(var(--safe-y) + 72px)!important}}

@@ -4,13 +4,14 @@ import test from "node:test";
 import { ATLAS_CATALOG, CURSOR_IDS, TOOL_ATLAS_ROWS, TOOL_ATLAS_SLOTS, atlasEntry, atlasRuntimeDefaults } from "./atlasCatalog.ts";
 
 test("tool atlas has toolbelt, hand, and active tool cursor rows", () => {
-  assert.equal(ATLAS_CATALOG.tool.cols, 5);
+  assert.equal(ATLAS_CATALOG.tool.cols, 6);
   assert.equal(ATLAS_CATALOG.tool.rows, 3);
   assert.deepEqual(TOOL_ATLAS_ROWS.map((row) => row.id), ["bar", "hand", "cursor"]);
   assert.equal(TOOL_ATLAS_SLOTS[0], "bar.axe");
-  assert.equal(TOOL_ATLAS_SLOTS[7], "hand.hammer");
-  assert.equal(TOOL_ATLAS_SLOTS[12], "cursor.hammer");
-  assert.equal(TOOL_ATLAS_SLOTS[14], "cursor.capture");
+  assert.equal(TOOL_ATLAS_SLOTS[8], "hand.hammer");
+  assert.equal(TOOL_ATLAS_SLOTS[14], "cursor.hammer");
+  assert.equal(TOOL_ATLAS_SLOTS[16], "cursor.capture");
+  assert.equal(TOOL_ATLAS_SLOTS[17], "cursor.sword");
 });
 
 test("runtime defaults include the new tool atlas", () => {

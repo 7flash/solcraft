@@ -1,4 +1,4 @@
-export type ObjectPreviewKind = "tree" | "rock" | "food" | "trade" | "npc" | "tile" | "shared" | "keep";
+export type ObjectPreviewKind = "tree" | "rock" | "food" | "trade" | "npc" | "tile" | "buildTile" | "shared" | "keep";
 
 export type ObjectPreview = {
   kind: ObjectPreviewKind;
@@ -21,6 +21,7 @@ export function objectPreviewTitle(p: ObjectPreview | null | undefined): string 
   if (p.kind === "trade") return "Capital exchange";
   if (p.kind === "npc") return "Frontier visitor";
   if (p.kind === "keep") return "Shared keep";
+  if (p.kind === "buildTile") return "Build site";
   if (p.kind === "shared") return "Shared location";
   return "Frontier tile";
 }
@@ -33,6 +34,7 @@ export function objectPreviewGlyph(p: ObjectPreview | null | undefined): string 
   if (p.kind === "trade") return "↔";
   if (p.kind === "npc") return "☻";
   if (p.kind === "keep") return "⚔";
+  if (p.kind === "buildTile") return "▦";
   if (p.kind === "shared") return "⌖";
   return "◇";
 }
@@ -44,6 +46,7 @@ export function objectPreviewDescription(p: ObjectPreview | null | undefined): s
   if (p.kind === "food") return "A crop patch grown by a nearby farm. Food restores health over time and can be harvested when you stand beside it.";
   if (p.kind === "trade") return "A public exchange point. In the capital this becomes the natural place for bank, deposit, withdrawal, and trade actions.";
   if (p.kind === "npc") return `${p.biome || "Frontier"} visitor. NPC services should eventually live in capital/city buildings instead of permanent HUD menus.`;
+  if (p.kind === "buildTile") return "An empty captured tile. Choose the building you want here; construction starts immediately and completes over time.";
   if (p.kind === "keep") {
     const hp = p.maxHp ? ` Current rally note: ${Math.max(0, Math.floor(Number(p.hp || 0)))}/${Math.floor(Number(p.maxHp || 0))} HP.` : "";
     const coins = p.coins ? ` Scouts report about ${Math.floor(Number(p.coins || 0))} coins inside.` : "";
@@ -60,6 +63,7 @@ export function objectPreviewPrimaryAction(p: ObjectPreview | null | undefined):
   if (p.kind === "npc") return "walk-near";
   if (p.kind === "tree" || p.kind === "rock") return "walk-near";
   if (p.kind === "keep" || p.kind === "shared") return "walk-near";
+  if (p.kind === "buildTile") return "choose-building";
   return "walk";
 }
 
@@ -67,10 +71,11 @@ export function objectPreviewActionLabel(action: string): string {
   if (action === "harvest-food") return "Harvest food";
   if (action === "open-trade") return "Open exchange";
   if (action === "walk-near") return "Walk near";
+  if (action === "choose-building") return "Choose building";
   return "Walk here";
 }
 
 export function objectPreviewShouldShowPrimary(p: ObjectPreview | null | undefined): boolean {
   if (!p) return false;
-  return p.kind === "food" || p.kind === "trade" || p.kind === "npc" || p.kind === "tile" || p.kind === "shared" || p.kind === "keep";
+  return p.kind === "food" || p.kind === "trade" || p.kind === "npc" || p.kind === "tile" || p.kind === "buildTile" || p.kind === "shared" || p.kind === "keep";
 }
