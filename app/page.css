@@ -1547,3 +1547,35 @@ input:focus,select:focus{border-color:var(--line2);box-shadow:0 0 0 3px rgba(20,
 .ui41-service-note b{color:#9fffd9;font:950 12px/1 var(--ui30-font,Inter,system-ui,sans-serif);text-transform:uppercase;letter-spacing:.08em;white-space:nowrap;}
 .ui41-service-note span{color:rgba(223,255,240,.78);font:800 12px/1.25 var(--ui30-font,Inter,system-ui,sans-serif);}
 @media(max-width:720px){.ui41-service-hero{grid-template-columns:48px minmax(0,1fr);}.ui41-service-glyph{width:48px;height:48px;border-radius:16px;font-size:25px}.ui41-service-chip{grid-column:1/-1;justify-self:start}.ui41-service-note{grid-template-columns:1fr}}
+
+/* Stage 42 — foundation-first building */
+.ui30-foundation-card{
+  display:grid;
+  gap:10px;
+  padding:12px;
+  border-radius:18px;
+  background:rgba(255,255,255,.055);
+  border:1px solid rgba(255,255,255,.12);
+}
+.ui30-section-head{display:flex;align-items:flex-end;justify-content:space-between;gap:10px;}
+.ui30-section-head b{font-weight:950;color:#f3ead7;letter-spacing:-.02em;}
+.ui30-section-head span{font-size:12px;color:#aeb9c8;font-weight:800;}
+.ui30-foundation-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;}
+.ui30-foundation-choice{
+  border:1px solid rgba(255,255,255,.12);
+  border-radius:16px;
+  background:linear-gradient(180deg,rgba(255,255,255,.10),rgba(255,255,255,.045));
+  color:#f3ead7;
+  text-align:left;
+  padding:10px;
+  cursor:pointer;
+  display:grid;
+  gap:5px;
+  min-height:92px;
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.06),0 10px 20px rgba(0,0,0,.14);
+}
+.ui30-foundation-choice:hover,.ui30-foundation-choice:focus-visible{border-color:rgba(20,241,149,.55);outline:none;transform:translateY(-1px);}
+.ui30-foundation-choice strong{font-size:14px;font-weight:950;}
+.ui30-foundation-choice span{font-size:12px;line-height:1.25;color:#b8c2d0;font-weight:750;}
+.ui30-foundation-choice em{font-style:normal;font-size:12px;color:#9bffd9;font-weight:950;align-self:end;}
+@media(max-width:760px){.ui30-foundation-grid{grid-template-columns:1fr;}}

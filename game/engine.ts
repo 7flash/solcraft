@@ -38,6 +38,7 @@ import { applyKeepRegen, keepRaidHitPreview, keepRaidNote } from "./mechanics/ke
 import { academyScienceCapFor, resourceCapFor, scienceStatusFor, storageCapsFor } from "./mechanics/science";
 import { craftDestroyToolFor, tunedDestroySpecFor } from "./mechanics/destroyTools";
 import { capitalBlocksPlayerTerritory } from "./capitalRules";
+import { FOUNDATION_KIND, isFoundationBuildKind, foundationChoiceLabel } from "./foundationRules";
 
 type Player = ReturnType<typeof db.players.get> & Record<string, any>;
 type Building = Record<string, any>;
@@ -417,7 +418,7 @@ function settleEnergy(p: Player) {
   return e;
 }
 function normalBuildMs(def: BuildingDef | undefined, kind = "") {
-  if (!def || def.weapon || kind === "bomb" || kind === "keep" || kind === "road") return 0;
+  if (!def || def.weapon || kind === "bomb" || kind === "keep" || kind === "road" || kind === FOUNDATION_KIND) return 0;
   if (kind === "worldwonder") return WORLD_WONDER_BUILD_MS;
   if (def.decor) return DECOR_BUILDING_BUILD_MS;
   if (["townhall", "goldmine", "academy", "workshop", "vault"].includes(String(kind))) return NORMAL_BUILDING_BUILD_MS + 8000;
@@ -2480,12 +2481,13 @@ export function place(p: Player, kind: string, x: number, z: number, prompt = ""
   if (def.weapon) return err("Destroy tools are deployed from Deploy (6), not the building menu.");
   if ([BARB_CAMP_KIND, "wall", "gate"].includes(kind)) return err("That legacy structure is disabled. Cities stay walkable with normal buildings and one free tile of street around each.");
   if (kind === "worldwonder") return placeWorldWonder(p, x, z, prompt, recipe);
+  if (String(kind) !== FOUNDATION_KIND) return err("Place a foundation first, then choose the building from its panel.", "FOUNDATION_REQUIRED");
   if (capitalBlocksPlayerTerritory(x, z)) return err("The capital plaza is reserved for public buildings.", "CAPITAL_RESERVED");
   const territory = db.tiles.select().where({ owner: p.id }).count();
   if (territory < (def.unlock || 0)) return err(`Unlocks at ${def.unlock} tiles.`);
   const padProblem = buildPadProblem(p, x, z, kind);
   if (padProblem) return err(padProblem);
-  if (kind !== ROAD_KIND && p.x === x && p.z === z) return err("Step aside first.");
+  if (String(kind) !== ROAD_KIND && p.x === x && p.z === z) return err("Step aside first.");
 
   const miss = afford(p, def.cost);
   if (miss.length) return err(`Missing resources for ${def.name}: ${missingText(p, def.cost)}. Cost: ${costText(def.cost)}.`);
@@ -2497,16 +2499,6 @@ export function place(p: Player, kind: string, x: number, z: number, prompt = ""
   // columns. Construction is encoded with existing fields: accAt=start,
   // cdUntil=end. Snapshot exposes virtual constructAt/constructUntil for UI.
   const b = db.buildings.insert({ owner: p.id, kind, x, z, level: 1, hp: mhp, maxHp: mhp, accAt: startedAt, cdUntil: startedAt + buildMs, stored: 0 });
-  if (kind === GOLD_MINE_KIND) {
-    notifyAll("milestone", `⛏ ${p.name} built a Coin Mint at ${x}, ${z}. Territory coins can now be cashed out nearby.`);
-  }
-  if (kind === "academy") {
-    pushEvent(p.id, "milestone", "🎓 Academy online. It will passively generate science for bomb crafting.");
-  }
-  if (kind === "worldwonder") {
-    notifyAll("milestone", `★ ${p.name} raised a World Wonder at ${x}, ${z}. Everyone on the frontier can see who is building history.`);
-    sysChat(`★ ${p.name} completed a World Wonder at ${x}, ${z}.`);
-  }
   /* clear any doodad/loot under the new building */
   const ex = db.doodads.select().where({ x, z }).first() as any;
   if (doodadAt(x, z)) { if (ex) (ex as any).state = "gone"; else db.doodads.insert({ x, z, state: "gone" }); }
@@ -2517,7 +2509,38 @@ export function place(p: Player, kind: string, x: number, z: number, prompt = ""
   addXp(p, def.decor ? 2 : XP.build);
   autoTrainSkill(p, "mason", def.decor ? 2 : 6);
   refreshMilestones(p);
-  return ok({ uid: (b as any).id, buildMs, note: `${def.name} foundation placed. Construction finishes in about ${Math.round(buildMs / 1000)}s.` });
+  return ok({ uid: (b as any).id, buildMs, note: `Foundation placed. Inspect it to choose what to build here.` });
+}
+
+export function completeFoundation(p: Player, uid: number, kind: string) {
+  if (!isFoundationBuildKind(kind)) return err("Choose House, Lumber Camp, Mine, Farm, or Market.", "FOUNDATION_KIND_INVALID");
+  const b = db.buildings.get(uid) as Building | null;
+  if (!b || b.owner !== p.id) return err("That is not your foundation.");
+  if (b.kind !== FOUNDATION_KIND) return err("This spot is already assigned.", "NOT_FOUNDATION");
+  if (cheb(b.x, b.z, p.x, p.z) > 1) return err("Walk next to the foundation first.");
+  const def = buildingDef(kind);
+  if (!def) return err("Unknown building.");
+  const miss = afford(p, def.cost);
+  if (miss.length) return err(`Missing resources for ${foundationChoiceLabel(kind)}: ${missingText(p, def.cost)}. Cost: ${costText(def.cost)}.`);
+  spend(p, def.cost);
+  const mhp = buildMaxHp(def, 1) + masonHp(p.skills as Skills);
+  const startedAt = now();
+  const buildMs = normalBuildMs(def, kind);
+  b.kind = kind;
+  b.level = 1;
+  b.hp = mhp;
+  b.maxHp = mhp;
+  b.acc = 0;
+  b.accAt = startedAt;
+  b.cdUntil = startedAt + buildMs;
+  b.stored = 0;
+  b.nm = null;
+  dropStats(p.id);
+  bump();
+  addXp(p, XP.build);
+  autoTrainSkill(p, "mason", 6);
+  refreshMilestones(p);
+  return ok({ uid: b.id, kind, buildMs, note: `${foundationChoiceLabel(kind)} started. Construction finishes in about ${Math.round(buildMs / 1000)}s.` });
 }
 
 
@@ -3345,6 +3368,7 @@ function dispatchInner(p: Player, body: any) {
     case "adminSpawnKeep": return adminSpawnKeep(p, body);
     case "adminDemolishAt": return adminDemolishAt(p, body);
     case "place": return place(p, String(body.kind), body.x | 0, body.z | 0, body.prompt, body.recipe);
+    case "completeFoundation": return completeFoundation(p, Number(body.uid || 0), String(body.kind || ""));
     case "placeWonder": return placeWorldWonder(p, body.x | 0, body.z | 0, body.prompt, body.recipe);
     case "makeBomb": return craftDestroyTool(p, String(body.variant || body.bomb || "popper"));
     case "spawnBomb": return castBorderBomb(p, String(body.variant || body.bomb || "popper"), body.x, body.z);

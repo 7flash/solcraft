@@ -31,6 +31,7 @@ import { loadAtlasRuntimeConfig, terrainMats, tickVisualTextures, setTerrainVisu
 import { capitalBuildingsInView, capitalLabelVisibleForPlayer } from "../client/world/capitalLayout";
 import { capitalServiceForBuilding, capitalServiceAvailable } from "../client/world/capitalServices";
 import { capitalBlocksNaturalResource, capitalBlocksPlayerTerritory } from "../game/capitalRules";
+import { FOUNDATION_KIND, FOUNDATION_BUILD_KINDS, foundationChoiceLabel } from "../game/foundationRules";
 import { loadCharacterProfile, saveCharacterProfile, type CharacterProfile } from "../client/dollProfile";
 import { isMoveKey, movementVectorFromKeys, normalizeMoveKey } from "../client/game/directionalInput";
 import { canIssueKeyboardStep, DEFAULT_KEYBOARD_STEP_MS } from "../client/game/keyboardStepper";
@@ -3350,8 +3351,8 @@ export default function mount() {
     const activePlayers = Array.isArray(ST.map?.players) ? ST.map.players.length : visiblePlayers;
     const hint = ST.channel ? (ST.channel.kind === "home" ? "Casting return to flag — stand still" : ST.channel.kind === "redeem" ? "Withdrawing at trade post — hold your nerve" : ST.channel.kind === "tree" ? "Chopping wood — stay close until the logs drop" : "Mining stone — stay close until the chunks drop")
       : ST.tool === "spawn" ? "Deploy · choose a crafted deployable · yellow tiles are valid deploy spots"
-      : ST.mode === "place" ? `3 — hammer · place ${LIB_BY_ID[ST.placing]?.name || "building"} · green tile only`
-      : ST.mode === "build" ? "3 — hammer · choose a building from the top ribbon"
+      : ST.mode === "place" ? `3 — hammer · place foundation · green tile only`
+      : ST.mode === "build" ? "3 — hammer · place a foundation"
       : ST.mode === "demolish" ? "4 — shovel · click one of your own buildings to demolish"
       : ST.tool === "wood" ? "1 — axe selected · trees are highlighted"
       : ST.tool === "stone" ? "2 — pickaxe selected · rocks are highlighted"
@@ -3382,7 +3383,8 @@ export default function mount() {
   }
 
 
-  const BUILDABLES = LIBRARY.filter((b) => !["road", "bomb", "barbcamp", "wall", "gate", "keep"].includes(b.id));
+  const FOUNDATION_CHOICES = FOUNDATION_BUILD_KINDS.map((id) => LIB_BY_ID[id]).filter(Boolean);
+  const BUILDABLES = LIBRARY.filter((b) => b.id === FOUNDATION_KIND || b.id === "worldwonder");
   const ADMIN_KEEP_BUILDING = {
     id: "admin_keep",
     name: "Admin Keep",
@@ -3456,8 +3458,7 @@ export default function mount() {
   function selectBuildTool() {
     if (ST.mode === "build" || ST.mode === "place") closeTools();
     else {
-      const firstNormal = BUILDABLES.find((b) => b.id !== "worldwonder")?.id || BUILDABLES[0]?.id || null;
-      ST.mode = "build"; ST.placing = ST.placing && ST.placing !== "worldwonder" ? ST.placing : firstNormal; ST.tool = "build";
+      ST.mode = "build"; ST.placing = FOUNDATION_KIND; ST.tool = "build";
     }
     updateHints(); paint(); syncBuildScrollSoon();
   }
@@ -3472,9 +3473,10 @@ export default function mount() {
       openWonderPlanner("Type one Wonder prompt, choose size/style if needed, then click a valid map tile. No separate plan/place step.");
       return;
     }
-    ST.placing = id; ST.mode = "place"; ST.tool = "build";
-    const def = LIB_BY_ID[id];
-    if (def) say(`${def.name} selected. ${padRequirementLine(def)} Construction: about ${Math.round(normalBuildMsClient(def) / 1000)}s.`, 4200);
+    if (id !== FOUNDATION_KIND) { sfx.err(); say("Place a foundation first, then choose the final building from its panel.", 2400); return; }
+    ST.placing = FOUNDATION_KIND; ST.mode = "place"; ST.tool = "build";
+    const def = LIB_BY_ID[FOUNDATION_KIND];
+    if (def) say(`Foundation selected. Place it on owned land, then inspect it to choose House, Lumber Camp, Mine, Farm, or Market.`, 4200);
     updateHints(); paint(); syncBuildScrollSoon();
   }
   function selectCraftTool() {
@@ -4108,10 +4110,16 @@ export default function mount() {
           enterWonderPlacement();
           return;
         }
-        ST.placing = id; ST.mode = "place"; ST.tool = "build"; ST.modal = null;
-        const def = LIB_BY_ID[id];
-        if (def) say(`${def.name}: foundation appears instantly, then builds for about ${Math.round(normalBuildMsClient(def) / 1000)}s.`, 2600);
+        if (id !== FOUNDATION_KIND) { sfx.err(); say("Place a foundation first, then choose the final building from its panel.", 2400); return; }
+        ST.placing = FOUNDATION_KIND; ST.mode = "place"; ST.tool = "build"; ST.modal = null;
+        say("Foundation selected. Place it on owned land, then inspect it to choose the building.", 2600);
         updateHints(); paint(true); syncBuildScrollSoon(); return;
+      }
+      case "foundation-build": {
+        const kind = readStr(el, "id");
+        return act("completeFoundation", { uid: ST.inspect, kind }).then((r) => {
+          if (r?.ok) { sfx.build(); pollSoon(); paint(true); say(`${foundationChoiceLabel(kind)} construction started.`, 1800); }
+        });
       }
       case "unequip": return act("unequip", { slot: readStr(el, "slot") }).then((r) => r && r.ok && sfx.equip());
       case "pack-trophy": return say(`${readStr(el, "name", "Trophy")} — a trophy of the frontier.`);
@@ -4489,6 +4497,7 @@ export default function mount() {
       territoryHint={territoryUpgradeHint(b.kind, b.level || 1)}
       estimatedBin={estAcc(b)}
       costStr={costStr}
+      foundationChoices={FOUNDATION_CHOICES}
     />;
   }
 
@@ -4576,7 +4585,7 @@ export default function mount() {
       glyph: b.glyph || "▣",
       title: `Build ${b.name}`,
       text: b.blurb || b.effect || "City infrastructure",
-      detail: `Select Build (5), choose ${b.name}, then place it on owned land. Cost: ${costStr(b.cost) || "free"}.${b.unlock ? ` Unlocks after ${b.unlock} tiles.` : ""}`,
+      detail: `Select Hammer (3), place a foundation, then choose a building from that foundation panel. Cost: ${costStr(b.cost) || "free"}.${b.unlock ? ` Unlocks after ${b.unlock} tiles.` : ""}`,
       rewardText: "+XP · +coins",
       done: buildIds.has(b.id),
       claimed: false,
@@ -4925,7 +4934,7 @@ export default function mount() {
       chop: { panel: "chop", title: "Step 1: Axe", text: "Select the axe and click a tree. Wood drops as pickups on the map.", btn: "Select axe", click: "gather-wood" },
       mine: { panel: "mine", title: "Step 2: Pickaxe", text: "Select the pickaxe and click stone. The cursor tells you what can be worked.", btn: "Select pickaxe", click: "gather-stone" },
       claim: { panel: "claim", title: "Step 3: Capture", text: "Select capture and click connected highlighted land to grow your border.", btn: "Select capture", click: "claim" },
-      build: { panel: "build", title: "Step 4: Build", text: "Select the hammer, choose a building, then place it on valid land.", btn: "Open build", click: "select-build" },
+      build: { panel: "build", title: "Step 4: Build", text: "Select the hammer, place a foundation, then inspect it to choose a building.", btn: "Open build", click: "select-build" },
     }[step] || { panel: "chop", title: "Step 1: Axe", text: "Start by gathering wood.", btn: "Select axe", click: "gather-wood" };
     const place = walkthroughPlacement(meta.panel);
     return <div className="walkthrough-layer">

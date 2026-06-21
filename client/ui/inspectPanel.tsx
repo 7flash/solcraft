@@ -1,6 +1,7 @@
 // @ts-nocheck
 /** @jsxImportSource tradjs/client */
 import { MAX_LEVEL, lvlMul, repairCost, upgradeCost } from "../../game/shared";
+import { FOUNDATION_KIND, FOUNDATION_BUILD_KINDS, foundationChoiceLabel } from "../../game/foundationRules";
 import { inspectPanelViewModel, rgba, safeHex } from "./inspectPanelModel";
 import { keepPressureModel } from "./keepPressure";
 
@@ -25,6 +26,7 @@ export function InspectPanelView(props: any) {
     territoryHint = "",
     estimatedBin = 0,
     costStr,
+    foundationChoices = [],
   } = props;
 
   const vm = inspectPanelViewModel({ building: b, player, def, inspectUid, inspectDraft, faceImage });
@@ -55,7 +57,7 @@ export function InspectPanelView(props: any) {
     </header>
 
     <section className="ui30-summary-card">
-      <p>{def?.blurb || "A settlement structure."}</p>
+      <p>{isFoundation ? "Choose what this prepared pad becomes. Basic settlements grow from foundations, not instant buildings." : (def?.blurb || "A settlement structure.")}</p>
     </section>
 
     <section className="ui30-stat-list" aria-label="Building stats">
@@ -65,7 +67,7 @@ export function InspectPanelView(props: any) {
         <StatRow label="Construction" value={`${Math.max(1, Math.round(construction.progress * 100))}% · ${Math.ceil(construction.left / 1000)}s`} />
         <div className="ui30-progress-track"><i style={{ width: `${Math.max(1, construction.progress * 100).toFixed(0)}%` }} /></div>
       </> : null}
-      <StatRow label="Output" value={`+${(Number(def?.regen || 0) * lvlMul(level)).toFixed(2)}/s`} />
+      {!isFoundation && Number(def?.regen || 0) > 0 ? <StatRow label="Output" value={`+${(Number(def?.regen || 0) * lvlMul(level)).toFixed(2)}/s`} /> : null}
       {def?.maxE ? <StatRow label="Energy cap" value={`+${def.maxE}`} /> : null}
       {def?.prod ? <StatRow label="Stored cycle" value={`${Math.floor(estimatedBin)}/60`} /> : null}
       {vm.cdLeft ? <StatRow label="Cooldown" value={`${vm.cdLeft}s`} /> : null}
@@ -84,18 +86,29 @@ export function InspectPanelView(props: any) {
       </div>
     </section> : null}
 
+    {isFoundation && vm.mine ? <section className="ui30-foundation-card" aria-label="Choose foundation building">
+      <div className="ui30-section-head"><b>Choose building</b><span>One foundation becomes one structure.</span></div>
+      <div className="ui30-foundation-grid">
+        {finalChoices.map((choice: any) => <button className="ui30-foundation-choice" data-click="foundation-build" data-id={choice.id}>
+          <strong>{choice.name || foundationChoiceLabel(choice.id)}</strong>
+          <span>{choice.blurb || "Start construction on this pad."}</span>
+          <em>{formatCost(choice.cost || {}) || "Free"}</em>
+        </button>)}
+      </div>
+    </section> : null}
+
     <section className="ui30-action-stack" aria-label="Building actions">
-      {b.kind === "worldwonder" ? <button className="ui30-btn primary" data-click="inspect-wonder-view">View 3D</button> : <button className="ui30-btn primary" data-click="inspect-use">Use</button>}
-      <button className="ui30-btn" data-click="inspect-share">{b.kind === "keep" ? "Rally group" : "Share in chat"}</button>
+      {!isFoundation && (b.kind === "worldwonder" ? <button className="ui30-btn primary" data-click="inspect-wonder-view">View 3D</button> : <button className="ui30-btn primary" data-click="inspect-use">Use</button>)}
+      {!isFoundation ? <button className="ui30-btn" data-click="inspect-share">{b.kind === "keep" ? "Rally group" : "Share in chat"}</button> : null}
       {b.kind === "worldwonder" ? <button className="ui30-btn" data-click="inspect-walk-near">Walk near</button> : null}
-      {vm.mine && b.kind !== "worldwonder" ? <button className="ui30-btn" disabled={maxLvl} data-click="inspect-upgrade">{maxLvl ? "Max level" : `Upgrade · ${formatCost(upCost)}`}</button> : null}
-      {vm.mine ? <button className="ui30-btn" disabled={missingHp <= 0} data-click="inspect-repair">{missingHp <= 0 ? "Full health" : `Repair · ${formatCost(repCost)}`}</button> : null}
+      {vm.mine && !isFoundation && b.kind !== "worldwonder" ? <button className="ui30-btn" disabled={maxLvl} data-click="inspect-upgrade">{maxLvl ? "Max level" : `Upgrade · ${formatCost(upCost)}`}</button> : null}
+      {vm.mine && !isFoundation ? <button className="ui30-btn" disabled={missingHp <= 0} data-click="inspect-repair">{missingHp <= 0 ? "Full health" : `Repair · ${formatCost(repCost)}`}</button> : null}
       {!vm.mine && (b.kind === "keep" || b.kind === "bomb") ? <button className="ui30-btn danger" disabled={!!keepPressure && !keepPressure.canRaid} data-click="inspect-raid">{keepPressure && !keepPressure.canRaid ? "Recover first" : "Raid"}</button> : null}
       {!vm.mine && b.kind !== "worldwonder" ? <button className="ui30-btn" data-click="inspect-walk-near">Walk closer</button> : null}
-      {vm.mine ? <button className="ui30-btn danger" data-click="inspect-demolish">Demolish</button> : null}
+      {vm.mine ? <button className="ui30-btn danger" data-click="inspect-demolish">{isFoundation ? "Remove foundation" : "Demolish"}</button> : null}
     </section>
 
-    {vm.mine ? <details className="ui30-details">
+    {vm.mine && !isFoundation ? <details className="ui30-details">
       <summary>Customize</summary>
       <div className="ui30-field"><label>Building name</label><div className="ui30-inline">
         <input id="sc-rename" maxLength={16} placeholder={def?.name} defaultValue={b.nm || ""} />
