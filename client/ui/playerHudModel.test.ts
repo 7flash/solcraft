@@ -27,7 +27,7 @@ test("splitGameplayHint separates action lead from guidance body", () => {
 
 test("playerHudViewModel computes display-safe meter values", () => {
   const vm = playerHudViewModel({
-    player: { name: "Ada", level: 3, hp: 82.2, maxE: 50, xp: 30, inv: { g: 8.9, sc: 2 }, territory: 4, tileCap: 20, built: 3 },
+    player: { name: "Ada", level: 3, hp: 82.2, maxE: 50, xp: 30, inv: { g: 8.9, sc: 2, w: 10, s: 5, f: 3 }, storageCap: { w: 100, s: 100, f: 100 }, territory: 4, tileCap: 20, built: 3 },
     liveEnergy: 25,
     maxHp: 100,
     xpNeeded: 60,
@@ -40,6 +40,8 @@ test("playerHudViewModel computes display-safe meter values", () => {
   assert.equal(vm.energyPct, 50);
   assert.equal(vm.hpNow, 83);
   assert.equal(vm.xpPct, 50);
+  assert.equal(vm.storageUsed, 18);
+  assert.equal(vm.storageLimit, 300);
   assert.equal(vm.hintLead, "2");
   assert.equal(vm.activePlayers, 5);
 });

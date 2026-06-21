@@ -28,7 +28,7 @@ import {
   DESTROY_BY_ID, DESTROY_TOOLS, LIBRARY, LIB_BY_ID, MAX_HP, MAX_LEVEL, MILESTONES, MOVE_COST, N4, N8, NPC_TRADES, PACK_SIZE, WORLD_WONDER_GOLD_COST, WORLD_WONDER_PLAZA_RADIUS, WORLD_WONDER_PLAZA_SIZE, WORLD_WONDER_PLAZA_TILES, WORLD_WONDER_BUILD_MS, WORLD_WONDER_CLIENT_VERSION, NORMAL_BUILDING_BUILD_MS, DECOR_BUILDING_BUILD_MS, SCIENCE_BASE_CAP, SCIENCE_CAP_PER_ACADEMY,
   RAID_COST, RAID_DMG, RECIPE_BY_ID, REDEEM_MIN_GOLD, RELICS, RES_KEYS, SKILL_BY_ID, SPAWN_HALF, USE_ITEMS,
   START_INV, TELEPORT_COST, TELEPORT_MS, TILE_CAPTURE_COST, TOWER_DMG_CUT, TOWER_RADIUS, TOWER_BOMB_DMG_CUT, TOWER_BOMB_DPS, SIEGE_BUILDING_DMG, SIEGE_TOOL_DMG, STRONGBOX_CAP, VAULT_CAP, VAULT_LOOT_SHARE, VAULT_BURN_SHARE, VIEW_RADIUS, XP, RESOURCE_BASE_CAP, WAREHOUSE_RESOURCE_CAP_BONUS, GRANARY_FOOD_CAP_BONUS, TOWNHALL_STORAGE_BONUS, TOWNHALL_TILE_CAP_BONUS, BARRACKS_TOWER_RANGE_BONUS, BARRACKS_TOWER_DPS_BONUS, BARRACKS_TOOL_DAMAGE_CUT_BONUS,
-  anchorOf, biomeAt, buildMaxHp, cheb, gatherBonus, gearStat, harvestMs, key, lvlMul, masonHp, naturalDoodad, proceduralKeepCandidatesAround,
+  anchorOf, biomeAt, buildMaxHp, cheb, gatherBonus, gearStat, harvestMs, key, lvlMul, masonHp, naturalDoodad, proceduralKeepCandidatesAround, proceduralNpcAt,
   nearTradePost, repairCost, skillAtk, skillDef, skillLvl, spawnOrigin, tradePostAt, upgradeCost, vigorMax, vigorRegen, xpForLevel, holdWeight, tokenRegenPerMin, tokenMaxEnergy, rewardWeight, maxTilesFor,
   type BuildingDef, type Equip, type Inv, type MeWire, type PackItem, type ResKey, type Skills, type Snapshot, type WorldWire,
 } from "./shared";
@@ -2759,6 +2759,42 @@ function scatterGold(x: number, z: number, amount: number) {
     try { db.loot.insert({ x: x + dx, z: z + dz, kind: "gold", gid: String(amt) }); } catch {}
   }
 }
+function scatterResource(x: number, z: number, kind: "wood" | "stone" | "gold", amount: number) {
+  let left = Math.max(0, Math.floor(amount));
+  if (!left) return;
+  const spots = [[0,0], [1,0], [-1,0], [0,1], [0,-1], [1,1], [-1,-1], [1,-1], [-1,1]];
+  const piles = Math.min(5, left);
+  for (let i = 0; i < piles; i++) {
+    const amt = i === piles - 1 ? left : Math.max(1, Math.floor(left / (piles - i)));
+    left -= amt;
+    const [dx, dz] = spots[i % spots.length];
+    try { db.loot.insert({ x: x + dx, z: z + dz, kind, gid: String(amt) }); } catch {}
+  }
+}
+function markProceduralNpcGone(x: number, z: number) {
+  const row = db.doodads.select().where({ x, z }).first() as any;
+  if (row) row.state = "gone";
+  else db.doodads.insert({ x, z, state: "gone" });
+}
+function simpleInvBag(inv: any) {
+  return { ...(inv || {}) } as any;
+}
+function dropDefeatedPlayerResources(target: Player) {
+  const inv = simpleInvBag(target.inv as any);
+  const drops: Record<string, number> = {};
+  for (const k of ["w", "s", "f", "p"] as const) {
+    const n = Math.max(0, Math.floor(Number((inv as any)[k] || 0)));
+    if (n > 0) drops[k] = n;
+  }
+  if (drops.w) scatterResource(target.x, target.z, "wood", drops.w);
+  if (drops.s) scatterResource(target.x, target.z, "stone", drops.s);
+  if (drops.f) {
+    // Food is not a loot table kind yet; leave it as small gold-like recovery value until food pickups are backed by loot schema.
+    scatterResource(target.x, target.z, "gold", Math.max(1, Math.floor(drops.f / 2)));
+  }
+  target.inv = { ...inv, w: 0, s: 0, f: 0, p: 0 } as any;
+  return drops;
+}
 function keepVaultContext() {
   return {
     ownedTilesFor: (playerId: number) => prioritizeWonderDistrictTiles(playerId, db.tiles.select().where({ owner: playerId }).all() as any[]),
@@ -2952,7 +2988,7 @@ export function useBuilding(p: Player, uid: number) {
   }
   const u = def.use;
   if (!u) {
-    if (b.kind === "warehouse") { markBuildingUsed(b); return ok({ note: `Warehouse active — resource cap is ${resourceCap(p, "w")} each for wood/stone/planks/shards.` }); }
+    if (b.kind === "warehouse") { markBuildingUsed(b); return ok({ note: `Warehouse active — storage cap is ${resourceCap(p, "w")} each for wood, stone, and supplies.` }); }
     if (b.kind === "granary") { markBuildingUsed(b); return ok({ note: `Granary active — food cap is ${resourceCap(p, "f")}🌾.` }); }
     if (b.kind === "townhall") { markBuildingUsed(b); return ok({ note: `Town Hall active — territory capacity is ${tileCapacityFor(p)} tiles.` }); }
     if (b.kind === "barracks") { markBuildingUsed(b); return ok({ note: `Barracks active — Watchtowers get +${Math.round((towerDpsFor(p.id) / TOWER_BOMB_DPS - 1) * 100)}% tool damage and range ${towerRangeFor(p.id)}.` }); }
@@ -3202,7 +3238,51 @@ export function fight(p: Player, targetId: number) {
   pushEvent(target.id, "raid", `⚔ ${p.name} struck you for ${SWORD_PLAYER_DAMAGE}♥ damage.`);
   pushEvent(p.id, "raid", `⚔ You struck ${target.name || "a settler"} for ${SWORD_PLAYER_DAMAGE}♥ damage.`);
   bump();
+  if (target.hp <= 1) {
+    const dropped = dropDefeatedPlayerResources(target);
+    pushEvent(target.id, "raid", `Your pack spilled on the ground. Coins stay in your purse.`);
+    pushEvent(p.id, "raid", `Defeated ${target.name || "a settler"}. Their loose resources dropped nearby.`);
+    return ok({ note: `Settler defeated. Loose resources dropped nearby.`, player: { hp: p.hp, maxHp: MAX_HP }, target: { id: target.id, hp: target.hp, maxHp: MAX_HP }, dropped });
+  }
   return ok({ note: `Sword hit: -${SWORD_PLAYER_DAMAGE}♥.`, player: { hp: p.hp, maxHp: MAX_HP }, target: { id: target.id, hp: target.hp, maxHp: MAX_HP } });
+}
+
+export function attackNpc(p: Player, x: number, z: number) {
+  const npc = proceduralNpcAt(x, z);
+  if (!npc) return err("Nobody is there anymore.");
+  if (cheb(x, z, p.x, p.z) > 1) return err("Stand beside the traveler first.");
+  if (db.doodads.select().where({ x, z, state: "gone" }).first()) return err("That traveler already moved on.");
+  const live = settleEnergy(p);
+  if (live.energy < SWORD_COST) return err(`Need ${SWORD_COST}⚡ to swing your sword.`, "NO_ATTACK_ENERGY");
+  if (live.hp <= Math.max(2, npc.attack)) return err("Too hurt to risk that fight.", "LOW_HEALTH");
+  spend(p, { e: SWORD_COST });
+  p.hp = Math.max(1, Number(live.hp || MAX_HP) - Math.max(1, Math.floor(Number(npc.attack || 3))));
+  markProceduralNpcGone(x, z);
+  if (npc.coins) scatterGold(x, z, npc.coins);
+  if (npc.resource === "w") scatterResource(x, z, "wood", npc.resourceAmount || 1);
+  if (npc.resource === "s") scatterResource(x, z, "stone", npc.resourceAmount || 1);
+  if (npc.resource === "f") scatterResource(x, z, "gold", Math.max(1, Math.floor((npc.resourceAmount || 1) / 2)));
+  addXp(p, XP.fight);
+  autoTrainSkill(p, "warrior", npc.role === "warrior" ? 5 : 2);
+  bump(); liveTouch(p);
+  return ok({ note: `${npc.title || "Traveler"} defeated. Loot dropped nearby.`, player: { hp: p.hp, maxHp: MAX_HP }, npc: { id: npc.id, x, z } });
+}
+
+export function donateNpc(p: Player, x: number, z: number) {
+  const npc = proceduralNpcAt(x, z);
+  if (!npc) return err("Nobody is there anymore.");
+  if (cheb(x, z, p.x, p.z) > 1) return err("Stand beside the traveler first.");
+  const inv = simpleInvBag(p.inv as any);
+  const food = Math.max(0, Math.floor(Number(inv.f || 0)));
+  const wood = Math.max(0, Math.floor(Number(inv.w || 0)));
+  if (food >= 2) spend(p, { f: 2 } as any);
+  else if (wood >= 3) spend(p, { w: 3 } as any);
+  else return err("Donate 2 food or 3 wood.", "DONATION_NEEDS_SUPPLIES");
+  const heal = 3;
+  p.hp = Math.min(MAX_HP, Math.max(1, Number(p.hp || MAX_HP)) + heal);
+  addXp(p, 1);
+  liveTouch(p);
+  return ok({ note: `Donated supplies to ${npc.title || "traveler"}. +${heal}♥ goodwill.`, player: { hp: p.hp, maxHp: MAX_HP }, inv: p.inv });
 }
 
 /* Siege targets infrastructure only: enemy buildings and destroy tools.
@@ -3409,6 +3489,8 @@ function dispatchInner(p: Player, body: any) {
     case "unequip": return unequip(p, String(body.slot));
     case "drop": return dropPack(p, body.idx | 0);
     case "fight": return fight(p, Number(body.target || body.targetId || 0));
+    case "attackNpc": return attackNpc(p, body.x | 0, body.z | 0);
+    case "donateNpc": return donateNpc(p, body.x | 0, body.z | 0);
     case "siege": return body.sourceId || body.sourceX != null ? siegeGoldSource(p, body.sourceId || body.sourceX, body.sourceZ) : raid(p, body.uid | 0);
     case "siegeSource": return siegeGoldSource(p, body.sourceId || body.x, body.z);
     case "raid": return raid(p, body.uid | 0);

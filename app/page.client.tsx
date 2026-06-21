@@ -1621,7 +1621,8 @@ export default function mount() {
     function ensureNpcCamp(x, z) {
       const k = key(x, z);
       const npc = proceduralNpcAt(x, z);
-      const want = npc && !buildPoolAt(x, z) && !tradePostAt(x, z);
+      const hiddenByWorld = exceptions.get(k) === "gone";
+      const want = npc && !hiddenByWorld && !buildPoolAt(x, z) && !tradePostAt(x, z);
       const have = npcPool.get(k);
       if (have && want && have.id === npc.id) return;
       if (have) { scene.remove(have.group); npcPool.delete(k); }
@@ -1629,12 +1630,15 @@ export default function mount() {
       const g = new THREE.Group();
       const base = new THREE.Mesh(new THREE.CylinderGeometry(0.28, 0.34, 0.08, 10), M(0x5a4b35, { roughness: 1 }));
       base.position.y = 0.08; g.add(base);
-      const body = new THREE.Mesh(new THREE.SphereGeometry(0.16, 12, 8), ME(0xffd76e, 0xffd76e, 0.55));
-      body.position.y = 0.34; g.add(body); bobbers.push(body);
+      const roleColor = npc.role === "warrior" ? 0xff7a66 : npc.role === "trader" ? 0xffd76e : npc.role === "traveler" ? 0x7dcfe8 : 0xf3ead7;
+      const body = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.32, 0.10), ME(roleColor, roleColor, 0.48));
+      body.position.y = 0.34; g.add(body);
+      const head = new THREE.Mesh(new THREE.SphereGeometry(0.095, 10, 8), M(0xf0b887));
+      head.position.y = 0.57; g.add(head);
       const pole = new THREE.Mesh(new THREE.BoxGeometry(0.035, 0.5, 0.035), M(0x7a5230));
       pole.position.set(0.22, 0.34, 0.1); g.add(pole);
-      const flag = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.12, 0.02), M(biomeAt(x, z).tint || 0x14f195));
-      flag.position.set(0.34, 0.53, 0.1); g.add(flag); wavers.push(flag);
+      const flag = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.12, 0.02), M(roleColor));
+      flag.position.set(0.34, 0.53, 0.1); g.add(flag);
       g.add(makeLabel(npc.name, "#fff0b8"));
       g.position.set(x, 0.18, z);
       scene.add(g);
@@ -2911,7 +2915,7 @@ export default function mount() {
     if (d) return { kind: d === "food" ? "food" : d === "rock" ? "rock" : "tree", x: c.x, z: c.z, biome: biomeAt(c.x, c.z).name };
     if (tradePostAt(c.x, c.z)) return { kind: "trade", x: c.x, z: c.z, name: "Trade Post", biome: biomeAt(c.x, c.z).name };
     const npc = proceduralNpcAt(c.x, c.z);
-    if (npc) return { kind: "npc", x: c.x, z: c.z, name: npc.name, biome: biomeAt(c.x, c.z).name };
+    if (npc) return { kind: "npc", x: c.x, z: c.z, name: npc.name, title: npc.title, role: npc.role, hp: npc.hp, maxHp: npc.hp, coins: npc.coins, attack: npc.attack, resource: npc.resource, resourceAmount: npc.resourceAmount, biome: biomeAt(c.x, c.z).name };
     return { kind: "tile", x: c.x, z: c.z, biome: biomeAt(c.x, c.z).name };
   }
   function openObjectPreview(preview) {
@@ -2989,7 +2993,7 @@ export default function mount() {
     if (q) return tipText(q.name || "Settler", `Level ${q.level || "?"} · click to inspect or walk toward.`);
     if (tradePostAt(c.x, c.z)) return tipText("Trade Post", "Stand beside it to withdraw coins into $CRAFTS or open player offers.");
     const npc = proceduralNpcAt(c.x, c.z);
-    if (npc) return tipText(npc.name, `${biomeAt(c.x, c.z).name} · a frontier encounter. More interactions coming soon.`);
+    if (npc) return tipText(npc.name, `${npc.title || "Wanderer"} · carries ${npc.coins || 0} coins · sword or donate when nearby.`);
     if (ST.tool === "claim") {
       if (capitalBlocksPlayerTerritory(c.x, c.z)) return tipText("Capital reserve", "The capital plaza is public land. Build settlements outside the service ring.");
       if (claimableHere(c.x, c.z)) return tipText("Claimable tile", "Click it, walk there, and capture it.");
@@ -3333,7 +3337,7 @@ export default function mount() {
       rows.push({
         key: "tiles", glyph: "◇", cls: tileRatio >= 0.96 ? "bad" : "warn",
         title: `Tile limit ${m.territory || 0}/${tileCap}`,
-        short: tileRatio >= 0.96 ? "Build before claiming" : "Near territory cap",
+        short: tileRatio >= 0.96 ? "Tile limit full" : "Near tile limit",
         body: "Build any normal building for more tile capacity. At 24 claimed tiles build Town Hall (+75). At 100 tiles build World Wonder (+250).",
       });
     }
@@ -3369,17 +3373,7 @@ export default function mount() {
     if (ST.screen !== "playing" || !m) return <div />;
     const visiblePlayers = Array.isArray(ST.players) ? ST.players.length : 0;
     const activePlayers = Array.isArray(ST.map?.players) ? ST.map.players.length : visiblePlayers;
-    const hint = ST.channel ? (ST.channel.kind === "home" ? "Casting return to flag — stand still" : ST.channel.kind === "redeem" ? "Withdrawing at trade post — hold your nerve" : ST.channel.kind === "tree" ? "Chopping wood — stay close until the logs drop" : "Mining stone — stay close until the chunks drop")
-      : ST.tool === "spawn" ? "Deploy · choose a crafted deployable · yellow tiles are valid deploy spots"
-      : ST.mode === "place" ? `3 — hammer · place foundation · green tile only`
-      : ST.mode === "build" ? "3 — hammer · place a foundation"
-      : ST.mode === "demolish" ? "4 — shovel · click one of your own buildings to demolish"
-      : ST.tool === "wood" ? "1 — axe selected · trees are highlighted"
-      : ST.tool === "stone" ? "2 — pickaxe selected · rocks are highlighted"
-      : ST.tool === "claim" ? "5 — capture selected · highlighted tiles can be claimed"
-      : ST.tool === "siege" ? "2 — siege enemy buildings and destroy tools"
-      : ST.tool === "use" ? "2 — use/interact with nearby mines, buildings, offers, and elixirs"
-      : ST.near.i ? `${ST.near.i.label}` : "Explore, gather, capture land, and grow your settlement.";
+    const hint = ST.channel ? (ST.channel.kind === "home" ? "Returning to flag" : ST.channel.kind === "redeem" ? "Withdrawing coins" : ST.channel.kind === "tree" ? "Chopping wood" : "Mining stone") : "";
     return <PlayerHudView
       player={m}
       panel={ST.panel}
@@ -3425,8 +3419,8 @@ export default function mount() {
   function buildingRoleLine(b) {
     if (b.id === "cottage") return `House · expands tile capacity so your borders can grow`;
     if (b.id === "warehouse") return `Warehouse · expands storage for long frontier builds`;
-    if (b.id === "academy") return `Academy · passively generates 🔬 science for bombs and inventions`;
-    if (b.id === "workshop") return `Workshop · crafts bombs using materials + Academy science`;
+    if (b.id === "academy") return `Market · helps coin flow around your settlement`;
+    if (b.id === "workshop") return `Workshop · legacy siege workshop`;
     if (b.id === "alchemy") return `Alchemy Shop · brews travel and defense elixirs`;
     if (b.id === "worldwonder") return `World Wonder · prompt-built coin monument and teleport point`;
     if (b.id === GOLD_MINE_KIND) return `Coin Mint · redeem purse coins nearby · upgrades boost owned-territory coin and tax income`;
@@ -3898,7 +3892,7 @@ export default function mount() {
     return (
       <div className="modal">
         <h2>⚒ Crafting</h2>
-        <p className="tiny">Crafting spends 🔬 science only. Deploy crafted tools later with action 6.</p>
+        <p className="tiny">Crafting is currently hidden while the core loop is rebuilt.</p>
         <h3>Destroy tools</h3>
         <div className="grid">
           {DESTROY_TOOLS.map((b) => {
@@ -4235,6 +4229,16 @@ export default function mount() {
         if (action === "select-pickaxe") { doGather("stone"); if (cheb(p.x, p.z, world.me.x, world.me.z) <= 1) startChop(p.x, p.z); else world.pathToNear(p.x, p.z); return; }
         if (action === "harvest-food") { ST.tool = "none"; ST.mode = "explore"; if (cheb(p.x, p.z, world.me.x, world.me.z) <= 1) startChop(p.x, p.z); else world.pathToNear(p.x, p.z); paint(true); return; }
         if (action === "open-trade") { if (cheb(p.x, p.z, world.me.x, world.me.z) <= 1) openTrade(); else world.pathToNear(p.x, p.z); return; }
+        if (action === "attack-npc") {
+          if (cheb(p.x, p.z, world.me.x, world.me.z) <= 1) act("attackNpc", { x: p.x, z: p.z }).then((r) => { if (r?.ok) { sfx.hit(); ST.objectPreview = null; if (ST.panel === "object") ST.panel = null; pollSoon(); paint(true); } });
+          else world.pathToNear(p.x, p.z);
+          return;
+        }
+        if (action === "donate-npc") {
+          if (cheb(p.x, p.z, world.me.x, world.me.z) <= 1) act("donateNpc", { x: p.x, z: p.z }).then((r) => { if (r?.ok) { sfx.coin(); pollSoon(); paint(true); } });
+          else world.pathToNear(p.x, p.z);
+          return;
+        }
         ST.panel = null; ST.objectPreview = null; world.pathTo(p.x, p.z); paint(true); return;
       }
       case "modal-backdrop": if (ev.target === el) { ST.modal = null; ST.inspect = null; ST.inspectPlayer = null; ST.wonderViewUid = null; ST.wonderViewError = ""; stopWonderViewer(); paint(); } return;

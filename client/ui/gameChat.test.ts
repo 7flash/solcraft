@@ -7,7 +7,7 @@ test('chatLineClassName marks system lines', () => {
 });
 
 test('chatLineClassName marks card lines', () => {
-  assert.match(chatLineClassName({ n: 'A', m: '[loc:1,2:Here]' }), /has-card/);
+  assert.match(chatLineClassName({ n: 'A', m: '[[sc:location|x=1|z=2|label=Here]]' }), /has-link-card/);
 });
 
 test('chatLineKey prefers server id', () => {

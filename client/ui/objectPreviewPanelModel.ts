@@ -7,9 +7,14 @@ export type ObjectPreview = {
   name?: string;
   ownerName?: string;
   biome?: string;
+  role?: string;
+  title?: string;
   hp?: number;
   maxHp?: number;
   coins?: number;
+  attack?: number;
+  resource?: string;
+  resourceAmount?: number;
 };
 
 export function objectPreviewTitle(p: ObjectPreview | null | undefined): string {
@@ -19,7 +24,7 @@ export function objectPreviewTitle(p: ObjectPreview | null | undefined): string 
   if (p.kind === "rock") return "Rock";
   if (p.kind === "food") return "Crop patch";
   if (p.kind === "trade") return "Capital exchange";
-  if (p.kind === "npc") return "Frontier visitor";
+  if (p.kind === "npc") return p.name || p.title || "Wanderer";
   if (p.kind === "keep") return "Shared keep";
   if (p.kind === "buildTile") return "Build site";
   if (p.kind === "shared") return "Shared location";
@@ -32,7 +37,7 @@ export function objectPreviewGlyph(p: ObjectPreview | null | undefined): string 
   if (p.kind === "rock") return "🪨";
   if (p.kind === "food") return "🌾";
   if (p.kind === "trade") return "↔";
-  if (p.kind === "npc") return "☻";
+  if (p.kind === "npc") return p.role === "warrior" ? "⚔" : p.role === "trader" ? "🪙" : "◉";
   if (p.kind === "keep") return "⚔";
   if (p.kind === "buildTile") return "▦";
   if (p.kind === "shared") return "⌖";
@@ -45,7 +50,12 @@ export function objectPreviewDescription(p: ObjectPreview | null | undefined): s
   if (p.kind === "rock") return "A harvestable rock. Select the pickaxe from the bottom toolbelt if you want to mine it.";
   if (p.kind === "food") return "A crop patch grown by a nearby farm. Food restores health over time and can be harvested when you stand beside it.";
   if (p.kind === "trade") return "A public exchange point. In the capital this becomes the natural place for bank, deposit, withdrawal, and trade actions.";
-  if (p.kind === "npc") return `${p.biome || "Frontier"} visitor. NPC services should eventually live in capital/city buildings instead of permanent HUD menus.`;
+  if (p.kind === "npc") {
+    const role = p.title || (p.role === "warrior" ? "Warrior" : p.role === "trader" ? "Trader" : p.role === "traveler" ? "Traveler" : "Wanderer");
+    const coins = Number(p.coins || 0) > 0 ? ` They carry about ${Math.floor(Number(p.coins || 0))} coins.` : "";
+    const danger = Number(p.attack || 0) > 0 ? ` If attacked, they fight back for about ${Math.floor(Number(p.attack || 0))} health.` : "";
+    return `${role} crossing the frontier between the capital and player settlements.${coins}${danger}`;
+  }
   if (p.kind === "buildTile") return "An empty captured tile. Choose the building you want here; construction starts immediately and completes over time.";
   if (p.kind === "keep") {
     const hp = p.maxHp ? ` Current rally note: ${Math.max(0, Math.floor(Number(p.hp || 0)))}/${Math.floor(Number(p.maxHp || 0))} HP.` : "";
@@ -60,7 +70,7 @@ export function objectPreviewPrimaryAction(p: ObjectPreview | null | undefined):
   if (!p) return "walk";
   if (p.kind === "food") return "harvest-food";
   if (p.kind === "trade") return "open-trade";
-  if (p.kind === "npc") return "walk-near";
+  if (p.kind === "npc") return "attack-npc";
   if (p.kind === "tree" || p.kind === "rock") return "walk-near";
   if (p.kind === "keep" || p.kind === "shared") return "walk-near";
   if (p.kind === "buildTile") return "choose-building";
@@ -71,6 +81,8 @@ export function objectPreviewActionLabel(action: string): string {
   if (action === "harvest-food") return "Harvest food";
   if (action === "open-trade") return "Open exchange";
   if (action === "walk-near") return "Walk near";
+  if (action === "attack-npc") return "Attack";
+  if (action === "donate-npc") return "Donate";
   if (action === "choose-building") return "Choose building";
   return "Walk here";
 }

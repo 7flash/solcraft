@@ -26,10 +26,9 @@ export function ObjectPreviewPanelView({ preview }: any) {
       <div className="inspect-name">{title}</div>
       <span className="stat">{p.x},{p.z}</span>
     </div>
-    <div className="owner-card">
-      <div className="face-preview small empty"><span>{glyph}</span></div>
+    <div className="owner-card ui45-preview-summary">
       <div>
-        <div className="card-title">{p.kind === "food" ? "Farm crop" : p.kind === "tile" ? "Walkable ground" : p.kind === "trade" ? "World service" : "World object"}</div>
+        <div className="card-title">{p.kind === "npc" ? (p.title || "Wanderer") : p.kind === "food" ? "Farm crop" : p.kind === "tile" ? "Walkable ground" : p.kind === "trade" ? "World service" : "World object"}</div>
         <div className="tiny">{desc}</div>
       </div>
     </div>
@@ -43,10 +42,12 @@ export function ObjectPreviewPanelView({ preview }: any) {
         <small>{text}</small>
       </button>)}
     </div> : null}
-    <div className="inspect-actions">
-      {showPrimary && p.kind !== "buildTile" ? <button className="btn primary" data-click="object-preview-primary" data-object-action={primary}>{objectPreviewActionLabel(primary)}</button> : null}
-      <button className="btn" data-click="object-preview-walk-near">Walk near</button>
-      <button className="btn" data-click="object-preview-close">Close</button>
+    <div className="inspect-actions ui45-object-actions">
+      {p.kind === "npc" ? <>
+        <button className="btn primary" data-click="object-preview-primary" data-object-action="attack-npc">Attack</button>
+        <button className="btn" data-click="object-preview-primary" data-object-action="donate-npc">Donate</button>
+        <button className="btn" data-click="object-preview-walk-near">Walk near</button>
+      </> : showPrimary && p.kind !== "buildTile" ? <button className="btn primary" data-click="object-preview-primary" data-object-action={primary}>{objectPreviewActionLabel(primary)}</button> : null}
     </div>
   </div>;
 }

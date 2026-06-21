@@ -27,3 +27,14 @@ test("build tile preview offers building choice instead of walking primary", () 
   assert.equal(objectPreviewActionLabel("choose-building"), "Choose building");
   assert.equal(objectPreviewShouldShowPrimary(p), true);
 });
+
+
+test("npc previews are friendly and actionable", () => {
+  const p = { kind: "npc" as const, x: 8, z: 9, name: "Meadow Wanderer", title: "Wanderer", role: "wanderer", coins: 8, attack: 3 };
+  assert.equal(objectPreviewTitle(p), "Meadow Wanderer");
+  assert.match(objectPreviewDescription(p), /crossing the frontier/i);
+  assert.doesNotMatch(objectPreviewDescription(p), /eventually|HUD menus/i);
+  assert.equal(objectPreviewPrimaryAction(p), "attack-npc");
+  assert.equal(objectPreviewActionLabel("attack-npc"), "Attack");
+  assert.equal(objectPreviewActionLabel("donate-npc"), "Donate");
+});

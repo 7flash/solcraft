@@ -32,10 +32,10 @@ export function PlayerHudView(props: any) {
 
   return <aside className="scv-hud ui31-hud" aria-label="Player status">
     <header className="ui31-hud-head">
-      <div className="ui31-avatar"><b>{vm.initial}</b><small>{vm.level}</small></div>
+      <div className="ui31-avatar" aria-label={`Level ${vm.level}`} style={{ ["--xp" as any]: `${vm.xpPct.toFixed(0)}%` }}><b>{vm.level}</b></div>
       <div className="ui31-hud-title">
         <h1>{vm.name}</h1>
-        <p><span>🪙 {vm.gold}</span><span>{vm.territory}/{vm.tileCap} tiles</span><span>{vm.built} builds</span></p>
+        <p><span>🪙 {vm.gold}</span><span>{vm.territory}/{vm.tileCap} tiles</span><span>{vm.storageUsed}/{vm.storageLimit} storage</span></p>
       </div>
     </header>
 
@@ -75,9 +75,9 @@ export function PlayerHudView(props: any) {
       <span>{primaryWarning.glyph}</span><b>{primaryWarning.short}</b>
     </section> : null}
 
-    <div className="ui31-xp" aria-label={`XP ${vm.xp} / ${vm.xpNeeded}`} data-tip-title="Level progress" data-tip-body={`XP ${vm.xp} / ${vm.xpNeeded}.`}><i style={{ width: `${vm.xpPct.toFixed(0)}%` }} /></div>
+    <div className="ui31-avatar-ring" aria-label={`XP ${vm.xp} / ${vm.xpNeeded}`} style={{ ["--xp" as any]: `${vm.xpPct.toFixed(0)}%` }} />
 
-    <footer className="ui31-hud-hint"><span>{vm.hintLead}</span>{vm.hintRest ? <em>{vm.hintRest}</em> : null}</footer>
+    {vm.hintLead ? <footer className="ui31-hud-hint"><span>{vm.hintLead}</span>{vm.hintRest ? <em>{vm.hintRest}</em> : null}</footer> : null}
     {vm.spectator ? <footer className="ui31-hud-hint"><span>Spectator</span><em>Read-only world view.</em></footer> : null}
   </aside>;
 }

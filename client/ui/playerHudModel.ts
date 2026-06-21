@@ -39,9 +39,15 @@ export function pct(value: any, max: any): number {
 
 export function splitGameplayHint(hint: any): { lead: string; rest: string } {
   const text = String(hint || "").trim();
-  if (!text) return { lead: "Goal", rest: "claim territory · build producers · collect taxed coins" };
+  if (!text) return { lead: "", rest: "" };
   const parts = text.split(" — ");
   return { lead: parts[0] || text, rest: parts.length > 1 ? parts.slice(1).join(" — ") : "" };
+}
+export function storageUsed(inv: any = {}) {
+  return Math.max(0, Math.floor(Number(inv.w || 0) + Number(inv.s || 0) + Number(inv.f || 0) + Number(inv.p || 0)));
+}
+export function storageLimit(cap: any = {}) {
+  return Math.max(0, Math.floor(Number(cap.w || 0) + Number(cap.s || 0) + Number(cap.f || 0) + Number(cap.p || 0)));
 }
 
 export function limitAdviceRows(m: any): LimitAdviceRow[] {
@@ -57,8 +63,8 @@ export function limitAdviceRows(m: any): LimitAdviceRow[] {
       glyph: "◇",
       cls: tileRatio >= 0.96 ? "bad" : "warn",
       title: `Tile limit ${m.territory || 0}/${tileCap}`,
-      short: tileRatio >= 0.96 ? "Build before claiming" : "Near territory cap",
-      body: "Build any normal building for more tile capacity. At 24 claimed tiles build Town Hall (+75). At 100 tiles build World Wonder (+250).",
+      short: tileRatio >= 0.96 ? "Tile limit full" : "Near tile limit",
+      body: "Build settlement structures or expand from another captured tile when you need more room.",
     });
   }
 
@@ -90,7 +96,7 @@ export function limitAdviceRows(m: any): LimitAdviceRow[] {
 
 export function limitAdviceSummary(m: any): string {
   const rows = limitAdviceRows(m);
-  if (!rows.length) return "Limits are healthy. Claim outward, build producers, and keep collecting loose tokens.";
+  if (!rows.length) return "Limits are healthy. Claim outward, build producers, and keep collecting coins.";
   return rows.map((r) => `${r.title}: ${r.body}`).join(" ");
 }
 
@@ -103,6 +109,8 @@ export function playerHudViewModel(input: PlayerHudInput) {
   const visiblePlayers = Math.max(0, Number(input.visiblePlayers || 0));
   const activePlayers = Math.max(visiblePlayers, Number(input.activePlayers || visiblePlayers));
   const hint = splitGameplayHint(input.gameplayHint);
+  const usedStorage = storageUsed(m.inv || {});
+  const maxStorage = storageLimit(m.storageCap || {});
 
   return {
     initial: playerInitial(m.name),
@@ -114,6 +122,8 @@ export function playerHudViewModel(input: PlayerHudInput) {
     territory: Number(m.territory || 0),
     tileCap: m.tileCap || "?",
     built: Number(m.built || 0),
+    storageUsed: usedStorage,
+    storageLimit: maxStorage || "?",
     visiblePlayers,
     activePlayers,
     energyNow: Math.floor(eNow),

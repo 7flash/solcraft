@@ -4,7 +4,7 @@
    so costs / production rates / interactions can never drift.
    ============================================================ */
 
-import { capitalBlocksNaturalResource, keepCrossIndexAt, keepCrossPositionsInBox, settlementSpawnAllowed, SETTLEMENT_SPAWN_STEP as CAPITAL_SETTLEMENT_SPAWN_STEP } from "./capitalRules";
+import { capitalBlocksNaturalResource, keepCrossIndexAt, keepCrossPositionsInBox, settlementSpawnPoint, SETTLEMENT_SPAWN_STEP as CAPITAL_SETTLEMENT_SPAWN_STEP } from "./capitalRules";
 
 export const ECONOMY_RULES = {
   // Energy: concave, capped, floored. Movement has a tiny cost to stop spam, but recovers quickly.
@@ -567,7 +567,7 @@ export function naturalDoodad(x: number, z: number): DoodadType {
 
 export type ProceduralKeep = { id: string; x: number; z: number; biome: string; name: string; hp: number; gold: number };
 export const PROCEDURAL_KEEP_STEP = 30;
-const KEEP_LANE_NAME: Record<string, string> = { north: "North", south: "South", east: "East", west: "West" };
+const KEEP_LANE_NAME: Record<string, string> = { northeast: "Northeast", southeast: "Southeast", southwest: "Southwest", northwest: "Northwest" };
 function proceduralKeepFromCross(x: number, z: number): ProceduralKeep | null {
   const k = keepCrossIndexAt(x, z);
   if (!k) return null;
@@ -592,7 +592,8 @@ export function proceduralKeepCandidatesAround(x: number, z: number, radius: num
     .filter(Boolean) as ProceduralKeep[];
 }
 
-export type ProceduralNpc = { id: string; x: number; z: number; biome: string; name: string };
+export type ProceduralNpcRole = "wanderer" | "traveler" | "trader" | "warrior";
+export type ProceduralNpc = { id: string; x: number; z: number; biome: string; role: ProceduralNpcRole; name: string; title: string; hp: number; coins: number; resource: "w" | "s" | "f"; resourceAmount: number; attack: number };
 export function proceduralNpcAt(x: number, z: number): ProceduralNpc | null {
   if (Math.abs(x) < 14 && Math.abs(z) < 14) return null;
   const step = 38;
@@ -603,16 +604,31 @@ export function proceduralNpcAt(x: number, z: number): ProceduralNpc | null {
   const pz = cz * step + 5 + Math.floor(hrand(cx, cz, 53) * (step - 10));
   if (px !== x || pz !== z) return null;
   const biome = biomeAt(x, z);
-  const names: Record<string, string> = {
-    meadow: "Forager",
-    forest: "Ranger Camp",
-    stone: "Prospector",
-    desert: "Caravan",
-    swamp: "Moss Hermit",
-    crystal: "Shard Seer",
-    void: "Rift Watcher",
+  const roll = hrand(cx, cz, 54);
+  const role: ProceduralNpcRole = roll > 0.82 ? "warrior" : roll > 0.58 ? "trader" : roll > 0.30 ? "traveler" : "wanderer";
+  const titles: Record<ProceduralNpcRole, string> = {
+    wanderer: "Wanderer",
+    traveler: "Traveler",
+    trader: "Trader",
+    warrior: "Warrior",
   };
-  return { id: `npc:${cx}:${cz}`, x, z, biome: biome.id, name: names[biome.id] || "Settler" };
+  const biomeTags: Record<string, string> = {
+    meadow: "Meadow",
+    forest: "Forest",
+    stone: "Hill",
+    desert: "Dune",
+    swamp: "Mire",
+    crystal: "Crystal",
+    void: "Rift",
+  };
+  const title = titles[role] || "Wanderer";
+  const name = `${biomeTags[biome.id] || biome.name || "Frontier"} ${title}`;
+  const hp = role === "warrior" ? 48 : role === "trader" ? 36 : role === "traveler" ? 30 : 24;
+  const coins = role === "warrior" ? 18 : role === "trader" ? 26 : role === "traveler" ? 12 : 8;
+  const resource: "w" | "s" | "f" = role === "trader" ? "f" : biome.id === "stone" ? "s" : "w";
+  const resourceAmount = role === "trader" ? 10 : role === "warrior" ? 6 : 4;
+  const attack = role === "warrior" ? 7 : role === "trader" ? 4 : 3;
+  return { id: `npc:${cx}:${cz}`, x, z, biome: biome.id, role, name, title, hp, coins, resource, resourceAmount, attack };
 }
 
 export const key = (x: number, z: number) => `${x},${z}`;
@@ -645,28 +661,11 @@ export const CAPITAL_RESERVED_RADIUS = 15;
 export const SETTLEMENT_SPAWN_STEP = CAPITAL_SETTLEMENT_SPAWN_STEP;
 
 export function spawnOrigin(index: number): [number, number] {
-  // Players no longer spawn on the exact world center. The center is reserved
-  // for the capital service hub; new settlements spiral around it.
-  const STEP = SETTLEMENT_SPAWN_STEP;
-  let x = 0, z = 0, dx = 1, dz = 0, leg = 1, stepInLeg = 0, legsDone = 0;
-  let accepted = -1;
-  for (let i = 0; i < 10000; i++) {
-    if (i > 0) {
-      x += dx; z += dz;
-      stepInLeg++;
-      if (stepInLeg === leg) {
-        stepInLeg = 0;
-        [dx, dz] = [-dz, dx];
-        legsDone++;
-        if (legsDone % 2 === 0) leg++;
-      }
-    }
-    const wx = x * STEP, wz = z * STEP;
-    if (!settlementSpawnAllowed(wx, wz)) continue;
-    accepted++;
-    if (accepted >= Math.max(0, index)) return [wx, wz];
-  }
-  return [(Math.max(0, index) + 1) * STEP, 0];
+  // Settlements use four fair road arms around the capital. Every group of four
+  // players gets an equivalent distance from the center, while the road itself
+  // stays open for travel and future capital services.
+  const p = settlementSpawnPoint(index);
+  return [p.x, p.z];
 }
 
 /* ---------- walkthrough milestones — teach the full loop ---------- */

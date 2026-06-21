@@ -1,14 +1,14 @@
 // @ts-nocheck
 /** @jsxImportSource tradjs/client */
-import { chatCardCta, chatCardSubtitle, chatCardTitle, parseChatCard } from "./chatCards";
+import { chatCardTitle, parseChatCard } from "./chatCards";
 import { chatLineClassName, chatLineKey, type ChatLine } from "./gameChatModel";
 
-export function ChatCardButton({ card }: any) {
-  const glyph = card.kind === "keep" ? "⚔" : card.kind === "building" ? "⌂" : "⌖";
+export function ChatCardInline({ card }: any) {
+  const label = card.kind === "keep" ? "keep" : card.kind === "building" ? "building" : "location";
   return (
     <button
       type="button"
-      className={`chat-card ${card.kind}`}
+      className={`chat-link-card ${card.kind}`}
       data-click="chat-card-open"
       data-kind={card.kind}
       data-x={String(card.x)}
@@ -18,12 +18,8 @@ export function ChatCardButton({ card }: any) {
       data-hp={card.hp ? String(card.hp) : undefined}
       data-max-hp={card.maxHp ? String(card.maxHp) : undefined}
       data-coins={card.coins ? String(card.coins) : undefined}
-    >
-      <span>{glyph}</span>
-      <strong>{chatCardTitle(card)}</strong>
-      <small>{chatCardSubtitle(card)}</small>
-      <em>{chatCardCta(card)}</em>
-    </button>
+      title={`${chatCardTitle(card)} · ${card.x},${card.z}`}
+    >[{label}]</button>
   );
 }
 
@@ -33,7 +29,8 @@ export function ChatLineView({ line }: { line: ChatLine }) {
     return (
       <div className={chatLineClassName(line)}>
         {line.n ? <b>{line.n}: </b> : null}
-        <ChatCardButton card={card} />
+        <span>shared </span><ChatCardInline card={card} />
+        <small> {card.x},{card.z}</small>
       </div>
     );
   }
@@ -48,10 +45,7 @@ export function GameChatView({ lines = [], onKeyDown }: { lines: ChatLine[]; onK
         {lines.map((line, i) => <ChatLineView line={line} key={chatLineKey(line, i)} />)}
       </div>
       <div className="chat-form">
-        <input maxLength={120} placeholder="Chat… press Enter" onKeyDown={onKeyDown} data-chat-input="1" />
-        <div className="chat-tools">
-          <button type="button" data-click="chat-share-here" title="Share your current map location">Share here</button>
-        </div>
+        <input maxLength={120} placeholder="Chat… /here shares your location" onKeyDown={onKeyDown} data-chat-input="1" />
       </div>
     </div>
   );
