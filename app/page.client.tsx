@@ -29,6 +29,7 @@ import {
 } from "../client/meshes";
 import { loadAtlasRuntimeConfig, terrainMats, tickVisualTextures, setTerrainVisualPrefs } from "../client/textures";
 import { capitalBuildingsInView, capitalLabelVisibleForPlayer } from "../client/world/capitalLayout";
+import { capitalServiceForBuilding, capitalServiceAvailable } from "../client/world/capitalServices";
 import { capitalBlocksNaturalResource, capitalBlocksPlayerTerritory } from "../game/capitalRules";
 import { loadCharacterProfile, saveCharacterProfile, type CharacterProfile } from "../client/dollProfile";
 import { isMoveKey, movementVectorFromKeys, normalizeMoveKey } from "../client/game/directionalInput";
@@ -64,6 +65,7 @@ import { renderKnownWorldMap, tileFromCanvasEvent } from "../client/world/mapCan
 import { formatBuildingChatCard, formatKeepRallyChatCard, formatLocationChatCard } from "../client/ui/chatCards";
 import { NotificationRailView } from "../client/ui/notificationRail";
 import { GameChatView } from "../client/ui/gameChat";
+import { CapitalServicePanelView } from "../client/ui/capitalServicePanel";
 
 const AUTH_KEY = "solcraft:auth";
 const FACE_KEY = "solcraft:face.v1";
@@ -404,7 +406,7 @@ export default function mount() {
     visual: loadVisualSettings(), ui: loadUiSettings(),
     mode: "explore", placing: null, tool: "none", destroying: DESTROY_TOOLS[0]?.id || "popper",
     near: { i: null, g: null, r: null, m: false },
-    modal: null, panel: null, tradeTab: "market", inspect: null, objectPreview: null, hoverIntent: "walk",
+    modal: null, panel: null, tradeTab: "market", inspect: null, objectPreview: null, capitalService: null, serviceAccess: "", hoverIntent: "walk",
     muted: false, uiMuted: false, musicMuted: false, joining: false, updateRequired: false, updateReason: "", updateVersion: "", chatOpen: false, needsProfile: false,
     channel: null, // {x,z,until,ms,kind} active chop/mine/teleport
     drag: null,    // backpack idx being dragged
@@ -2921,10 +2923,25 @@ export default function mount() {
     ST.panel = "object";
     paint(true);
   }
+  function openCapitalService(building) {
+    const info = capitalServiceForBuilding(building);
+    if (!info) return false;
+    ST.capitalService = { service: info.id, uid: building.uid, name: building.nm || info.title, x: building.x, z: building.z };
+    ST.objectPreview = null;
+    ST.inspect = null;
+    ST.panel = "capital";
+    ST.modal = null;
+    ST.inspectDraft = null;
+    ST.serviceAccess = "";
+    paint(true);
+    return true;
+  }
   function openBuildingInspect(hitB) {
     if (!hitB) return;
+    if (hitB.b?.capital && openCapitalService(hitB.b)) return;
     ST.inspect = hitB.uid;
     ST.objectPreview = null;
+    ST.capitalService = null;
     ST.panel = "inspect";
     ST.modal = null;
     ST.inspectDraft = null;
@@ -3012,6 +3029,7 @@ export default function mount() {
     if (ST.screen !== "playing" || ST.modal || ST.updateRequired) return;
     sfx.resume();
     const hitB = world.buildingFromEvent(ev), c = world.cellFromEvent(ev);
+    if (hitB?.b?.capital) { openCapitalService(hitB.b); return; }
     if (ST.mode === "admin" && ST.tool === "admin" && isAdminPlayer() && c) {
       if (ST.adminTool === "spawnKeep") adminSpawnKeep("here", c);
       else adminDemolishAt(c.x, c.z, hitB?.uid || 0, false);
@@ -3498,16 +3516,58 @@ export default function mount() {
     syncBuildScroll(el);
   }
 
+  function closeCapitalService() {
+    ST.capitalService = null;
+    ST.serviceAccess = "";
+    if (["capital", "bank", "char", "quests"].includes(String(ST.panel))) ST.panel = null;
+    paint(true);
+  }
+  function capitalServiceDistance() {
+    const s = ST.capitalService;
+    if (!s || !ST.me) return 99;
+    return cheb(Number(s.x || 0), Number(s.z || 0), Number(ST.me.x || 0), Number(ST.me.z || 0));
+  }
+  function walkToCapitalService() {
+    const s = ST.capitalService;
+    if (!s) return;
+    ST.panel = null;
+    world.pathToNear(Number(s.x || 0), Number(s.z || 0));
+    paint(true);
+  }
+  function useCapitalService(serviceId = "") {
+    const s = ST.capitalService;
+    const info = capitalServiceForBuilding({ ...(s || {}), capital: true, service: serviceId || s?.service });
+    if (!s || !info) return;
+    const dist = capitalServiceDistance();
+    if (!capitalServiceAvailable(dist, info)) { say(`Walk beside ${s.name || info.title} first.`, 1600); walkToCapitalService(); return; }
+    ST.serviceAccess = info.id;
+    ST.objectPreview = null;
+    ST.inspect = null;
+    if (info.action === "bank") { openBankPanel(true); return; }
+    if (info.action === "market") { openTrade(true); return; }
+    if (info.action === "tailor") { ST.panel = "char"; markGuidePanelVisited("char"); advanceWalkthroughPanel("char"); paint(true); return; }
+    if (info.action === "guide") { ST.panel = "quests"; markGuidePanelVisited("quests"); advanceWalkthroughPanel("quests"); paint(true); return; }
+    if (info.action === "charter") { say("Town Hall charter: build outside the capital reserve and expand your settlement outward.", 3200); paint(true); return; }
+    walkToCapitalService();
+  }
+  function directServiceHint(service) {
+    const where = service === "bank" ? "Capital Bank" : service === "tailor" ? "Mirror Tailor" : service === "guide" ? "Guide Hall" : "Market Square";
+    say(`Visit the ${where} in the capital to use this service.`, 2200);
+  }
   function togglePanel(name) {
     if (name === "inv" || name === "inventory") name = "bank";
+    if (["bank", "char", "quests", "skills", "inventory"].includes(String(name)) && !ST.serviceAccess) {
+      return directServiceHint(name === "char" ? "tailor" : name === "quests" ? "guide" : name === "bank" ? "bank" : "market");
+    }
     const next = ST.panel === name ? null : name;
     ST.panel = next;
     ST.modal = null;
     closeTools();
+    if (!next) ST.serviceAccess = "";
     if (next) { markGuidePanelVisited(next); advanceWalkthroughPanel(next); }
     paint(true);
   }
-  function openCharacter() { togglePanel("char"); }
+  function openCharacter() { directServiceHint("tailor"); }
   async function loadBankStatus() {
     if (!ST.auth || ST.spectator) return null;
     ST.bankBusy = true; ST.bankMsg = ""; paint(true);
@@ -3531,8 +3591,26 @@ export default function mount() {
     paint(true);
     return r;
   }
-  function openBankPanel() { ST.tradeTab = "bank"; togglePanel("bank"); loadBankStatus(); }
-  function openTrade() { openBankPanel(); }
+  function openBankPanel(fromCapital = false) {
+    if (!fromCapital && !ST.serviceAccess) { directServiceHint("bank"); return; }
+    ST.tradeTab = "bank";
+    ST.serviceAccess = ST.serviceAccess || "bank";
+    ST.panel = "bank";
+    ST.modal = null;
+    closeTools();
+    loadBankStatus();
+    paint(true);
+  }
+  function openTrade(fromCapital = false) {
+    if (!fromCapital && !ST.serviceAccess) { directServiceHint("market"); return; }
+    ST.tradeTab = "market";
+    ST.serviceAccess = ST.serviceAccess || "market";
+    ST.panel = "bank";
+    ST.modal = null;
+    closeTools();
+    loadBankStatus();
+    paint(true);
+  }
   function doUseTool() {
     if (ST.channel?.kind === "home") return;
     if (ST.tool !== "use") {
@@ -4003,7 +4081,7 @@ export default function mount() {
       case "explore-mode": closeTools(); clearHeldMoveKeys(); ST.panel = null; ST.modal = null; say("Move mode — click the map, use WASD/arrows, or hold two directions for diagonal movement.", 1800); paint(true); return;
       case "open-options":
       case "open-more": return openOptions();
-      case "open-bank": advanceWalkthroughAction("bank"); return openBankPanel();
+      case "open-bank": advanceWalkthroughAction("bank"); return openBankPanel(false);
       case "select-wonder": advanceWalkthroughAction("wonder"); return selectWonderTool();
       case "select-craft": return selectCraftTool();
       case "tools-toggle": return toggleToolsRibbon();
@@ -4043,7 +4121,7 @@ export default function mount() {
       case "learn-skill": return act("learn", { skill: readStr(el, "id") });
       case "player-walk": if (ST.inspectPlayer) { const q = ST.inspectPlayer; ST.modal = null; ST.inspectPlayer = null; paint(); world.pathTo(q.x, q.z); } return;
       case "player-close": ST.modal = null; ST.inspectPlayer = null; paint(); return;
-      case "trade-tab": ST.tradeTab = readStr(el, "tab", "market"); if (ST.tradeTab === "bank") loadBankStatus(); paint(); return;
+      case "trade-tab": if (!ST.serviceAccess) return directServiceHint("market"); ST.tradeTab = readStr(el, "tab", "market"); if (ST.tradeTab === "bank") loadBankStatus(); paint(); return;
       case "post-offer": { const v = (id) => (document.getElementById(id) || {}).value; return act("postOffer", { gRes: v("sc-o-gres"), gAmt: Number(v("sc-o-gamt")), wRes: v("sc-o-wres"), wAmt: Number(v("sc-o-wamt")) }); }
       case "cancel-offer": return act("cancelOffer", { id: readNum(el, "id") });
       case "accept-offer": return act("acceptOffer", { id: readNum(el, "id") }).then((r) => r && r.ok && sfx.coin());
@@ -4061,7 +4139,7 @@ export default function mount() {
       case "inspect-walk-near": { const uid = ST.inspect || ST.wonderViewUid; const b = uid ? world.buildPool.get(uid) : null; closeInspectPanel(); ST.modal = null; ST.wonderViewUid = null; if (b) world.pathToNear(b.x, b.z); return; }
       case "intro-submit": return submitIntroName();
       case "modal-close": ST.modal = null; ST.wonderViewUid = null; ST.wonderViewError = ""; stopWonderViewer(); paint(true); return;
-      case "panel-close": ST.panel = null; paint(true); return;
+      case "panel-close": ST.panel = null; ST.serviceAccess = ""; paint(true); return;
       case "char-sync": world.refreshOwnRig?.(); say("Character synced.", 900); return;
       case "bank-refresh": return loadBankStatus();
       case "bank-deposit": return bankAction("deposit");
@@ -4099,7 +4177,7 @@ export default function mount() {
       case "wonder-teleport": return startWonderCast(readNum(el, "uid", 0));
       case "reload-atlases-silent": return reloadArtRuntime(false);
       case "reload-art": return reloadArtRuntime(true);
-      case "open-character-panel": ST.modal = null; ST.panel = "char"; markGuidePanelVisited("char"); advanceWalkthroughPanel("char"); paint(true); return;
+      case "open-character-panel": return directServiceHint("tailor");
       case "open-help": ST.modal = "help"; paint(true); return;
       case "guide-skip": return skipWalkthrough();
       case "tutorial-restart": return restartWalkthrough();
@@ -4107,6 +4185,9 @@ export default function mount() {
       case "reload-page": writeAckedClientVersion(ST.updateVersion); return location.reload();
       case "chat-share-here": return shareHereInChat();
       case "chat-card-open": return openChatCardFromElement(el);
+      case "capital-service-close": return closeCapitalService();
+      case "capital-service-walk": return walkToCapitalService();
+      case "capital-service-action": return useCapitalService(readStr(el, "service", ""));
       case "object-preview-close": ST.objectPreview = null; if (ST.panel === "object") ST.panel = null; paint(true); return;
       case "object-preview-walk-near": if (ST.objectPreview) { const p = ST.objectPreview; ST.panel = null; ST.objectPreview = null; world.pathToNear(p.x, p.z); paint(true); } return;
       case "object-preview-primary": {
@@ -4736,9 +4817,11 @@ export default function mount() {
     if (ST.screen !== "playing" || ST.modal || !ST.panel) return <div />;
     if (ST.panel === "inspect") return <InspectPanel />;
     if (ST.panel === "object") return <ObjectPreviewPanelView preview={ST.objectPreview} />;
+    if (ST.panel === "capital") return <CapitalServicePanelView service={ST.capitalService} distance={capitalServiceDistance()} />;
+    if (ST.panel === "bank" && (ST.serviceAccess === "bank" || ST.serviceAccess === "market")) return <BankPanel />;
+    if (ST.panel === "char" && ST.serviceAccess === "tailor") return <CharacterPanel />;
+    if (ST.panel === "quests" && ST.serviceAccess === "guide") return <QuestPanel />;
     if (ST.panel === "settings") return <SettingsPanel />;
-    // Capital services are intentionally no longer instant HUD panels.
-    // Bank, appearance, guide, inventory, and skills will return as city NPC/building interactions.
     return <div />;
   }
 
@@ -4906,7 +4989,7 @@ export default function mount() {
     if (ST.screen !== "playing") return "x";
     const m = ST.me;
     const b = ST.panel === "inspect" ? world.buildPool.get(ST.inspect) : null;
-    return [ST.panel, ST.objectPreview && JSON.stringify(ST.objectPreview), JSON.stringify(ST.visual || {}) || "", ST.questTab || "", ST.inspect || "", ST.inspectDraft && JSON.stringify(ST.inspectDraft), b && [b.level, Math.ceil(b.hp), b.maxHp, b.nm, b.cl, b.constructUntil || 0, Math.floor((constructionStateForBuilding(b)?.progress || 1) * 20)].join(":"), JSON.stringify(ST.characterProfile), m && JSON.stringify(m.inv), m && JSON.stringify(m.pack), m && JSON.stringify(m.skills), m && JSON.stringify(m.skillXp), m && m.wallet, m && m.strongbox, m && m.vaultGold, m && JSON.stringify(m.wonders), ST.wonderPrompt || "", ST.wonderName || "", ST.wonderFootprint || 9, ST.wonderMode || "district", ST.wonderPaletteId || "solar", ST.wonderBusy ? 1 : 0, ST.wonderPlacing ? 1 : 0, ST.wonderRecipe?.name || "", ST.wonderRecipe?.footprint || "", ST.wonderRecipe?.paletteId || "", ST.wonderMsg || "", m && m.biome, m && JSON.stringify(m.guideQuests), m && JSON.stringify(m.guideSummary), ST.uiMuted ? 1 : 0, ST.musicMuted ? 1 : 0, ST.ui?.uiScale || 1, ST.ui?.menuScale || 1, ST.visual?.cameraZoom || 1].join("|");
+    return [ST.panel, ST.objectPreview && JSON.stringify(ST.objectPreview), JSON.stringify(ST.visual || {}) || "", ST.questTab || "", ST.inspect || "", ST.inspectDraft && JSON.stringify(ST.inspectDraft), b && [b.level, Math.ceil(b.hp), b.maxHp, b.nm, b.cl, b.constructUntil || 0, Math.floor((constructionStateForBuilding(b)?.progress || 1) * 20)].join(":"), JSON.stringify(ST.characterProfile), ST.capitalService && JSON.stringify(ST.capitalService), ST.serviceAccess || "", m && JSON.stringify(m.inv), m && JSON.stringify(m.pack), m && JSON.stringify(m.skills), m && JSON.stringify(m.skillXp), m && m.wallet, m && m.strongbox, m && m.vaultGold, m && JSON.stringify(m.wonders), ST.wonderPrompt || "", ST.wonderName || "", ST.wonderFootprint || 9, ST.wonderMode || "district", ST.wonderPaletteId || "solar", ST.wonderBusy ? 1 : 0, ST.wonderPlacing ? 1 : 0, ST.wonderRecipe?.name || "", ST.wonderRecipe?.footprint || "", ST.wonderRecipe?.paletteId || "", ST.wonderMsg || "", m && m.biome, m && JSON.stringify(m.guideQuests), m && JSON.stringify(m.guideSummary), ST.uiMuted ? 1 : 0, ST.musicMuted ? 1 : 0, ST.ui?.uiScale || 1, ST.ui?.menuScale || 1, ST.visual?.cameraZoom || 1].join("|");
   }
   function bottomSig() {
     if (ST.screen !== "playing") return "x";

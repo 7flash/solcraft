@@ -1535,3 +1535,15 @@ input:focus,select:focus{border-color:var(--line2);box-shadow:0 0 0 3px rgba(20,
 .ui-ico-axe span,.ui-ico-wood span{color:#d9ffbe!important;}
 .ui-ico-pickaxe span,.ui-ico-stone span{color:#cfe8ff!important;}
 .ui-ico-hammer span,.ui-ico-build span{color:#fff0a8!important;}
+
+/* Stage 41 — capital services become world interactions */
+.ui41-capital-service-panel{display:grid;gap:12px;}
+.ui41-service-hero{display:grid;grid-template-columns:58px minmax(0,1fr) auto;gap:13px;align-items:start;padding:13px;border-radius:22px;background:linear-gradient(180deg,rgba(255,255,255,.065),rgba(255,255,255,.025));border:1px solid rgba(243,234,215,.12);}
+.ui41-service-glyph{width:58px;height:58px;border-radius:20px;display:grid;place-items:center;font-size:30px;background:linear-gradient(135deg,rgba(34,230,165,.18),rgba(255,214,110,.10));border:1px solid rgba(243,234,215,.16);box-shadow:inset 0 1px 0 rgba(255,255,255,.08),0 10px 24px rgba(0,0,0,.25);}
+.ui41-service-hero h2{margin:0;color:var(--ui30-text,#f5f0e6);font:950 24px/1.02 var(--ui30-font,Inter,system-ui,sans-serif);letter-spacing:-.04em;}
+.ui41-service-hero p:not(.ui30-eyebrow){margin:7px 0 0;color:rgba(245,240,230,.76);font:800 13px/1.35 var(--ui30-font,Inter,system-ui,sans-serif);}
+.ui41-service-chip{justify-self:end;display:inline-flex;align-items:center;justify-content:center;min-height:30px;padding:0 10px;border-radius:999px;background:rgba(0,0,0,.20);border:1px solid rgba(243,234,215,.12);color:rgba(245,240,230,.72);font:900 11px/1 var(--ui30-mono,ui-monospace,monospace);white-space:nowrap;}
+.ui41-service-note{display:grid;grid-template-columns:auto minmax(0,1fr);gap:8px;align-items:center;padding:10px 12px;border-radius:17px;background:rgba(34,230,165,.08);border:1px solid rgba(34,230,165,.18);}
+.ui41-service-note b{color:#9fffd9;font:950 12px/1 var(--ui30-font,Inter,system-ui,sans-serif);text-transform:uppercase;letter-spacing:.08em;white-space:nowrap;}
+.ui41-service-note span{color:rgba(223,255,240,.78);font:800 12px/1.25 var(--ui30-font,Inter,system-ui,sans-serif);}
+@media(max-width:720px){.ui41-service-hero{grid-template-columns:48px minmax(0,1fr);}.ui41-service-glyph{width:48px;height:48px;border-radius:16px;font-size:25px}.ui41-service-chip{grid-column:1/-1;justify-self:start}.ui41-service-note{grid-template-columns:1fr}}
