@@ -6,6 +6,7 @@ import { dispatchEcs, ecsContext, type EcsAction, type EcsWorld } from "./ecs/in
 import { loadEcsWorld, persistEcsWorldDelta, ecsRulesFromShared, ecsWorldRev, bumpEcsWorldRev, mirrorLegacyToEcsTables, ecsMigrationStatus } from "./ecsDbAdapter";
 import { ECONOMY_RULES, START_INV, PACK_SIZE, BASE_MAX, MAX_HP, SPAWN_HALF, biomeAt, RES_KEYS, LIBRARY } from "./shared";
 import { factionSummaryForWire } from "./factionRules";
+import { dispatchEcsGameplayAction, ecsGameplayStatus, ecsGameplaySupportedActionTypes } from "./ecsGameplayActions";
 
 export type EcsPlayerRow = any;
 export type WalletAuthInput = { wallet?: string; message?: string; signature?: string } | null | undefined;
@@ -233,7 +234,7 @@ function logEcsAction(player: number, action: string, result: any, backend = "ec
   } catch {}
 }
 
-const ECS_ACTION_TYPES = new Set(["move", "movePath", "claim", "place", "upgrade", "demolish", "harvest", "harvestStart", "harvestFinish"]);
+const ECS_ACTION_TYPES = new Set(["move", "movePath", "claim", "place", "upgrade", "demolish", "harvest", "harvestStart", "harvestFinish", "pickup"]);
 
 function cloneWorld(world: EcsWorld): EcsWorld {
   return typeof structuredClone === "function" ? structuredClone(world) : loadEcsWorld({ includeAll: true });
@@ -272,10 +273,17 @@ export function dispatch(p: EcsPlayerRow, body: any) {
     refreshPlayer(row);
     return { ok: true, backend: "ecs" };
   }
-  if (!ECS_ACTION_TYPES.has(type)) { const r = { ok: false, msg: `ECS backend does not implement action: ${type}`, reasonCode: "ECS_ACTION_NOT_IMPLEMENTED", details: { type } }; logEcsAction(p.id, type, r); return r; }
   const fresh = getPlayer(p.id) as any;
   if (!fresh) { const r = { ok: false, msg: "Unknown player", reasonCode: "PLAYER_NOT_FOUND" }; logEcsAction(p.id, type, r); return r; }
   if (isSpectator(fresh) && !["move", "movePath", "profileAppearance", "setupProfile"].includes(type)) { const r = { ok: false, msg: "Spectators cannot affect the world.", reasonCode: "SPECTATOR" }; logEcsAction(fresh.id, type, r); return r; }
+  const gameplay = dispatchEcsGameplayAction(fresh, body);
+  if (gameplay.handled) {
+    const out = { ...(gameplay.result || { ok: false, msg: "ECS gameplay failed", reasonCode: "ECS_GAMEPLAY_FAILED" }), backend: "ecs" };
+    logEcsAction(fresh.id, type, out, "ecs-gameplay");
+    return out;
+  }
+  if (type === "pickup") body = { ...body, type: "harvest" };
+  if (!ECS_ACTION_TYPES.has(type)) { const r = { ok: false, msg: `ECS backend does not implement action: ${type}`, reasonCode: "ECS_ACTION_NOT_IMPLEMENTED", details: { type, gameplaySupported: ecsGameplaySupportedActionTypes() } }; logEcsAction(p.id, type, r); return r; }
   const before = loadEcsWorld({ playerId: fresh.id, ax: body.x ?? fresh.x, az: body.z ?? fresh.z, radius: 96 });
   const after = cloneWorld(before);
   const action: EcsAction = type === "harvestStart" || type === "harvestFinish" ? { ...body, type: "harvest" } : body;
@@ -341,5 +349,5 @@ export function forceClientRefresh(reason = "Admin published an update") {
 }
 
 export function ecsBackendStatus() {
-  return { backend: "ecs", tick: worldTickStatus(), rulesBuildings: Object.keys(ecsRulesFromShared().buildings).length };
+  return { backend: "ecs", tick: worldTickStatus(), rulesBuildings: Object.keys(ecsRulesFromShared().buildings).length, gameplay: ecsGameplayStatus(), coreActions: [...ECS_ACTION_TYPES].sort() };
 }

@@ -15,7 +15,8 @@
     "test:backend:watch": "bun test --watch server/buildingStore.test.ts server/tileLootStore.test.ts server/playerStore.test.ts server/dbIntegrity.test.ts",
     "migrate:ecs": "bun scripts/migrate-legacy-to-ecs.ts",
     "start:ecs": "SOLCRAFT_BACKEND_MODE=ecs bun run web",
-    "dev:ecs": "SOLCRAFT_BACKEND_MODE=hybrid bun run dev"
+    "dev:ecs": "SOLCRAFT_BACKEND_MODE=hybrid bun run dev",
+    "ecs:coverage": "bun scripts/ecs-action-coverage.ts"
   },
   "dependencies": {
     "measure-fn": "4.0.4",

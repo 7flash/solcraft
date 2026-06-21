@@ -1,4 +1,4 @@
-export const DB_SCHEMA_VERSION = 12;
+export const DB_SCHEMA_VERSION = 13;
 
 export function applyProductionDbSchema(db: { exec(sql: string): unknown }) {
   // Coordinates and ownership: current hot range queries plus future ECS/chunk adapters.
@@ -85,6 +85,11 @@ export function applyProductionDbSchema(db: { exec(sql: string): unknown }) {
   db.exec("CREATE INDEX IF NOT EXISTS idx_ecs_action_log_player_createdAt ON ecsActionLog(player, createdAt)");
   db.exec("CREATE INDEX IF NOT EXISTS idx_ecs_action_log_action_createdAt ON ecsActionLog(action, createdAt)");
   db.exec("CREATE INDEX IF NOT EXISTS idx_ecs_action_log_backend_ok ON ecsActionLog(backend, ok)");
+
+  // Stage 13: ECS strict-mode gameplay coverage / cutover observability.
+  db.exec("CREATE INDEX IF NOT EXISTS idx_ecs_action_log_action_ok_createdAt ON ecsActionLog(action, ok, createdAt)");
+  db.exec("CREATE INDEX IF NOT EXISTS idx_ecs_action_log_reason_createdAt ON ecsActionLog(reasonCode, createdAt)");
+  db.exec("CREATE INDEX IF NOT EXISTS idx_ecs_action_log_backend_action ON ecsActionLog(backend, action)");
 
 }
 
