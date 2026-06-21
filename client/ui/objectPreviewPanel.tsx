@@ -5,9 +5,9 @@ import { objectPreviewActionLabel, objectPreviewDescription, objectPreviewGlyph,
 
 const FALLBACK_BUILD_CHOICES = [
   { id: "cottage", name: "House", icon: "🏠", text: "Expands your settlement and supports future services." },
-  { id: "lumber", name: "Lumber Camp", icon: "🪵", text: "Improves wood gathering and frontier growth." },
-  { id: "quarry", name: "Mine", icon: "⛏", text: "Improves stone gathering and building flow." },
-  { id: "farm", name: "Farm", icon: "🌾", text: "Grows crops; food restores health over time." },
+  { id: "lumber", name: "Lumber Camp", icon: "🪵", text: "Spawns renewable trees nearby. You still need to cut and gather them." },
+  { id: "quarry", name: "Mine", icon: "⛏", text: "Spawns renewable rocks nearby. You still need to mine and gather them." },
+  { id: "farm", name: "Farm", icon: "🌾", text: "Spawns crops nearby; cut and gather them for food." },
   { id: "market", name: "Market", icon: "🪙", text: "Turns settlement activity into coins." },
 ];
 

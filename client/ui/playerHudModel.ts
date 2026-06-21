@@ -57,7 +57,16 @@ export function limitAdviceRows(m: any): LimitAdviceRow[] {
   const caps = m.storageCap || {};
   const tileCap = Number(m.tileCap || 0);
   const tileRatio = capRatio(m.territory || 0, tileCap);
-  if (tileCap && (tileRatio >= 0.80 || tileCap - Number(m.territory || 0) <= 8)) {
+  if (m.economy?.overextended || Number(m.economy?.reputationShortfall || 0) > 0) {
+    rows.push({
+      key: "overextended",
+      glyph: "⚠",
+      cls: "bad",
+      title: `Overextended by ${Number(m.economy?.reputationShortfall || 0)} tiles`,
+      short: "Reputation too low",
+      body: "Your buildings stop regenerating while you own more land than your reputation supports.",
+    });
+  } else if (tileCap && (tileRatio >= 0.80 || tileCap - Number(m.territory || 0) <= 8)) {
     rows.push({
       key: "tiles",
       glyph: "◇",

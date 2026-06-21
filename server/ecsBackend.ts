@@ -4,8 +4,9 @@ import { checkWalletLoginGate } from "./login-gate";
 import { verifyWalletAuth } from "./wallet-auth";
 import { dispatchEcs, ecsContext, type EcsAction, type EcsWorld } from "./ecs/index";
 import { loadEcsWorld, persistEcsWorldDelta, ecsRulesFromShared, ecsWorldRev, bumpEcsWorldRev, mirrorLegacyToEcsTables, ecsMigrationStatus } from "./ecsDbAdapter";
-import { ECONOMY_RULES, START_INV, PACK_SIZE, BASE_MAX, MAX_HP, SPAWN_HALF, biomeAt, RES_KEYS, LIBRARY } from "./shared";
+import { ECONOMY_RULES, START_INV, PACK_SIZE, BASE_MAX, MAX_HP, SPAWN_HALF, biomeAt } from "./shared";
 import { reputationSummaryForWire, tileCapacityForPlayer, storageCapsForPlayer } from "./reputationRules";
+import { cleanEconomyTick, cleanEconomyStatus, cleanPlayerEconomySummary } from "./cleanEconomy";
 import { dispatchEcsGameplayAction, ecsGameplayStatus, ecsGameplaySupportedActionTypes } from "./ecsGameplayActions";
 import { activeActionSurface, removedFeatureResponse } from "./removedFeatures";
 
@@ -299,38 +300,19 @@ export function dispatch(p: EcsPlayerRow, body: any) {
 }
 
 function buildingResourceTick(t = now()) {
-  const last = Number(metaGet("solcraft:ecs:buildingRewardAt", "0")) || 0;
-  if (t - last < BUILDING_REWARD_MS) return;
-  metaSet("solcraft:ecs:buildingRewardAt", String(t));
-  const libById = Object.fromEntries((LIBRARY as any[]).map((b) => [String(b.id), b]));
-  const byPlayer = new Map<number, any>();
-  for (const b of db.buildings.select().all() as any[]) {
-    if (Number(b.cdUntil || 0) > t) continue;
-    const def = libById[String(b.kind || "")];
-    const prod = def?.prod || def?.produces || {};
-    const owner = Number(b.owner || 0);
-    if (!owner || !Object.keys(prod).length) continue;
-    const p = byPlayer.get(owner) || getPlayer(owner) as any;
-    if (!p) continue;
-    byPlayer.set(owner, p);
-    const elapsed = Math.max(0, t - Number(b.accAt || t)) / 1000;
-    for (const [rk, rate] of Object.entries(prod)) {
-      if (!RES_KEYS.includes(rk as any)) continue;
-      p.inv = p.inv || {};
-      p.inv[rk] = Math.max(0, Number(p.inv[rk] || 0) + elapsed * Number(rate || 0) * Math.max(1, Number(b.level || 1)));
-    }
-    b.accAt = t;
-  }
-  for (const p of byPlayer.values()) refreshPlayer(p);
+  // Clean-slate economy: buildings no longer credit resources passively.
+  // Camps/quarries/farms spawn harvestable nodes, warehouses set caps, and
+  // reputation over-cap state stops normal building regeneration.
+  return cleanEconomyTick(t);
 }
 
 export function runWorldTick(reason = "manual") {
   const t = now();
   if (t - ecsTickAt < 900 && reason !== "manual") return { ok: true, skipped: true, backend: "ecs", at: ecsTickAt };
   ecsTickAt = t;
-  buildingResourceTick(t);
+  const economy = buildingResourceTick(t);
   if (reason === "manual") mirrorLegacyToEcsTables("tick-manual");
-  return { ok: true, backend: "ecs", at: ecsTickAt, reason };
+  return { ok: true, backend: "ecs", at: ecsTickAt, reason, economy };
 }
 
 export function ensureWorldTickStarted() {
@@ -342,7 +324,7 @@ export function ensureWorldTickStarted() {
 }
 
 export function worldTickStatus() {
-  return { backend: "ecs", started: ecsTickStarted, lastTickAt: ecsTickAt, migration: ecsMigrationStatus() };
+  return { backend: "ecs", started: ecsTickStarted, lastTickAt: ecsTickAt, migration: ecsMigrationStatus(), economy: cleanEconomyStatus() };
 }
 
 export function forceClientRefresh(reason = "Admin published an update") {
@@ -352,5 +334,5 @@ export function forceClientRefresh(reason = "Admin published an update") {
 }
 
 export function ecsBackendStatus() {
-  return { backend: "ecs", tick: worldTickStatus(), rulesBuildings: Object.keys(ecsRulesFromShared().buildings).length, gameplay: ecsGameplayStatus(), coreActions: [...ECS_ACTION_TYPES].sort(), activeActions: activeActionSurface() };
+  return { backend: "ecs", tick: worldTickStatus(), rulesBuildings: Object.keys(ecsRulesFromShared().buildings).length, economy: cleanEconomyStatus(), gameplay: ecsGameplayStatus(), coreActions: [...ECS_ACTION_TYPES].sort(), activeActions: activeActionSurface() };
 }

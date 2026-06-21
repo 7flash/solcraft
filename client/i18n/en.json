@@ -254,7 +254,7 @@
     },
     "summary": {
       "npc": "Wanderer",
-      "food": "Farm crop",
+      "food": "Harvestable crop",
       "tile": "Walkable ground",
       "trade": "World service",
       "default": "World object"
@@ -262,7 +262,7 @@
     "desc": {
       "tree": "A harvestable tree. Select the axe from the bottom toolbelt if you want to chop it.",
       "rock": "A harvestable rock. Select the pickaxe from the bottom toolbelt if you want to mine it.",
-      "food": "A crop patch grown by a nearby farm. Food restores health over time and can be harvested when you stand beside it.",
+      "food": "A harvestable crop grown by a nearby farm. Cut and gather it for food before raiding or exploring.",
       "trade": "A public exchange point. In the capital this becomes the natural place for bank, deposit, withdrawal, and trade actions.",
       "npcBase": "{role} crossing the frontier between the capital and player settlements.",
       "npcCoins": " They carry about {coins} coins.",
@@ -313,19 +313,19 @@
         "id": "lumber",
         "name": "Lumber Camp",
         "icon": "🪵",
-        "text": "Improves wood gathering and frontier growth."
+        "text": "Spawns renewable trees nearby. You still need to cut and gather them."
       },
       {
         "id": "quarry",
         "name": "Mine",
         "icon": "⛏",
-        "text": "Improves stone gathering and building flow."
+        "text": "Spawns renewable rocks nearby. You still need to mine and gather them."
       },
       {
         "id": "farm",
         "name": "Farm",
         "icon": "🌾",
-        "text": "Grows crops; food restores health over time."
+        "text": "Spawns crops nearby; cut and gather them for food."
       },
       {
         "id": "market",

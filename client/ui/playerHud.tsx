@@ -68,7 +68,7 @@ export function PlayerHudView(props: any) {
     <section className="ui31-resources" aria-label="Resources">
       <ResourceChip icon="🪵" label="Wood" value={m.inv?.w || 0} cap={m.storageCap?.w || 250} tip={`Wood ${m.inv?.w || 0}. Storage cap: ${m.storageCap?.w || 250}.`} />
       <ResourceChip icon="🪨" label="Stone" value={m.inv?.s || 0} cap={m.storageCap?.s || 250} tip={`Stone ${m.inv?.s || 0}. Storage cap: ${m.storageCap?.s || 250}.`} />
-      <ResourceChip icon="🌾" label="Food" value={m.inv?.f || 0} cap={m.storageCap?.f || 250} tip={`Food ${m.inv?.f || 0}. Farms and crops provide food for recovery.`} />
+      <ResourceChip icon="🌾" label="Food" value={m.inv?.f || 0} cap={m.storageCap?.f || 250} tip={`Food ${m.inv?.f || 0}. Farms spawn crops; gather food for recovery.`} />
       <ResourceChip icon="🪙" label="Coins" value={m.inv?.g || 0} cap={m.storageCap?.g || 999999} tip={`Coins ${m.inv?.g || 0}. Earn coins from territory, markets, and Keep raids.`} />
     </section>
 

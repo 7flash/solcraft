@@ -66,7 +66,7 @@ export function objectPreviewDescription(p: ObjectPreview | null | undefined): s
   if (!p) return "";
   if (p.kind === "tree") return t("objectPreview.desc.tree", "A harvestable tree. Select the axe from the bottom toolbelt if you want to chop it.");
   if (p.kind === "rock") return t("objectPreview.desc.rock", "A harvestable rock. Select the pickaxe from the bottom toolbelt if you want to mine it.");
-  if (p.kind === "food") return t("objectPreview.desc.food", "A crop patch grown by a nearby farm. Food restores health over time and can be harvested when you stand beside it.");
+  if (p.kind === "food") return t("objectPreview.desc.food", "A harvestable crop grown by a nearby farm. Cut and gather it for food before raiding or exploring.");
   if (p.kind === "trade") return t("objectPreview.desc.trade", "A public exchange point. In the capital this becomes the natural place for bank, deposit, withdrawal, and trade actions.");
   if (p.kind === "npc") {
     const role = objectPreviewRoleLabel(p.role, p.title);
@@ -110,7 +110,7 @@ export function objectPreviewActionLabel(action: string): string {
 export function objectPreviewSummaryTitle(p: ObjectPreview | null | undefined): string {
   if (!p) return "";
   if (p.kind === "npc") return p.title || t("objectPreview.summary.npc", "Wanderer");
-  if (p.kind === "food") return t("objectPreview.summary.food", "Farm crop");
+  if (p.kind === "food") return t("objectPreview.summary.food", "Harvestable crop");
   if (p.kind === "tile") return t("objectPreview.summary.tile", "Walkable ground");
   if (p.kind === "trade") return t("objectPreview.summary.trade", "World service");
   return t("objectPreview.summary.default", "World object");

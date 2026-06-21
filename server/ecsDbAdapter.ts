@@ -3,7 +3,8 @@ import { insertBuilding, deleteBuilding, invalidateBuildingStore } from "./build
 import { insertTile, deleteTile, invalidateTileStore } from "./tileStore";
 import { insertLoot, deleteLoot, invalidateLootStore } from "./lootStore";
 import { getPlayer, refreshPlayer } from "./playerStore";
-import { BUILDING_REWARD_MS, ECONOMY_RULES, LIBRARY, START_INV, BASE_MAX, tokenMaxEnergy, tokenRegenPerMin, biomeAt, naturalDoodad, RES_KEYS } from "./shared";
+import { ECONOMY_RULES, LIBRARY, START_INV, BASE_MAX, tokenMaxEnergy, tokenRegenPerMin, biomeAt, naturalDoodad, RES_KEYS } from "./shared";
+import { cleanHarvestRules } from "./cleanEconomy";
 import { createWorld, addPlayer, setTile, addBuilding, addDoodad, addLoot, type BuildingC, type EcsWorld, type GameRules, type LootC, type ResourceBag } from "./ecs/index";
 import { key as ecsKey } from "./ecs/math";
 
@@ -51,7 +52,8 @@ export function ecsRulesFromShared(): GameRules {
       label: String(b.name || b.label || b.id),
       cost: { ...(b.cost || {}) },
       upgradeCost: { ...(b.upgradeCost || b.cost || {}) },
-      produces: { ...(b.prod || b.produces || {}) },
+      // Clean-slate economy: buildings spawn harvestable resources; they do not passively credit inventory.
+      produces: {},
       maxLevel: Number(b.maxLevel || 5),
       footprint: [1, 1],
     } as any;
@@ -60,10 +62,7 @@ export function ecsRulesFromShared(): GameRules {
     movement: { maxChebStep: 1, energyPerStep: Number(ECONOMY_RULES.moveEnergy || 1) },
     energy: { defaultMax: BASE_MAX, defaultRegenPerMinute: ECONOMY_RULES.energyRegenBasePerMinute },
     claim: { cost: { e: ECONOMY_RULES.claimEnergy || 0, w: ECONOMY_RULES.claimWood || 0, s: ECONOMY_RULES.claimStone || 0 }, requireAdjacentOwnedTile: true },
-    harvest: {
-      costs: { tree: { e: ECONOMY_RULES.chopEnergy || 0 }, rock: { e: ECONOMY_RULES.mineEnergy || 0 }, food: { e: 0 }, coin: { e: 0 } },
-      yields: { tree: { w: ECONOMY_RULES.treeWood || 3 }, rock: { s: ECONOMY_RULES.rockStone || 3 }, food: { f: 1 }, coin: { g: 1 } },
-    },
+    harvest: cleanHarvestRules(),
     caps: { w: 999999, p: 999999, s: 999999, f: 999999, g: 999999, sh: 999999, sc: 999999 },
     buildings,
   };
@@ -75,8 +74,8 @@ function addProceduralNodes(world: EcsWorld, px: number, pz: number, r = 26) {
     if (world.doodads.has(k)) continue;
     const persisted = (db.doodads.select().where({ x, z }).first() as any) || null;
     if (persisted?.state === "gone") continue;
-    if (persisted?.state === "tree" || persisted?.state === "rock" || persisted?.state === "food") {
-      addDoodad(world, { x, z, kind: persisted.state });
+    if (persisted?.state === "tree" || persisted?.state === "rock" || persisted?.state === "food" || persisted?.state === "crop") {
+      addDoodad(world, { x, z, kind: persisted.state === "crop" ? "food" : persisted.state });
       continue;
     }
     const nd = naturalDoodad(x, z) as any;
@@ -141,7 +140,7 @@ export function loadEcsWorld(opts: { playerId?: number; ax?: number; az?: number
     addLoot(w, { id: l.id, x: l.x | 0, z: l.z | 0, resources: lootResources(l.kind) });
   }
   for (const d of (db.doodads.select().all() as any[]).filter(inRange)) {
-    if (d.state !== "gone") addDoodad(w, { x: d.x | 0, z: d.z | 0, kind: String(d.state || "tree") });
+    if (d.state !== "gone") addDoodad(w, { x: d.x | 0, z: d.z | 0, kind: String(d.state || "tree") === "crop" ? "food" : String(d.state || "tree") });
   }
   addProceduralNodes(w, cx, cz, Math.min(radius, 36));
   w.nextEntityId = Math.max(w.nextEntityId, maxId + 1);

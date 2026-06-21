@@ -1,4 +1,4 @@
-export const DB_SCHEMA_VERSION = 14;
+export const DB_SCHEMA_VERSION = 15;
 
 export function applyProductionDbSchema(db: { exec(sql: string): unknown }) {
   // Coordinates and ownership: current hot range queries plus future ECS/chunk adapters.
@@ -97,6 +97,13 @@ export function applyProductionDbSchema(db: { exec(sql: string): unknown }) {
   db.exec("CREATE INDEX IF NOT EXISTS idx_buildings_kind_owner_level ON buildings(kind, owner, level)");
   db.exec("CREATE INDEX IF NOT EXISTS idx_buildings_owner_cdUntil ON buildings(owner, cdUntil)");
   db.exec("CREATE INDEX IF NOT EXISTS idx_players_level_lastSeen ON players(level, lastSeen)");
+
+
+  // Stage 15: clean economy tick. Camps/farms/quarries spawn harvestable nodes;
+  // storage rot and building regeneration are DB-driven and need cheap scans.
+  db.exec("CREATE INDEX IF NOT EXISTS idx_buildings_kind_owner_cdUntil ON buildings(kind, owner, cdUntil)");
+  db.exec("CREATE INDEX IF NOT EXISTS idx_buildings_owner_hp ON buildings(owner, hp)");
+  db.exec("CREATE INDEX IF NOT EXISTS idx_doodads_state_xz ON doodads(state, x, z)");
 
 }
 
