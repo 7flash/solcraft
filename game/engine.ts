@@ -37,6 +37,7 @@ import { resolveKeepVaultBreak } from "./mechanics/keepVault";
 import { applyKeepRegen, keepRaidHitPreview, keepRaidNote } from "./mechanics/keepRaid";
 import { academyScienceCapFor, resourceCapFor, scienceStatusFor, storageCapsFor } from "./mechanics/science";
 import { craftDestroyToolFor, tunedDestroySpecFor } from "./mechanics/destroyTools";
+import { capitalBlocksPlayerTerritory } from "./capitalRules";
 
 type Player = ReturnType<typeof db.players.get> & Record<string, any>;
 type Building = Record<string, any>;
@@ -2172,6 +2173,7 @@ function ownerMainIslandHas(ownerId: number, x: number, z: number): boolean {
   return false;
 }
 function captureDisconnectedTile(p: Player, t: any, x: number, z: number) {
+  if (capitalBlocksPlayerTerritory(x, z)) return err("The capital plaza is public land.", "CAPITAL_RESERVED");
   const capReason = tileCapacityBlockReason(p, "capture");
   if (capReason) return err(capReason);
   const claimCost = Object.fromEntries(Object.entries({ e: gameTuning().claimEnergy, w: ECONOMY_RULES.claimWood, s: ECONOMY_RULES.claimStone }).filter(([, v]) => Number(v) > 0)) as any;
@@ -2197,6 +2199,7 @@ export function claim(p: Player, x: number, z: number) {
   if (t && t.owner !== p.id) {
     return err("Player territory is protected. Expand into open frontier or siege neutral Keeps for coins.", "BASE_PROTECTED");
   }
+  if (capitalBlocksPlayerTerritory(x, z)) return err("The capital plaza is public land. Build settlements outside the service ring.", "CAPITAL_RESERVED");
   if (!touchesOwnLand(p, x, z)) return err("Claims must touch your own land.");
   const capReason = tileCapacityBlockReason(p, "claim");
   if (capReason) return err(capReason);
@@ -2477,6 +2480,7 @@ export function place(p: Player, kind: string, x: number, z: number, prompt = ""
   if (def.weapon) return err("Destroy tools are deployed from Deploy (6), not the building menu.");
   if ([BARB_CAMP_KIND, "wall", "gate"].includes(kind)) return err("That legacy structure is disabled. Cities stay walkable with normal buildings and one free tile of street around each.");
   if (kind === "worldwonder") return placeWorldWonder(p, x, z, prompt, recipe);
+  if (capitalBlocksPlayerTerritory(x, z)) return err("The capital plaza is reserved for public buildings.", "CAPITAL_RESERVED");
   const territory = db.tiles.select().where({ owner: p.id }).count();
   if (territory < (def.unlock || 0)) return err(`Unlocks at ${def.unlock} tiles.`);
   const padProblem = buildPadProblem(p, x, z, kind);

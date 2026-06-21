@@ -4,6 +4,8 @@
    so costs / production rates / interactions can never drift.
    ============================================================ */
 
+import { capitalBlocksNaturalResource, keepCrossIndexAt, keepCrossPositionsInBox, settlementSpawnAllowed, SETTLEMENT_SPAWN_STEP as CAPITAL_SETTLEMENT_SPAWN_STEP } from "./capitalRules";
+
 export const ECONOMY_RULES = {
   // Energy: concave, capped, floored. Movement has a tiny cost to stop spam, but recovers quickly.
   energyCap: 100,
@@ -553,6 +555,7 @@ export function biomeTerrainAt(x: number, z: number) {
 }
 export type DoodadType = "tree" | "rock" | null;
 export function naturalDoodad(x: number, z: number): DoodadType {
+  if (capitalBlocksNaturalResource(x, z)) return null;
   const b = biomeAt(x, z);
   const r = hrand(x, z, 2);
   if (r < b.treeChance) return "tree";
@@ -561,44 +564,30 @@ export function naturalDoodad(x: number, z: number): DoodadType {
 }
 
 export type ProceduralKeep = { id: string; x: number; z: number; biome: string; name: string; hp: number; gold: number };
-export const PROCEDURAL_KEEP_STEP = 78;
-function proceduralKeepForCell(cx: number, cz: number): ProceduralKeep | null {
-  if (Math.abs(cx) <= 1 && Math.abs(cz) <= 1) return null;
-  if (hrand(cx, cz, 41) > 0.58) return null;
-  const x = cx * PROCEDURAL_KEEP_STEP + 9 + Math.floor(hrand(cx, cz, 42) * (PROCEDURAL_KEEP_STEP - 18));
-  const z = cz * PROCEDURAL_KEEP_STEP + 9 + Math.floor(hrand(cx, cz, 43) * (PROCEDURAL_KEEP_STEP - 18));
-  if (Math.abs(x) < 22 && Math.abs(z) < 22) return null;
+export const PROCEDURAL_KEEP_STEP = 30;
+const KEEP_LANE_NAME: Record<string, string> = { north: "North", south: "South", east: "East", west: "West" };
+function proceduralKeepFromCross(x: number, z: number): ProceduralKeep | null {
+  const k = keepCrossIndexAt(x, z);
+  if (!k) return null;
   const biome = biomeAt(x, z);
-  const tier = Math.max(1, Math.min(5, Math.floor(Math.sqrt(x * x + z * z) / 160) + 1));
+  const tier = Math.max(1, Math.min(6, k.index + 1));
+  const laneName = KEEP_LANE_NAME[k.lane] || "Frontier";
   return {
-    id: `keep:${cx}:${cz}`,
+    id: `keep:${k.lane}:${k.index}`,
     x, z,
     biome: biome.id,
-    name: `${biome.name} Keep`,
-    hp: 70 + tier * 25,
-    gold: 35 + tier * 25,
+    name: `${laneName} Gate Keep ${k.index + 1}`,
+    hp: 95 + tier * 35,
+    gold: 45 + tier * 35,
   };
 }
 export function proceduralKeepAt(x: number, z: number): ProceduralKeep | null {
-  const cx0 = Math.floor(x / PROCEDURAL_KEEP_STEP);
-  const cz0 = Math.floor(z / PROCEDURAL_KEEP_STEP);
-  for (let cx = cx0 - 1; cx <= cx0 + 1; cx++) for (let cz = cz0 - 1; cz <= cz0 + 1; cz++) {
-    const k = proceduralKeepForCell(cx, cz);
-    if (k && k.x === x && k.z === z) return k;
-  }
-  return null;
+  return proceduralKeepFromCross(x, z);
 }
 export function proceduralKeepCandidatesAround(x: number, z: number, radius: number): ProceduralKeep[] {
-  const minCx = Math.floor((x - radius) / PROCEDURAL_KEEP_STEP) - 1;
-  const maxCx = Math.floor((x + radius) / PROCEDURAL_KEEP_STEP) + 1;
-  const minCz = Math.floor((z - radius) / PROCEDURAL_KEEP_STEP) - 1;
-  const maxCz = Math.floor((z + radius) / PROCEDURAL_KEEP_STEP) + 1;
-  const out: ProceduralKeep[] = [];
-  for (let cx = minCx; cx <= maxCx; cx++) for (let cz = minCz; cz <= maxCz; cz++) {
-    const k = proceduralKeepForCell(cx, cz);
-    if (k && cheb(k.x, k.z, x, z) <= radius) out.push(k);
-  }
-  return out;
+  return keepCrossPositionsInBox(x, z, radius)
+    .map((p) => proceduralKeepFromCross(p.x, p.z))
+    .filter(Boolean) as ProceduralKeep[];
 }
 
 export type ProceduralNpc = { id: string; x: number; z: number; biome: string; name: string };
@@ -650,8 +639,8 @@ export function nearTradePost(x: number, z: number): boolean {
 /* spawn plots go on a square spiral so everyone shares one map
    with breathing room between starter plots */
 export const CAPITAL_CENTER: [number, number] = [0, 0];
-export const CAPITAL_RESERVED_RADIUS = 10;
-export const SETTLEMENT_SPAWN_STEP = 14;
+export const CAPITAL_RESERVED_RADIUS = 15;
+export const SETTLEMENT_SPAWN_STEP = CAPITAL_SETTLEMENT_SPAWN_STEP;
 
 export function spawnOrigin(index: number): [number, number] {
   // Players no longer spawn on the exact world center. The center is reserved
@@ -671,7 +660,7 @@ export function spawnOrigin(index: number): [number, number] {
       }
     }
     const wx = x * STEP, wz = z * STEP;
-    if (Math.max(Math.abs(wx), Math.abs(wz)) <= CAPITAL_RESERVED_RADIUS) continue;
+    if (!settlementSpawnAllowed(wx, wz)) continue;
     accepted++;
     if (accepted >= Math.max(0, index)) return [wx, wz];
   }

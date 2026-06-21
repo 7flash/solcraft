@@ -28,7 +28,8 @@ import {
   makeBuildingGroup, makeLabel, makeSfx,
 } from "../client/meshes";
 import { loadAtlasRuntimeConfig, terrainMats, tickVisualTextures, setTerrainVisualPrefs } from "../client/textures";
-import { capitalBuildingsInView } from "../client/world/capitalLayout";
+import { capitalBuildingsInView, capitalLabelVisibleForPlayer } from "../client/world/capitalLayout";
+import { capitalBlocksNaturalResource, capitalBlocksPlayerTerritory } from "../game/capitalRules";
 import { loadCharacterProfile, saveCharacterProfile, type CharacterProfile } from "../client/dollProfile";
 import { isMoveKey, movementVectorFromKeys, normalizeMoveKey } from "../client/game/directionalInput";
 import { canIssueKeyboardStep, DEFAULT_KEYBOARD_STEP_MS } from "../client/game/keyboardStepper";
@@ -1635,6 +1636,7 @@ export default function mount() {
     }
     const doodadVisible = (x, z) => {
       const k = key(x, z);
+      if (capitalBlocksNaturalResource(x, z)) return null;
       if (tradePostAt(x, z)) return null;
       const ex = exceptions.get(k);
       if (ex) return ex === "gone" ? null : ex;
@@ -1873,7 +1875,8 @@ export default function mount() {
       removeBuild(uid);
       const plinth = territoryTopHex(b.ownerBody || ST.me?.body || 0x14f195, ST.me && b.owner === ST.me.id);
       const cs = constructionStateForBuilding(b);
-      const { group, parts } = b.kind === "road" ? makeRoadBuildingGroup(b) : makeBuildingGroup(b.kind, { nm: b.nm, cl: b.cl, plinth, wonder: b.wonder, buildProgress: cs ? cs.progress : 1, buildUntil: cs ? cs.end : b.cdUntil });
+      const labelName = b.capital && ST.me && !capitalLabelVisibleForPlayer(b, ST.me.x, ST.me.z) ? "" : b.nm;
+      const { group, parts } = b.kind === "road" ? makeRoadBuildingGroup(b) : makeBuildingGroup(b.kind, { nm: labelName, cl: b.cl, plinth, wonder: b.wonder, buildProgress: cs ? cs.progress : 1, buildUntil: cs ? cs.end : b.cdUntil });
       decorateBuilding(group, b);
       group.position.set(b.x, 0.22, b.z); scene.add(group);
       // Buildings are intentionally static. Triggered use pulses animate them briefly.
@@ -1909,7 +1912,8 @@ export default function mount() {
         if (have && have.sig !== sig) { removeBuild(b.uid); have = null; }
         if (!have) {
           const plinth = territoryTopHex(b.ownerBody, ST.me && b.owner === ST.me.id);
-          const { group, parts } = b.kind === "road" ? makeRoadBuildingGroup(b) : makeBuildingGroup(b.kind, { nm: b.nm, cl: b.cl, plinth, wonder: b.wonder, buildProgress, buildUntil: b.cdUntil });
+          const labelName = b.capital && ST.me && !capitalLabelVisibleForPlayer(b, ST.me.x, ST.me.z) ? "" : b.nm;
+          const { group, parts } = b.kind === "road" ? makeRoadBuildingGroup(b) : makeBuildingGroup(b.kind, { nm: labelName, cl: b.cl, plinth, wonder: b.wonder, buildProgress, buildUntil: b.cdUntil });
           decorateBuilding(group, b);
           group.position.set(b.x, 0.22, b.z); scene.add(group);
           // Buildings do not idle-spin/bob/flicker; interaction triggers a short pulse instead.
@@ -2841,6 +2845,7 @@ export default function mount() {
   function claimableHere(x, z) {
     const t = world.tileOwner.get(key(x, z));
     if (!ST.me || t) return false;
+    if (capitalBlocksPlayerTerritory(x, z)) return false;
     if (!touchesOwnLand(x, z)) return false;
     const b = world.buildPoolAt(x, z);
     return !b;
@@ -2970,6 +2975,7 @@ export default function mount() {
     const npc = proceduralNpcAt(c.x, c.z);
     if (npc) return tipText(npc.name, `${biomeAt(c.x, c.z).name} · a frontier encounter. More interactions coming soon.`);
     if (ST.tool === "claim") {
+      if (capitalBlocksPlayerTerritory(c.x, c.z)) return tipText("Capital reserve", "The capital plaza is public land. Build settlements outside the service ring.");
       if (claimableHere(c.x, c.z)) return tipText("Claimable tile", "Click it, walk there, and capture it.");
       if (captureTargetHere(c.x, c.z)) return tipText("Claimable frontier", "Stand on this open tile to claim it.");
     }
@@ -2998,7 +3004,8 @@ export default function mount() {
       else if (ST.tool === "claim") mat.color.set(claimableHere(c.x, c.z) ? 0x14f195 : 0xffe2a8);
       else mat.color.set(0x14f195);
     }
-    showTip(tileHoverInfo(c), ev);
+    if (ST.panel === "inspect" || ST.panel === "object") hideTip();
+    else showTip(tileHoverInfo(c), ev);
   }
   function onPointerDown(ev) {
     if (ev.button === 2) { ev.preventDefault(); return; }
@@ -3033,6 +3040,7 @@ export default function mount() {
       if (d && !world.buildPoolAt(c.x, c.z)) { openObjectPreview(worldObjectPreviewForCell(c)); return; }
       if (tradePostAt(c.x, c.z) || proceduralNpcAt(c.x, c.z)) { openObjectPreview(worldObjectPreviewForCell(c)); return; }
     }
+    if (hitB?.b?.capital && ST.tool !== "none") { openBuildingInspect(hitB); return; }
     if (ST.tool === "spawn" && c) {
       const bad = canCastBombAt(c.x, c.z, false);
       if (bad) { sfx.err(); say(bad); return; }
