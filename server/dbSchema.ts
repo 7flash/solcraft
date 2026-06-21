@@ -1,4 +1,4 @@
-export const DB_SCHEMA_VERSION = 8;
+export const DB_SCHEMA_VERSION = 9;
 
 export function applyProductionDbSchema(db: { exec(sql: string): unknown }) {
   // Coordinates and ownership: current hot range queries plus future ECS/chunk adapters.
@@ -42,5 +42,16 @@ export function applyProductionDbSchema(db: { exec(sql: string): unknown }) {
   db.exec("CREATE INDEX IF NOT EXISTS idx_tiles_owner_updatedAt ON tiles(owner, updatedAt)");
   db.exec("CREATE INDEX IF NOT EXISTS idx_players_level_xp ON players(level, xp)");
   db.exec("CREATE INDEX IF NOT EXISTS idx_players_updatedAt ON players(updatedAt)");
+
+  // Stage 9: tile/loot store preparation. These support exact-cell cache
+  // validation and future ECS dirty-row replay while preserving the legacy
+  // table model.
+  db.exec("CREATE INDEX IF NOT EXISTS idx_tiles_xz_id ON tiles(x, z, id)");
+  db.exec("CREATE INDEX IF NOT EXISTS idx_tiles_id_xz ON tiles(id, x, z)");
+  db.exec("CREATE INDEX IF NOT EXISTS idx_tiles_owner_id ON tiles(owner, id)");
+  db.exec("CREATE INDEX IF NOT EXISTS idx_loot_xz_id ON loot(x, z, id)");
+  db.exec("CREATE INDEX IF NOT EXISTS idx_loot_id_xz ON loot(id, x, z)");
+  db.exec("CREATE INDEX IF NOT EXISTS idx_loot_kind_createdAt ON loot(kind, createdAt)");
+
 }
 

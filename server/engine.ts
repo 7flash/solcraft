@@ -43,6 +43,8 @@ import { FOUNDATION_KIND, isFoundationBuildKind, foundationChoiceLabel } from ".
 import { adjustFactionStanding, factionDeltaText, factionSummaryForWire, factionTileCapacityBonus, readFactionStanding } from "./factionRules";
 import { devCommandsEnabled, isAdminPlayerName } from "./adminAuth";
 import { buildingAt, buildingCacheStats, deleteBuilding, getBuilding, hydrateBuildingStore, insertBuilding } from "./buildingStore";
+import { claimTileAt, deleteTile, hydrateTileStore, insertTile, insertTiles, tileAt, tileCacheStats } from "./tileStore";
+import { deleteLoot, getLoot, hydrateLootStore, insertLoot, lootAt, lootCacheStats } from "./lootStore";
 
 type Player = ReturnType<typeof db.players.get> & Record<string, any>;
 type Building = Record<string, any>;
@@ -159,6 +161,8 @@ for (const q of db.players.select().all() as Player[]) {
   live.set(q.id, { id: q.id, name: q.name, body: q.body, hat: q.hat, x: q.x, z: q.z, hp: q.hp, equip: q.equip as Equip, faceImage: q.faceImage || null, appearance: parseAppearance((q as any).appearance), level: q.level || 1, xp: q.xp || 0, lastSeen: q.lastSeen || 0, spectator: isSpectatorLike(q), spawnX: q.spawnX ?? q.x ?? 0, spawnZ: q.spawnZ ?? q.z ?? 0 });
 }
 hydrateBuildingStore();
+hydrateTileStore();
+hydrateLootStore();
 function isSpectator(p: Player | null | undefined) {
   return isSpectatorLike(p);
 }
@@ -572,7 +576,6 @@ function consumeBombItem(p: Player, id: string) {
 const packFull = (p: Player) => (p.pack as PackItem[]).every(Boolean);
 
 /* ---------- world queries (all indexed) ---------- */
-const tileAt = (x: number, z: number) => db.tiles.select().where({ x, z }).first() as any;
 function doodadAt(x: number, z: number): "tree" | "rock" | "food" | null {
   const ex = db.doodads.select().where({ x, z }).first() as any;
   if (ex) return ex.state === "gone" ? null : (ex.state as "tree" | "rock" | "food");
@@ -1499,7 +1502,7 @@ function decayOutermostTiles(p: Player, n: number) {
   let dropped = 0;
   for (const t of rows) {
     if (dropped >= n) break;
-    db.tiles.delete(t.id);
+    deleteTile(t);
     dropped++;
   }
   if (dropped) bump();
@@ -1589,7 +1592,7 @@ export async function join(name: string, body: number, hat: number, walletAuth: 
     for (let x = ox - SPAWN_HALF; x <= ox + SPAWN_HALF; x++)
       for (let z = oz - SPAWN_HALF; z <= oz + SPAWN_HALF; z++)
         if (!tileAt(x, z)) rows.push({ x, z, owner: p.id });
-    db.tiles.insertMany(rows);
+    insertTiles(rows);
     liveTouch(p);
     if ((p as any).profileDone) sysChat(`${p.name} settled a new hold on the frontier`);
     bump();
@@ -1677,7 +1680,7 @@ function moveEnergyCostFor(p: Player, fromX: number, fromZ: number, toX: number,
 }
 function districtCoinCellOpen(x: number, z: number) {
   if (buildingAt(x, z) || doodadAt(x, z) || tradePostAt(x, z)) return false;
-  if (db.loot.select().where({ x, z }).first()) return false;
+  if (lootAt(x, z)) return false;
   return true;
 }
 function wonderDistrictCoinCells(ownerId = 0) {
@@ -1735,9 +1738,9 @@ function spawnTerritoryGoldCoins() {
     if (!tile) continue;
     const x = Math.trunc(Number(tile.x || 0)), z = Math.trunc(Number(tile.z || 0));
     if (buildingAt(x, z) || doodadAt(x, z) || tradePostAt(x, z)) continue;
-    if (db.loot.select().where({ x, z }).first()) continue;
+    if (lootAt(x, z)) continue;
     const amount = 1 + Math.floor(Math.random() * (active > 6 ? 4 : active > 1 ? 3 : 2)) + (tile.district ? 1 : 0);
-    try { db.loot.insert({ x, z, kind: "gold", gid: String(amount) }); spawned++; }
+    try { insertLoot({ x, z, kind: "gold", gid: String(amount) }); spawned++; }
     catch { /* another action filled the tile first; harmless under unique loot coordinates */ }
   }
   if (spawned) { bump(); logEconomyEvent(districtMode ? "wonderDistrictCoins" : "territoryCoins", { spawned, target, active, tiles: tiles.length, interval, districtMode }); }
@@ -1916,7 +1919,7 @@ export function ensureWorldTickStarted() {
 }
 
 export function worldTickStatus() {
-  return { started: worldTickStarted, running: worldTickRunning, lastTickAt: worldTickAt, lastSlowTickAt: worldSlowTickAt, tickMs: WORLD_TICK_MS, slowTickMs: WORLD_SLOW_TICK_MS, events: transientEventStatus(), buildingCache: buildingCacheStats() };
+  return { started: worldTickStarted, running: worldTickRunning, lastTickAt: worldTickAt, lastSlowTickAt: worldSlowTickAt, tickMs: WORLD_TICK_MS, slowTickMs: WORLD_SLOW_TICK_MS, events: transientEventStatus(), buildingCache: buildingCacheStats(), tileCache: tileCacheStats(), lootCache: lootCacheStats() };
 }
 
 /* ============================================================
@@ -2049,7 +2052,7 @@ export function move(p: Player, x: number, z: number) {
   p.x = x; p.z = z;
   clearChannel(p.id); // moving away cancels any in-progress channel
   liveTouch(p);
-  const l = db.loot.select().where({ x, z }).first() as any;
+  const l = lootAt(x, z) as any;
   if (l) {
     if (isSpectator(p)) return ok({ energy: p.energy, x: p.x, z: p.z, inv: p.inv, xp: p.xp, level: p.level, note: "Spectator ghost: pickups are visible but cannot be collected." });
     const r = collectLoot(p, l) as any;
@@ -2113,10 +2116,10 @@ export function adminMapTeleport(p: Player, rawX: any, rawZ: any) {
 
 function collectLoot(p: Player, l: any) {
   if (isSpectator(p)) return err("Spectator ghosts can see pickups but cannot collect them.", "SPECTATOR_NO_PICKUP");
-  const fresh = db.loot.get(l.id) as any;
+  const fresh = getLoot(l.id) as any;
   if (!fresh) return err("That pickup was already collected.");
   l = fresh;
-  db.loot.delete(l.id);
+  deleteLoot(l);
   bump();
   let note = "";
   if (l.kind === "wood") { const amt = Math.max(1, Math.floor(Number(l.gid || 5) || 5)); gain(p, { w: amt }); note = `+${amt} wood 🪵`; }
@@ -2292,7 +2295,7 @@ export function claim(p: Player, x: number, z: number) {
   const miss = afford(p, claimCost);
   if (miss.length) return err("Claim needs " + Object.entries(claimCost).map(([k, v]) => `${v}${k}`).join(" ") + ".");
   spend(p, claimCost);
-  db.tiles.insert({ x, z, owner: p.id });
+  insertTile({ x, z, owner: p.id });
   bump();
   addXp(p, XP.claim);
   autoTrainSkill(p, "vigor", 3);
@@ -2309,9 +2312,7 @@ function claimWonderPlaza(p: Player, x: number, z: number, recipeLike: any = nul
   const r = wonderFootprintRadius(recipeLike || { footprint: WORLD_WONDER_PLAZA_SIZE });
   for (let dx = -r; dx <= r; dx++) for (let dz = -r; dz <= r; dz++) {
     const sx = x + dx, sz = z + dz;
-    const st = tileAt(sx, sz) as any;
-    if (st) st.owner = p.id;
-    else db.tiles.insert({ x: sx, z: sz, owner: p.id });
+    claimTileAt(sx, sz, p.id);
     clearDoodadCell(sx, sz);
   }
 }
@@ -2424,7 +2425,7 @@ function ensureKeepSiegeTilesAround(kx: number, kz: number) {
     clearDoodadCell(x, z);
     const t = tileAt(x, z) as any;
     if (!t) {
-      try { db.tiles.insert({ x, z, owner: 0 }); } catch {}
+      try { insertTile({ x, z, owner: 0 }); } catch {}
     }
   }
 }
@@ -2435,7 +2436,7 @@ function cleanupNeutralKeepSiegeTilesAround(kx: number, kz: number, excludeKeepI
     if (!t || Number(t.owner || 0) !== 0) continue;
     const stillNeeded = (db.buildings.select().where(inBox(x, z, KEEP_SIEGE_PAD_RADIUS)).all() as Building[])
       .some((b) => Number(b.id || 0) !== Number(excludeKeepId || 0) && Number(b.owner || 0) === 0 && b.kind === "keep" && cheb(b.x, b.z, x, z) <= KEEP_SIEGE_PAD_RADIUS);
-    if (!stillNeeded) try { db.tiles.delete(t.id); } catch {}
+    if (!stillNeeded) try { deleteTile(t); } catch {}
   }
 }
 function canSpawnNeutralKeepAt(x: number, z: number) {
@@ -2476,7 +2477,7 @@ function adminDeleteBuilding(p: Player, b: Building, clearTile = false) {
   if (owner) dropStats(owner);
   if (clearTile) {
     const t = tileAt(x, z) as any;
-    if (t && !isStarterTile(x, z)) { try { db.tiles.delete(t.id); } catch {} }
+    if (t && !isStarterTile(x, z)) { try { deleteTile(t); } catch {} }
   }
   return { uid: Number(b.id || 0), kind, owner, x, z, name: b.nm || kind };
 }
@@ -2496,11 +2497,11 @@ export function adminDemolishAt(p: Player, body: any = {}) {
     if (b) removed.push(adminDeleteBuilding(p, b, clearTile));
     const d = db.doodads.select().where({ x, z }).first() as any;
     if (d) { try { db.doodads.delete(d.id); removed.push({ kind: "doodad", x, z, state: d.state }); } catch {} }
-    const loot = db.loot.select().where({ x, z }).first() as any;
-    if (loot) { try { db.loot.delete(loot.id); removed.push({ kind: "loot", x, z, loot: loot.kind, amount: loot.gid }); } catch {} }
+    const loot = lootAt(x, z) as any;
+    if (loot) { try { deleteLoot(loot); removed.push({ kind: "loot", x, z, loot: loot.kind, amount: loot.gid }); } catch {} }
     if (clearTile) {
       const t = tileAt(x, z) as any;
-      if (t && !isStarterTile(x, z)) { try { db.tiles.delete(t.id); removed.push({ kind: "tile", x, z, owner: t.owner }); } catch {} }
+      if (t && !isStarterTile(x, z)) { try { deleteTile(t); removed.push({ kind: "tile", x, z, owner: t.owner }); } catch {} }
     }
   }
   if (!removed.length) return err(clearTile ? "No removable object or non-starter tile there." : "No removable object there. Use Clear tile if you intentionally want to remove land.");
@@ -2586,8 +2587,8 @@ export function place(p: Player, kind: string, x: number, z: number, prompt = ""
   /* clear any doodad/loot under the new building */
   const ex = db.doodads.select().where({ x, z }).first() as any;
   if (doodadAt(x, z)) { if (ex) (ex as any).state = "gone"; else db.doodads.insert({ x, z, state: "gone" }); }
-  const l = db.loot.select().where({ x, z }).first() as any;
-  if (l) db.loot.delete(l.id);
+  const l = lootAt(x, z) as any;
+  if (l) deleteLoot(l);
   dropStats(p.id);
   bump();
   addXp(p, def.decor ? 2 : XP.build);
@@ -2760,14 +2761,14 @@ function dropHarvestLoot(x: number, z: number, kind: "wood" | "stone", amount: n
   for (const [dx, dz] of spots) {
     if (left <= 0) break;
     const lx = x + dx, lz = z + dz;
-    if (buildingAt(lx, lz) || tradePostAt(lx, lz) || db.loot.select().where({ x: lx, z: lz }).first()) continue;
+    if (buildingAt(lx, lz) || tradePostAt(lx, lz) || lootAt(lx, lz)) continue;
     const n = Math.min(left, kind === "wood" ? 5 : 4);
-    db.loot.insert({ x: lx, z: lz, kind, gid: String(n) });
+    insertLoot({ x: lx, z: lz, kind, gid: String(n) });
     left -= n;
     dropped += n;
   }
   if (left > 0) {
-    db.loot.insert({ x, z, kind, gid: String(left) });
+    insertLoot({ x, z, kind, gid: String(left) });
     dropped += left;
   }
   return dropped;
@@ -2839,7 +2840,7 @@ function scatterGold(x: number, z: number, amount: number) {
     const amt = i === piles - 1 ? left : Math.max(1, Math.floor(left / (piles - i)));
     left -= amt;
     const [dx, dz] = spots[i % spots.length];
-    try { db.loot.insert({ x: x + dx, z: z + dz, kind: "gold", gid: String(amt) }); } catch {}
+    try { insertLoot({ x: x + dx, z: z + dz, kind: "gold", gid: String(amt) }); } catch {}
   }
 }
 function scatterResource(x: number, z: number, kind: "wood" | "stone" | "food" | "gold", amount: number) {
@@ -2851,7 +2852,7 @@ function scatterResource(x: number, z: number, kind: "wood" | "stone" | "food" |
     const amt = i === piles - 1 ? left : Math.max(1, Math.floor(left / (piles - i)));
     left -= amt;
     const [dx, dz] = spots[i % spots.length];
-    try { db.loot.insert({ x: x + dx, z: z + dz, kind, gid: String(amt) }); } catch {}
+    try { insertLoot({ x: x + dx, z: z + dz, kind, gid: String(amt) }); } catch {}
   }
 }
 function markProceduralNpcGone(x: number, z: number) {
@@ -2899,11 +2900,11 @@ function keepVaultContext() {
   return {
     ownedTilesFor: (playerId: number) => prioritizeWonderDistrictTiles(playerId, db.tiles.select().where({ owner: playerId }).all() as any[]),
     hasBuilding: (x: number, z: number) => !!buildingAt(x, z),
-    hasLoot: (x: number, z: number) => !!db.loot.select().where({ x, z }).first(),
+    hasLoot: (x: number, z: number) => !!lootAt(x, z),
     hasDoodad: (x: number, z: number) => !!doodadAt(x, z),
     hasTradePost: (x: number, z: number) => !!tradePostAt(x, z),
     insertCoinLoot: (x: number, z: number, amount: number) => {
-      try { db.loot.insert({ x, z, kind: "gold", gid: String(Math.max(1, Math.floor(Number(amount || 1)))) }); return true; }
+      try { insertLoot({ x, z, kind: "gold", gid: String(Math.max(1, Math.floor(Number(amount || 1)))) }); return true; }
       catch { return false; }
     },
     canSpawnNeutralKeepAt,
@@ -2941,7 +2942,7 @@ function destroyBuilding(attacker: Player, b: Building, cause = "siege") {
   }
   const destroyedKeepId = b.owner === 0 && b.kind === "keep" ? Number(b.id || 0) : 0;
   const t = tileAt(b.x, b.z) as any;
-  if (t && !isStarterTile(b.x, b.z)) db.tiles.delete(t.id);
+  if (t && !isStarterTile(b.x, b.z)) deleteTile(t);
   if (b.kind === GOLD_MINE_KIND) {
     sysChat(`⛏ Coin Mint at ${b.x}, ${b.z} collapsed. Coin spawns continue on claimed territory, but redemption needs another mint.`);
   }
@@ -3001,7 +3002,7 @@ function detonateBomb(p: Player, b: Building) {
       if (Number(t.owner || 0) && t.owner !== p.id) { protectedCount++; continue; }
       if (hasTowerProtection(t.owner, x, z) && radius > 0 && ((Math.abs(x + z) % 2) === 0)) { towerSaved++; continue; }
       if (t.owner !== p.id) touchedOwners.add(t.owner);
-      db.tiles.delete(t.id); cleared++;
+      deleteTile(t); cleared++;
     }
   }
   deleteBuilding(b);
