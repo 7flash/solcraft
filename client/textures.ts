@@ -11,10 +11,31 @@ const DEFAULT_ATLAS: Record<string, string> = {
   cursor: "/api/atlas-runtime/cursor",
 };
 
-// Stage 31: art atlases are being regenerated. Keep the live game on the
-// procedural/canvas fallback path until the new atlas contract is published.
-const FORCE_PROCEDURAL_TERRAIN = true;
-const FORCE_FALLBACK_ATLASES = true;
+function envFlag(name: string, fallback: boolean) {
+  const env = (globalThis as any)?.process?.env || {};
+  const raw = env[name];
+  if (raw == null || raw === "") return fallback;
+  return /^(1|true|yes|on)$/i.test(String(raw));
+}
+
+// The shipped game must run without public assets. Atlases are opt-in per
+// category via NEXT_PUBLIC_SOLCRAFT_* flags so doll/tool/cursor art can be
+// enabled independently after an atlas is published.
+const FORCE_PROCEDURAL_TERRAIN = envFlag("NEXT_PUBLIC_SOLCRAFT_PROCEDURAL_TERRAIN", true);
+const FORCE_FALLBACK_ATLASES = envFlag("NEXT_PUBLIC_SOLCRAFT_FORCE_FALLBACK_ATLASES", true);
+const ATLAS_ENABLED: Record<string, boolean> = {
+  terrain: envFlag("NEXT_PUBLIC_SOLCRAFT_TERRAIN_ATLAS", false),
+  building: envFlag("NEXT_PUBLIC_SOLCRAFT_BUILDING_ATLAS", false),
+  fx: envFlag("NEXT_PUBLIC_SOLCRAFT_FX_ATLAS", false),
+  ui: envFlag("NEXT_PUBLIC_SOLCRAFT_UI_ATLAS", false),
+  doll: envFlag("NEXT_PUBLIC_SOLCRAFT_DOLL_ATLAS", false),
+  tool: envFlag("NEXT_PUBLIC_SOLCRAFT_TOOL_ATLAS", false),
+  cursor: envFlag("NEXT_PUBLIC_SOLCRAFT_CURSOR_ATLAS", false),
+};
+function atlasEnabled(kind: string) {
+  if (ATLAS_ENABLED[kind]) return true;
+  return !FORCE_FALLBACK_ATLASES;
+}
 
 let ATLAS: Record<string, string> = { ...DEFAULT_ATLAS };
 let ATLAS_BOUNDS: Record<string, any> = {
@@ -65,8 +86,8 @@ function clearCaches() {
 }
 
 export function atlasMode(kind: string) {
-  if (kind === "terrain" && FORCE_PROCEDURAL_TERRAIN) return "procedural";
-  if (FORCE_FALLBACK_ATLASES) return "procedural";
+  if (kind === "terrain" && FORCE_PROCEDURAL_TERRAIN && !atlasEnabled(kind)) return "procedural";
+  if (!atlasEnabled(kind)) return "procedural";
   return ATLAS_MODE[kind] || (kind === "terrain" ? "procedural" : "atlas");
 }
 
@@ -86,9 +107,9 @@ export async function loadAtlasRuntimeConfig(force = false) {
       if (cfg?.mode) ATLAS_MODE[id] = cfg.mode;
     }
     Object.assign(ATLAS_MODE, json.modesByAtlas || {});
-    if (FORCE_PROCEDURAL_TERRAIN) ATLAS_MODE.terrain = "procedural";
-    if (FORCE_FALLBACK_ATLASES) {
-      for (const id of Object.keys(ATLAS_MODE)) ATLAS_MODE[id] = "procedural";
+    if (FORCE_PROCEDURAL_TERRAIN && !atlasEnabled("terrain")) ATLAS_MODE.terrain = "procedural";
+    for (const id of Object.keys(ATLAS_MODE)) {
+      if (!atlasEnabled(id)) ATLAS_MODE[id] = "procedural";
     }
     runtimeSig = String(json.generatedAt || Date.now());
     clearCaches();

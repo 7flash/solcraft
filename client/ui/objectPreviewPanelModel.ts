@@ -70,7 +70,7 @@ export function objectPreviewPrimaryAction(p: ObjectPreview | null | undefined):
   if (!p) return "walk";
   if (p.kind === "food") return "harvest-food";
   if (p.kind === "trade") return "open-trade";
-  if (p.kind === "npc") return "attack-npc";
+  if (p.kind === "npc") return "talk-npc";
   if (p.kind === "tree" || p.kind === "rock") return "walk-near";
   if (p.kind === "keep" || p.kind === "shared") return "walk-near";
   if (p.kind === "buildTile") return "choose-building";
@@ -81,6 +81,7 @@ export function objectPreviewActionLabel(action: string): string {
   if (action === "harvest-food") return "Harvest food";
   if (action === "open-trade") return "Open exchange";
   if (action === "walk-near") return "Walk near";
+  if (action === "talk-npc") return "Talk";
   if (action === "attack-npc") return "Attack";
   if (action === "donate-npc") return "Donate";
   if (action === "choose-building") return "Choose building";

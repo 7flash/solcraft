@@ -1,4 +1,5 @@
 import "./page.css";
+import "./production-polish.css";
 
 /* Server page — one container; the mount script owns everything inside. */
 export default function GamePage() {

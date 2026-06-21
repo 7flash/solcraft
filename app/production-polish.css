@@ -1,0 +1,71 @@
+/* Production polish overrides: keep these late-loaded and surgical. */
+.toast{display:none!important;}
+.notice-rail{
+  position:absolute!important;
+  top:calc(var(--safe-y, 0px) + 14px)!important;
+  right:calc(var(--safe-x, 0px) + 14px)!important;
+  left:auto!important;
+  bottom:auto!important;
+  z-index:70!important;
+  width:min(360px,calc(100vw - 28px))!important;
+  display:grid!important;
+  gap:8px!important;
+  pointer-events:none!important;
+  transform-origin:top right!important;
+}
+.notice-item{
+  justify-self:end;
+  max-width:100%;
+}
+@keyframes notice-in{from{opacity:0;transform:translateX(12px) scale(.98)}to{opacity:1;transform:translateX(0) scale(1)}}
+@keyframes notice-out{to{opacity:0;transform:translateX(12px) scale(.98)}}
+.utility-pop{position:relative;}
+.utility-close{
+  display:grid!important;
+  place-items:center!important;
+  position:absolute!important;
+  top:10px!important;
+  right:10px!important;
+  z-index:2!important;
+  width:32px!important;
+  height:32px!important;
+  border-radius:999px!important;
+  cursor:pointer!important;
+}
+.ui2-toolbelt-stack{
+  width:min(430px,calc(100vw - 18px))!important;
+  max-width:calc(100vw - 18px)!important;
+}
+.ui2-toolbelt-bar{
+  grid-template-columns:repeat(6,minmax(46px,1fr))!important;
+  gap:6px!important;
+  align-items:center!important;
+}
+.ui2-toolbelt-slot{
+  min-width:0!important;
+  height:56px!important;
+  padding:5px 4px 4px!important;
+}
+.ui2-toolbelt-slot .ico,
+.ui2-toolbelt-slot .ico .ui-ico{
+  width:28px!important;
+  height:28px!important;
+  font-size:20px!important;
+  line-height:1!important;
+}
+.ui2-toolbelt-slot .lbl{font-size:9px!important;line-height:1!important;}
+.sc-root[data-tool-cursor="default"] .sc-world,
+.sc-root[data-tool-cursor="default"] .sc-world canvas,
+.sc-root[data-tool-cursor="walk"] .sc-world,
+.sc-root[data-tool-cursor="walk"] .sc-world canvas{cursor:pointer!important;}
+.sc-root[data-tool-cursor="sword"] .sc-world,
+.sc-root[data-tool-cursor="sword"] .sc-world canvas{cursor:crosshair!important;}
+.object-preview-pop .ui45-object-actions{display:flex!important;flex-wrap:wrap!important;gap:8px!important;}
+.object-preview-pop .ui45-object-actions .btn{min-height:36px!important;}
+@media(max-width:520px),(max-height:560px){
+  .notice-rail{top:calc(var(--safe-y, 0px) + 8px)!important;right:8px!important;width:min(320px,calc(100vw - 16px))!important;}
+  .ui2-toolbelt-stack{width:min(360px,calc(100vw - 12px))!important;}
+  .ui2-toolbelt-bar{grid-template-columns:repeat(6,minmax(42px,1fr))!important;gap:4px!important;}
+  .ui2-toolbelt-slot{height:50px!important;}
+  .ui2-toolbelt-slot .ico,.ui2-toolbelt-slot .ico .ui-ico{width:24px!important;height:24px!important;font-size:18px!important;}
+}

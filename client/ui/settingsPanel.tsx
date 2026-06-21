@@ -95,7 +95,7 @@ export function SettingsPanelView(props: any) {
         </div>
         <div className="settings-card wide">
           <div className="settings-card-head"><b>Controls</b><span>Toolbelt</span></div>
-          <p className="settings-note">Use 1–5 for axe, pickaxe, hammer, shovel, and capture. Capital NPCs will host deeper guide and reward systems later.</p>
+          <p className="settings-note">Use 1–6 for axe, pickaxe, hammer, shovel, capture, and sword. Esc opens this menu.</p>
           <div className="settings-actions">
             <button className="btn" data-click="tutorial-restart">Restart basics</button>
           </div>

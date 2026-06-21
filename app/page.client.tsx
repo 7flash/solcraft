@@ -736,7 +736,8 @@ export default function mount() {
     ST.visual = saveVisualSettings({ ...ST.visual, cameraZoom: next });
     world?.refreshCameraZoom?.();
     world?.refreshWindow?.(true);
-    if (toast) say(`Camera view ${cameraZoomPct(next)}${next >= 3.25 ? " — map view" : next > 1 ? " — seeing more map" : next < 1 ? " — closer view" : ""}.`, 1100);
+    // Zoom is a continuous control; do not spam player-facing notifications.
+    void toast;
     paint(true);
     return next;
   }
@@ -789,12 +790,15 @@ export default function mount() {
     }, 4800);
   }
   const say = (msg, ms = 2400) => {
-    const text = String(msg || "");
-    toastEl.textContent = text;
-    toastEl.classList.add("show");
+    const text = String(msg || "").trim();
+    if (!text) return;
+    // Keep only the stackable notification rail. The legacy single toast caused
+    // duplicate messages and was especially noisy for camera/zoom controls.
+    toastEl.textContent = "";
+    toastEl.classList.remove("show");
     clearTimeout(toastT);
-    toastT = setTimeout(() => toastEl.classList.remove("show"), ms);
-    pushNotice(text, /full|need|not enough|blocked|failed|cannot/i.test(text) ? "warn" : "info");
+    void ms;
+    pushNotice(text, /full|need|not enough|blocked|failed|cannot|out of energy/i.test(text) ? "warn" : "info");
   };
 
   let tipT = null;
@@ -2220,12 +2224,18 @@ export default function mount() {
       // This prevents the annoying forward-then-snap-back when energy is empty.
       if (!canStartLocalStep()) { walkQueue.length = 0; pendingWalk = null; return false; }
       const from = { x: me.x, z: me.z };
+      const freeRoadStep = freeRoadTravelCellClient(from.x, from.z) || freeRoadTravelCellClient(x, z);
+      const energyBeforeStep = clientEnergyNow();
+      if (!freeRoadStep && energyBeforeStep < clientMoveCost()) {
+        say("Out of energy. Roads and World Wonder districts are free to travel.", 2200);
+        walkQueue.length = 0; pendingWalk = null; return false;
+      }
       const hopDur = travelStepDuration(from, { x, z });
       walking = true;
       me.x = x; me.z = z;
       if (ST.me) {
         ST.me.x = x; ST.me.z = z;
-        ST.me.energy = freeRoadStep ? clientEnergyNow() : Math.max(0, clientEnergyNow() - clientMoveCost());
+        ST.me.energy = freeRoadStep ? energyBeforeStep : Math.max(0, energyBeforeStep - clientMoveCost());
         ST.me.energyAt = performance.now();
       }
       anims.push({ kind: "hop", t: 0, dur: hopDur, from, to: { x, z }, done: () => {
@@ -2408,7 +2418,7 @@ export default function mount() {
       rotateCam: (delta = CAMERA_ROTATION_STEP) => stepCameraYaw(delta),
       refreshCameraRotation: () => {},
       refreshCameraZoom: () => setFrustum(),
-      zoom: (delta = 0) => setCameraZoom((ST.visual?.cameraZoom || 1) + Number(delta || 0), true),
+      zoom: (delta = 0) => setCameraZoom((ST.visual?.cameraZoom || 1) + Number(delta || 0), false),
       walkQueueClear: () => { walkQueue.length = 0; pendingWalk = null; },
       dispose: () => { renderer.setAnimationLoop(null); window.removeEventListener("resize", onResize); renderer.dispose(); worldEl.removeChild(renderer.domElement); },
     };
@@ -2907,6 +2917,19 @@ export default function mount() {
   }
 
   /* ---------- inspect / preview intent ---------- */
+  function npcTalkLine(p) {
+    const name = p?.name || p?.title || "Wanderer";
+    const carrying = Number(p?.resourceAmount || 0) > 0 && p?.resource
+      ? ` I am carrying ${Math.floor(Number(p.resourceAmount || 0))} ${String(p.resource)} from the frontier.`
+      : Number(p?.coins || 0) > 0
+        ? ` I have ${Math.floor(Number(p.coins || 0))} coins for the road.`
+        : " I am watching the road between the capital and the settlements.";
+    if (p?.role === "trader") return `${name}: Donate supplies to earn trust with the Empire, or leave me to gather resources.${carrying}`;
+    if (p?.role === "warrior") return `${name}: Keep your blade sheathed unless you want the Empire to remember it.${carrying}`;
+    if (p?.role === "traveler") return `${name}: Roads, camps, and Wonders draw travelers like me.${carrying}`;
+    return `${name}: The frontier is busy today.${carrying}`;
+  }
+
   function worldObjectPreviewForCell(c) {
     if (!c) return null;
     const d = world.doodadVisible(c.x, c.z);
@@ -3178,12 +3201,12 @@ export default function mount() {
     else if (k === "5" || k === "c" || k === " ") selectCaptureTool();
     else if (k === "6" || k === "x") doAttackTool();
     else if (k === "e" || k === "t") doUseTool();
-    else if (k === "i") say("Banking is moving to the capital bank.", 1400);
-    else if (k === "r") say("Crafting will move to workshop buildings.", 1400);
+    else if (k === "i") togglePanel("bank");
+    else if (k === "r") doUseTool();
     else if (ev.key === "Enter") { ST.chatOpen = true; paint(true); setTimeout(() => chatInput.focus(), 0); }
     else if (k === "j") openQuests();
     else if (k === "o") openOptions();
-    else if (k === "k") say("Skills will move to capital trainers.", 1400);
+    else if (k === "k") togglePanel("skills");
     else if (k === "h" || k === "?") openOptions();
     else if (ev.key === "Escape") {
       cancelChop();
@@ -3363,9 +3386,9 @@ export default function mount() {
     if (!rows.length) return "Limits are healthy. Claim outward, build producers, and keep collecting loose tokens.";
     return rows.map((r) => `${r.title}: ${r.body}`).join(" ");
   }
-  function openQuests() { say("Guide and rewards are moving into capital NPCs.", 1600); }
+  function openQuests() { togglePanel("quests"); }
   function openOptions() { togglePanel("settings"); }
-  function openCoinGuide() { say("Coin and bank help will live at the capital bank.", 1600); }
+  function openCoinGuide() { togglePanel("bank"); }
   function Hud() {
     const m = ST.me;
     if (ST.screen !== "playing" || !m) return <div />;
@@ -4227,6 +4250,11 @@ export default function mount() {
         if (action === "select-pickaxe") { doGather("stone"); if (cheb(p.x, p.z, world.me.x, world.me.z) <= 1) startChop(p.x, p.z); else world.pathToNear(p.x, p.z); return; }
         if (action === "harvest-food") { ST.tool = "none"; ST.mode = "explore"; if (cheb(p.x, p.z, world.me.x, world.me.z) <= 1) startChop(p.x, p.z); else world.pathToNear(p.x, p.z); paint(true); return; }
         if (action === "open-trade") { if (cheb(p.x, p.z, world.me.x, world.me.z) <= 1) openTrade(); else world.pathToNear(p.x, p.z); return; }
+        if (action === "talk-npc") {
+          if (cheb(p.x, p.z, world.me.x, world.me.z) <= 1) say(npcTalkLine(p), 4200);
+          else { say("Walk closer to talk.", 1400); world.pathToNear(p.x, p.z); }
+          return;
+        }
         if (action === "attack-npc") {
           if (cheb(p.x, p.z, world.me.x, world.me.z) <= 1) act("attackNpc", { x: p.x, z: p.z }).then((r) => { if (r?.ok) { sfx.hit(); ST.objectPreview = null; if (ST.panel === "object") ST.panel = null; pollSoon(); paint(true); } });
           else world.pathToNear(p.x, p.z);

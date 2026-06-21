@@ -44,8 +44,9 @@ export function ObjectPreviewPanelView({ preview }: any) {
     </div> : null}
     <div className="inspect-actions ui45-object-actions">
       {p.kind === "npc" ? <>
-        <button className="btn primary" data-click="object-preview-primary" data-object-action="attack-npc">Attack</button>
+        <button className="btn primary" data-click="object-preview-primary" data-object-action="talk-npc">Talk</button>
         <button className="btn" data-click="object-preview-primary" data-object-action="donate-npc">Donate</button>
+        <button className="btn danger" data-click="object-preview-primary" data-object-action="attack-npc">Attack</button>
         <button className="btn" data-click="object-preview-walk-near">Walk near</button>
       </> : showPrimary && p.kind !== "buildTile" ? <button className="btn primary" data-click="object-preview-primary" data-object-action={primary}>{objectPreviewActionLabel(primary)}</button> : null}
     </div>
