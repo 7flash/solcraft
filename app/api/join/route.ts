@@ -1,5 +1,5 @@
 import { createMeasure } from "measure-fn";
-import { join, joinSpectator } from "../../../game/engine";
+import { join, joinSpectator } from "@server/engine";
 
 const httpMeasure = createMeasure("http", { maxResultLength: 160 });
 

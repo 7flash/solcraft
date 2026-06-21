@@ -1,6 +1,6 @@
 // @ts-nocheck
 /** @jsxImportSource tradjs/client */
-import { GEAR_BY_ID, SLOTS, SLOT_LABEL } from "../../game/shared";
+import { GEAR_BY_ID, SLOTS, SLOT_LABEL } from "@server/shared";
 import { equippedGearRows, playerModalViewModel } from "./playerModalModel";
 
 export function PlayerModalView(props: any) {

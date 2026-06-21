@@ -1,4 +1,4 @@
-import { adminResetGuideRewards } from "../../../../game/engine";
+import { adminResetGuideRewards } from "@server/engine";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";

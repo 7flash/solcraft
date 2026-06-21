@@ -1,6 +1,6 @@
 // @ts-nocheck
-import { adminBombsStatus, adminForceResolveBombs } from "../../../../game/engine";
-import { requireAdminKey } from "../../../../game/mechanics/playerResources";
+import { adminBombsStatus, adminForceResolveBombs } from "@server/engine";
+import { requireAdminKey } from "@server/mechanics/playerResources";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";

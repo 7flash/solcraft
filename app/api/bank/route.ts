@@ -1,7 +1,7 @@
 // @ts-nocheck
 import { createMeasure } from "measure-fn";
-import { auth } from "../../../game/engine";
-import { bankStatusForPlayer, exchangeBankStatusForPlayer, ensureDepositWallet, scanBankDeposits, requestBankWithdrawal } from "../../../game/bank";
+import { auth } from "@server/engine";
+import { bankStatusForPlayer, exchangeBankStatusForPlayer, ensureDepositWallet, scanBankDeposits, requestBankWithdrawal } from "@server/bank";
 
 const httpMeasure = createMeasure("http.bank", { maxResultLength: 220 });
 export const runtime = "nodejs";

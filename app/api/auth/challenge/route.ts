@@ -1,6 +1,6 @@
 import { createMeasure } from "measure-fn";
-import { createWalletChallenge } from "../../../../game/wallet-auth";
-import { publicLoginGateSettings } from "../../../../game/login-gate";
+import { createWalletChallenge } from "@server/wallet-auth";
+import { publicLoginGateSettings } from "@server/login-gate";
 
 const httpMeasure = createMeasure("http", { maxResultLength: 140 });
 export const runtime = "nodejs";

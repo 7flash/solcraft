@@ -1,6 +1,6 @@
 // @ts-nocheck
 /** @jsxImportSource tradjs/client */
-import { SKILLS, skillLvl } from "../../game/shared";
+import { SKILLS, skillLvl } from "@server/shared";
 import { skillsPanelRows } from "./skillsPanelModel";
 
 export function SkillsPanelView(props: any) {

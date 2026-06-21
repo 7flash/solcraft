@@ -1,5 +1,5 @@
 // @ts-nocheck
-import { metaGet } from "../../../game/db";
+import { metaGet } from "@server/db";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";

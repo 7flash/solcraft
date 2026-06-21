@@ -1,8 +1,8 @@
 // @ts-nocheck
-import { economyStatus, clientRequiredVersion } from '../../../../../game/engine';
-import { metaGet } from '../../../../../game/db';
-import { publicLoginGateSettings, loginGateSettings, setLoginGateSettings } from '../../../../../game/login-gate';
-import { bankAdminStatus, setBankSettings } from '../../../../../game/bank';
+import { economyStatus, clientRequiredVersion } from '@server/engine';
+import { metaGet } from '@server/db';
+import { publicLoginGateSettings, loginGateSettings, setLoginGateSettings } from '@server/login-gate';
+import { bankAdminStatus, setBankSettings } from '@server/bank';
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 export async function GET(){

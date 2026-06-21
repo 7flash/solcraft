@@ -10,7 +10,7 @@ import {
   playerById,
   playerResourcesResponse,
   requireAdminKey,
-} from "../../../../game/mechanics/playerResources";
+} from "@server/mechanics/playerResources";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";

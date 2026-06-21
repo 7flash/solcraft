@@ -5,3 +5,7 @@ data
 !package.json
 *.db*
 *.temp.ts
+package-lock.json
+bun.lock
+.npmignore
+*.config.toml

@@ -1,6 +1,6 @@
 // @ts-nocheck
-import { cleanWonderPrompt, applyWonderDesignOptions, normalizeWonderFootprint, normalizeWonderMode, normalizeWonderPaletteId, wonderPaletteColors } from "../../../../../game/wonderRecipe";
-import { generateWonderRecipe, wonderAiProviderStatus } from "../../../../../game/wonderAi";
+import { cleanWonderPrompt, applyWonderDesignOptions, normalizeWonderFootprint, normalizeWonderMode, normalizeWonderPaletteId, wonderPaletteColors } from "@server/wonderRecipe";
+import { generateWonderRecipe, wonderAiProviderStatus } from "@server/wonderAi";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";

@@ -1,6 +1,6 @@
 // @ts-nocheck
 import { createMeasure } from "measure-fn";
-import { requireAdminKey } from "../../../../game/mechanics/playerResources";
+import { requireAdminKey } from "@server/mechanics/playerResources";
 import {
   bankAdminStatus,
   setBankSettings,
@@ -9,7 +9,7 @@ import {
   adminBankSweepDeposit,
   adminBankCheckBalances,
   adminBankProcessPendingWithdrawals,
-} from "../../../../game/bank";
+} from "@server/bank";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";

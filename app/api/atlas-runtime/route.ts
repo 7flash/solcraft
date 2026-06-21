@@ -1,7 +1,7 @@
 // @ts-nocheck
 import { createMeasure } from "measure-fn";
-import { metaGet } from "../../../game/db";
-import { atlasEntries, atlasRuntimeDefaults } from "../../../game/atlasCatalog";
+import { metaGet } from "@server/db";
+import { atlasEntries, atlasRuntimeDefaults } from "@server/atlasCatalog";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";

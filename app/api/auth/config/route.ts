@@ -1,5 +1,5 @@
 import { createMeasure } from "measure-fn";
-import { publicLoginGateSettings } from "../../../../game/login-gate";
+import { publicLoginGateSettings } from "@server/login-gate";
 
 const httpMeasure = createMeasure("http", { maxResultLength: 140 });
 export const runtime = "nodejs";

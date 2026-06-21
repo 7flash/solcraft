@@ -1,15 +1,15 @@
 // @ts-nocheck
 import { createMeasure } from "measure-fn";
-import { forceClientRefresh } from "../../../../game/engine";
+import { forceClientRefresh } from "@server/engine";
 import {
   adminImpersonationPayload,
   importWorldExport,
   localWorldPlayers,
   makeWorldExport,
   worldSyncSummary,
-} from "../../../../game/worldSync";
-import { requireAdminKey } from "../../../../game/mechanics/playerResources";
-import { assertCompatibleWorldSyncSnapshot, normalizeWorldSyncSnapshot } from "../../../../game/worldSyncCompat";
+} from "@server/worldSync";
+import { requireAdminKey } from "@server/mechanics/playerResources";
+import { assertCompatibleWorldSyncSnapshot, normalizeWorldSyncSnapshot } from "@server/worldSyncCompat";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";

@@ -1,4 +1,4 @@
-import type { Coord } from "../../game/ecs/types.ts";
+import type { Coord } from "@server/ecs/types.ts";
 
 /**
  * Keyboard movement should be pure and testable. The renderer decides when to

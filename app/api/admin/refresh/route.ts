@@ -1,6 +1,6 @@
 // @ts-nocheck
-import { forceClientRefresh, clientRequiredVersion, clientUpdateReason } from "../../../../game/engine";
-import { requireAdminKey } from "../../../../game/mechanics/playerResources";
+import { forceClientRefresh, clientRequiredVersion, clientUpdateReason } from "@server/engine";
+import { requireAdminKey } from "@server/mechanics/playerResources";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";

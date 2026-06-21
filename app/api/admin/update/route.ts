@@ -1,6 +1,6 @@
 // @ts-nocheck
-import { forceClientRefresh, clientRequiredVersion } from '../../../../game/engine';
-import { metaGet } from '../../../../game/db';
+import { forceClientRefresh, clientRequiredVersion } from '@server/engine';
+import { metaGet } from '@server/db';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';

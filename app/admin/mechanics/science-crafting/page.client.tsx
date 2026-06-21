@@ -1,7 +1,7 @@
 // @ts-nocheck
 /** @jsxImportSource tradjs/client */
 import { render } from "tradjs/client";
-import { DESTROY_TOOLS, RECIPES, COSTI } from "../../../../game/shared";
+import { DESTROY_TOOLS, RECIPES, COSTI } from "@server/shared";
 import { fetchGameState, gameAction, readSavedGameAuth, stateMe } from "../../../../client/admin/gameSession";
 
 const rootId = "solcraft-science-crafting-lab";

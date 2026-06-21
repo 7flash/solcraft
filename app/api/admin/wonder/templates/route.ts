@@ -1,5 +1,5 @@
 // @ts-nocheck
-import { buildWonderTemplateRecipe, listWonderTemplates } from "../../../../../game/wonderTemplates";
+import { buildWonderTemplateRecipe, listWonderTemplates } from "@server/wonderTemplates";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";

@@ -1,4 +1,4 @@
-import { CAPITAL_CORE_RADIUS, CAPITAL_SERVICE_RADIUS } from "../../game/capitalRules.ts";
+import { CAPITAL_CORE_RADIUS, CAPITAL_SERVICE_RADIUS } from "@server/capitalRules.ts";
 
 export type CapitalBuilding = {
   uid: number;

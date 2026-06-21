@@ -1,8 +1,8 @@
 // @ts-nocheck
-import { forceClientRefresh } from "../../../../game/engine";
-import { requireAdminKey } from "../../../../game/mechanics/playerResources";
-import { importWorldExport, makeWorldExport, worldSyncSummary } from "../../../../game/worldSync";
-import { applyCapitalMigration, planCapitalMigration } from "../../../../game/worldMigration";
+import { forceClientRefresh } from "@server/engine";
+import { requireAdminKey } from "@server/mechanics/playerResources";
+import { importWorldExport, makeWorldExport, worldSyncSummary } from "@server/worldSync";
+import { applyCapitalMigration, planCapitalMigration } from "@server/worldMigration";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";

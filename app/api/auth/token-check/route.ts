@@ -1,5 +1,5 @@
 import { createMeasure } from "measure-fn";
-import { checkWalletLoginGate } from "../../../../game/login-gate";
+import { checkWalletLoginGate } from "@server/login-gate";
 
 const httpMeasure = createMeasure("http", { maxResultLength: 180 });
 export const runtime = "nodejs";

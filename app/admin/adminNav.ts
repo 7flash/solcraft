@@ -1,5 +1,5 @@
 
-import { TOOL_ATLAS_ROWS } from "../../game/atlasCatalog";
+import { TOOL_ATLAS_ROWS } from "@server/atlasCatalog";
 
 export type AdminNavStatus = "active" | "lab" | "debug" | "legacy";
 export type AdminNavItem = {

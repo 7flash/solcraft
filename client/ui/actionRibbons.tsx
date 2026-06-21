@@ -6,7 +6,7 @@ import {
   RECIPES,
   USE_ITEMS,
   WORLD_WONDER_GOLD_COST,
-} from "../../game/shared";
+} from "@server/shared";
 import { buildChoiceState, craftedToolOwnedCount, missingCostKeys, usablePackItems } from "./actionRibbonModel";
 
 export function ActionRibbon(props: any) {

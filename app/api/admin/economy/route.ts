@@ -1,5 +1,5 @@
 // @ts-nocheck
-import { adminBroadcast, adminRemoveGoldSource, adminSpawnGoldSource, adminUpdateGoldSource, adminUpdateUser, creditCraftsFeePool, economyStatus, setEconomyControl, setGameTuning, reloadGameTuningFromAdmin, resyncBuildingHpDefaults, syncCraftsBalance, setQuestTuning } from '../../../../game/engine';
+import { adminBroadcast, adminRemoveGoldSource, adminSpawnGoldSource, adminUpdateGoldSource, adminUpdateUser, creditCraftsFeePool, economyStatus, setEconomyControl, setGameTuning, reloadGameTuningFromAdmin, resyncBuildingHpDefaults, syncCraftsBalance, setQuestTuning } from '@server/engine';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';

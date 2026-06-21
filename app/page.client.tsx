@@ -22,7 +22,7 @@ import {
   RECIPES, REDEEM_MIN_GOLD, RES_KEYS, RES_NAMES, SKILLS, SLOTS, SLOT_LABEL, USE_ITEMS,
   biomeAt, biomeTerrainAt, cheb, gearStat, harvestMs, hrand, key, lvlMul, naturalDoodad, proceduralNpcAt, repairCost,
   skillLvl, tradePostAt, upgradeCost, xpForLevel,
-} from "../game/shared";
+} from "@server/shared";
 import {
   M, ME, buildBanner, buildRock, buildTree, lootMesh,
   makeBuildingGroup, makeLabel, makeSfx,
@@ -32,8 +32,8 @@ import { capitalBuildingsInView, capitalLabelVisibleForPlayer } from "../client/
 import { makePlayerBillboard } from "../client/world/playerBillboard";
 import { playerBillboardSignature } from "../client/world/playerBillboardModel";
 import { capitalServiceForBuilding, capitalServiceAvailable } from "../client/world/capitalServices";
-import { capitalBlocksNaturalResource, capitalBlocksPlayerTerritory } from "../game/capitalRules";
-import { FOUNDATION_KIND, FOUNDATION_BUILD_KINDS, foundationChoiceLabel } from "../game/foundationRules";
+import { capitalBlocksNaturalResource, capitalBlocksPlayerTerritory } from "@server/capitalRules";
+import { FOUNDATION_KIND, FOUNDATION_BUILD_KINDS, foundationChoiceLabel } from "@server/foundationRules";
 import { loadCharacterProfile, saveCharacterProfile, type CharacterProfile } from "../client/dollProfile";
 import { isMoveKey, movementVectorFromKeys, normalizeMoveKey } from "../client/game/directionalInput";
 import { canIssueKeyboardStep, DEFAULT_KEYBOARD_STEP_MS } from "../client/game/keyboardStepper";

@@ -30,7 +30,7 @@ export async function GET(req: Request) {
 
     // Dynamic import avoids production route-loader TDZ issues and lets this
     // endpoint return a clear JSON error if the DB layer itself fails to load.
-    const { auth, snapshot } = await import("../../../game/engine");
+    const { auth, snapshot } = await import("@server/engine");
     const p = auth(pid, secret);
     if (!p) return Response.json({ ok: false, msg: "auth", reasonCode: "AUTH" }, { status: 401, headers: { "Cache-Control": "no-store" } });
 

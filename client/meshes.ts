@@ -3,7 +3,7 @@
    game/shared.ts; this file only knows how things LOOK.
    ============================================================ */
 import * as THREE from "three";
-import { GEAR_BY_ID, LIB_BY_ID, hrand, type Equip } from "../game/shared";
+import { GEAR_BY_ID, LIB_BY_ID, hrand, type Equip } from "@server/shared";
 import { texturedMaterial } from "./textures";
 import { buildDollBillboard, activeHeldToolFromEquip } from "./dolls";
 import { makeWonderGroup } from "./wonderMeshes";

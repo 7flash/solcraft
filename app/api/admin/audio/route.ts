@@ -1,7 +1,7 @@
 // @ts-nocheck
 import { mkdir, writeFile } from "fs/promises";
 import path from "path";
-import { metaGet, metaSet } from "../../../../game/db";
+import { metaGet, metaSet } from "@server/db";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";

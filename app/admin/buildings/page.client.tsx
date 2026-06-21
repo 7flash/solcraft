@@ -2,7 +2,7 @@
 /** @jsxImportSource tradjs/client */
 import { render } from "tradjs/client";
 import * as THREE from "three";
-import { LIBRARY, COSTI, GOLD_MINE_KIND, BARB_CAMP_KIND } from "../../game/shared";
+import { LIBRARY, COSTI, GOLD_MINE_KIND, BARB_CAMP_KIND } from "@server/shared";
 import { makeBuildingGroup } from "../../client/meshes";
 
 const CSS = `

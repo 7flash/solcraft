@@ -1,5 +1,5 @@
 import { createMeasure } from "measure-fn";
-import { auth, dispatch } from "../../../game/engine";
+import { auth, dispatch } from "@server/engine";
 
 const httpMeasure = createMeasure("http", { maxResultLength: 180 });
 

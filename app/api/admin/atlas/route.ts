@@ -2,8 +2,8 @@
 import { promises as fs } from "fs";
 import path from "path";
 import crypto from "crypto";
-import { metaGet, metaSet } from "../../../../game/db";
-import { atlasLegacyRecord } from "../../../../game/atlasCatalog";
+import { metaGet, metaSet } from "@server/db";
+import { atlasLegacyRecord } from "@server/atlasCatalog";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";

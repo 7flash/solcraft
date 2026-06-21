@@ -1,7 +1,7 @@
 // @ts-nocheck
 /** @jsxImportSource tradjs/client */
-import { MAX_LEVEL, lvlMul, repairCost, upgradeCost } from "../../game/shared";
-import { FOUNDATION_KIND, FOUNDATION_BUILD_KINDS, foundationChoiceLabel } from "../../game/foundationRules";
+import { MAX_LEVEL, lvlMul, repairCost, upgradeCost } from "@server/shared";
+import { FOUNDATION_KIND, FOUNDATION_BUILD_KINDS, foundationChoiceLabel } from "@server/foundationRules";
 import { inspectPanelViewModel, rgba, safeHex } from "./inspectPanelModel";
 import { keepPressureModel } from "./keepPressure";
 

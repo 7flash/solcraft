@@ -1,6 +1,6 @@
 // @ts-nocheck
 /** @jsxImportSource tradjs/client */
-import { COSTI, DESTROY_BY_ID, GEAR_BY_ID, PACK_SIZE, RES_KEYS, RES_NAMES, USE_ITEMS } from "../../game/shared";
+import { COSTI, DESTROY_BY_ID, GEAR_BY_ID, PACK_SIZE, RES_KEYS, RES_NAMES, USE_ITEMS } from "@server/shared";
 import { inventoryPackSlots, inventoryResourceRows } from "./inventoryPanelModel";
 
 export function InventoryPanelView(props: any) {
