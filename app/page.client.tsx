@@ -28,6 +28,7 @@ import {
   makeBuildingGroup, makeLabel, makeSfx,
 } from "../client/meshes";
 import { loadAtlasRuntimeConfig, terrainMats, tickVisualTextures, setTerrainVisualPrefs } from "../client/textures";
+import { capitalBuildingsInView } from "../client/world/capitalLayout";
 import { loadCharacterProfile, saveCharacterProfile, type CharacterProfile } from "../client/dollProfile";
 import { isMoveKey, movementVectorFromKeys, normalizeMoveKey } from "../client/game/directionalInput";
 import { canIssueKeyboardStep, DEFAULT_KEYBOARD_STEP_MS } from "../client/game/keyboardStepper";
@@ -282,23 +283,13 @@ function writeAckedClientVersion(version) {
   try { localStorage.setItem(UPDATE_ACK_KEY, v); } catch {}
 }
 
-/** UI atlas v2 contract — 4×4 cells.
-    row 0: character, quests, inventory, skills
-    row 1: bank, settings, sound, logout
-    row 2: craft, wood, stone, capture
-    row 3: build, spawn, use, energy
-    Keep this in sync with the public UI atlas contract. */
-const UI_SLOT: Record<string, [number, number]> = {
-  character: [0, 0], quests: [1, 0], inv: [2, 0], inventory: [2, 0], skills: [3, 0],
-  bank: [0, 1], settings: [1, 1], sound: [2, 1], logout: [3, 1], exit: [3, 1],
-  craft: [0, 2], wood: [1, 2], stone: [2, 2], claim: [3, 2], capture: [3, 2],
-  build: [0, 3], spawn: [1, 3], use: [2, 3], energy: [3, 3],
-  tools: [0, 2], move: [1, 3], demolish: [2, 3], teleport: [3, 3],
-  gold: [0, 1], heart: [3, 3],
+const PROCEDURAL_ICON: Record<string, string> = {
+  axe: "🪓", wood: "🪓", pickaxe: "⛏", stone: "⛏", hammer: "🔨", build: "🔨", shovel: "▰", demolish: "▰", capture: "⚑", claim: "⚑",
+  settings: "⚙", sound: "♪", logout: "↩", exit: "↩", energy: "⚡", gold: "●", heart: "♥", walk: "↗", inspect: "⌕", interact: "◆", wait: "…",
 };
 function UiIcon({ name, fallback = "•" }: any) {
-  const slot = UI_SLOT[name] || [0, 0];
-  return <span className="ui-ico" aria-hidden="true" style={{ backgroundPosition: `${slot[0] * 33.3333}% ${slot[1] * 33.3333}%` }}><span>{fallback}</span></span>;
+  const glyph = PROCEDURAL_ICON[String(name || "").toLowerCase()] || fallback || "•";
+  return <span className={`ui-ico ui-ico-proc ui-ico-${String(name || "x").toLowerCase()}`} aria-hidden="true"><span>{glyph}</span></span>;
 }
 
 
@@ -1572,7 +1563,7 @@ export default function mount() {
       if (!force && sig === rigSig) return;
       rigSig = sig;
       if (rig) player.remove(rig);
-      rig = buildRig(ST.me.body, ST.me.hat, ST.me.equip || {}, { lit: true, palette: ST.characterProfile?.palette, dollParts: ST.characterProfile?.parts, showBack: ST.characterProfile?.showBack === true, heldTool, name: ST.me.name });
+      rig = buildRig(ST.me.body, ST.me.hat, ST.me.equip || {}, { legacyRig: true, lit: true, palette: ST.characterProfile?.palette, dollParts: ST.characterProfile?.parts, showBack: ST.characterProfile?.showBack === true, heldTool, name: ST.me.name });
       player.add(rig);
     }
     const homeBanner = new THREE.Group(); let bannerOwner = 0; scene.add(homeBanner);
@@ -1897,7 +1888,11 @@ export default function mount() {
       exceptions.clear();
       for (const d of w.doodads) exceptions.set(key(d.x, d.z), d.type);
       const seen = new Set();
-      for (const b of w.buildings) {
+      const worldBuildings = Array.isArray(w.buildings) ? w.buildings : [];
+      const virtualCapital = capitalBuildingsInView(Number(w.ax || 0), Number(w.az || 0), currentTileLoadRadius() + 10);
+      const blockedCapitalKeys = new Set(worldBuildings.map((b) => key(b.x, b.z)));
+      const renderBuildings = worldBuildings.concat(virtualCapital.filter((b) => !blockedCapitalKeys.has(key(b.x, b.z))));
+      for (const b of renderBuildings) {
         seen.add(b.uid);
         if (ST.inspectDraft && ST.inspectDraft.uid === b.uid && Date.now() - (ST.inspectDraft.at || 0) < 3500) {
           if (Object.prototype.hasOwnProperty.call(ST.inspectDraft, "cl")) b.cl = ST.inspectDraft.cl;
@@ -2013,7 +2008,7 @@ export default function mount() {
           if (mode === "ghost") {
             group.add(makeRemoteGhostSpectator(q));
           } else if (mode === "full") {
-            group.add(buildRig(q.body, q.hat, q.equip || {}, { name: q.name, palette: q.appearance?.palette, dollParts: q.appearance?.parts, showBack: q.appearance?.showBack }));
+            group.add(buildRig(q.body, q.hat, q.equip || {}, { legacyRig: true, name: q.name, palette: q.appearance?.palette, dollParts: q.appearance?.parts, showBack: q.appearance?.showBack }));
             group.add(makeLabel(`${q.name || "Player"} · Lv ${q.level || 1}`, "#cfe8ff"));
           } else {
             group.add(makeRemoteLitePlayer(q));

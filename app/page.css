@@ -1508,3 +1508,30 @@ input:focus,select:focus{border-color:var(--line2);box-shadow:0 0 0 3px rgba(20,
 .ui35-rally-strip b{font-size:15px;color:#ffe7a3;line-height:1;}
 .ui35-rally-strip em{font-size:10px;line-height:1.2;color:#9fb0ba;font-style:normal;text-transform:uppercase;letter-spacing:.08em;font-weight:900;}
 @media(max-width:720px){.chat-card em{display:none}.ui35-rally-strip{grid-template-columns:1fr}}
+
+/* Stage 38: live game is procedural-only while atlases are regenerated. */
+.ui-ico,
+.ui-ico-proc{
+  background-image:none!important;
+  background:linear-gradient(180deg,rgba(255,255,255,.10),rgba(255,255,255,.035))!important;
+  color:var(--paper,#f3ead7)!important;
+  border:1px solid rgba(255,255,255,.12);
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.08),0 3px 8px rgba(0,0,0,.24);
+}
+.ui-ico span,
+.ui-ico-proc span{
+  position:absolute!important;
+  inset:0!important;
+  display:grid!important;
+  place-items:center!important;
+  color:inherit!important;
+  opacity:1!important;
+  mix-blend-mode:normal!important;
+  font:900 17px/1 var(--f-body,system-ui)!important;
+}
+.ui2-toolbelt-slot .ui-ico span{font-size:22px!important;}
+.ui-ico-shovel span{font-size:20px!important;transform:rotate(-12deg);}
+.ui-ico-capture span,.ui-ico-claim span{color:#ffe2a8!important;}
+.ui-ico-axe span,.ui-ico-wood span{color:#d9ffbe!important;}
+.ui-ico-pickaxe span,.ui-ico-stone span{color:#cfe8ff!important;}
+.ui-ico-hammer span,.ui-ico-build span{color:#fff0a8!important;}

@@ -649,21 +649,33 @@ export function nearTradePost(x: number, z: number): boolean {
 
 /* spawn plots go on a square spiral so everyone shares one map
    with breathing room between starter plots */
+export const CAPITAL_CENTER: [number, number] = [0, 0];
+export const CAPITAL_RESERVED_RADIUS = 10;
+export const SETTLEMENT_SPAWN_STEP = 14;
+
 export function spawnOrigin(index: number): [number, number] {
-  if (index === 0) return [0, 0];
-  const STEP = 14; // plot pitch
+  // Players no longer spawn on the exact world center. The center is reserved
+  // for the capital service hub; new settlements spiral around it.
+  const STEP = SETTLEMENT_SPAWN_STEP;
   let x = 0, z = 0, dx = 1, dz = 0, leg = 1, stepInLeg = 0, legsDone = 0;
-  for (let i = 0; i < index; i++) {
-    x += dx; z += dz;
-    stepInLeg++;
-    if (stepInLeg === leg) {
-      stepInLeg = 0;
-      [dx, dz] = [-dz, dx];
-      legsDone++;
-      if (legsDone % 2 === 0) leg++;
+  let accepted = -1;
+  for (let i = 0; i < 10000; i++) {
+    if (i > 0) {
+      x += dx; z += dz;
+      stepInLeg++;
+      if (stepInLeg === leg) {
+        stepInLeg = 0;
+        [dx, dz] = [-dz, dx];
+        legsDone++;
+        if (legsDone % 2 === 0) leg++;
+      }
     }
+    const wx = x * STEP, wz = z * STEP;
+    if (Math.max(Math.abs(wx), Math.abs(wz)) <= CAPITAL_RESERVED_RADIUS) continue;
+    accepted++;
+    if (accepted >= Math.max(0, index)) return [wx, wz];
   }
-  return [x * STEP, z * STEP];
+  return [(Math.max(0, index) + 1) * STEP, 0];
 }
 
 /* ---------- walkthrough milestones — teach the full loop ---------- */
