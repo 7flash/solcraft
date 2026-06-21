@@ -1,5 +1,5 @@
 import { createMeasure } from "measure-fn";
-import { join, joinSpectator } from "@server/engine";
+import { ensureWorldTickStarted, join, joinSpectator } from "@server/engine";
 
 const httpMeasure = createMeasure("http", { maxResultLength: 160 });
 
@@ -7,6 +7,7 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export async function POST(req: Request) {
+  ensureWorldTickStarted();
   let body: any = {};
   return httpMeasure.measure.root({
     start: () => "POST /api/join",

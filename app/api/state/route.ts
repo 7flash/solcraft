@@ -1,4 +1,4 @@
-import { auth, snapshot } from "@server/engine";
+import { auth, ensureWorldTickStarted, snapshot } from "@server/engine";
 
 export const dynamic = "force-dynamic";
 
@@ -22,6 +22,7 @@ function stateError(e: any) {
 }
 
 export async function GET(req: Request) {
+  ensureWorldTickStarted();
   try {
     const url = new URL(req.url);
     const pid = readInt(url, "pid", 0);

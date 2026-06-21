@@ -302,13 +302,39 @@ function chatPush(name: string, msg: string, sys = 0) {
 }
 const sysChat = (msg: string) => chatPush("", msg, 1);
 
-/* event inbox marker — skip the per-poll query when empty */
-const hasEvents = new Set<number>(
-  (db.events.select().all() as any[]).map((e) => e.target)
-);
+/* transient event inbox — memory-only to avoid SQLite insert/delete churn on hot toasts.
+   Persistent chat remains in the DB; these events are best-effort UI notifications. */
+type TransientEvent = { id: number; target: number; kind: string; msg: string; ts: number };
+const MAX_TRANSIENT_EVENTS_PER_PLAYER = Math.max(8, Math.min(50, envNum("SOLCRAFT_MAX_TRANSIENT_EVENTS_PER_PLAYER", 20)));
+let transientEventSeq = 1;
+const eventQueue = new Map<number, TransientEvent[]>();
+const hasEvents = new Set<number>();
 function pushEvent(target: number, kind: string, msg: string) {
-  db.events.insert({ target, kind, msg });
-  hasEvents.add(target);
+  const pid = Math.trunc(Number(target || 0));
+  if (!pid) return;
+  const q = eventQueue.get(pid) || [];
+  q.push({
+    id: transientEventSeq++,
+    target: pid,
+    kind: String(kind || "info").slice(0, 32),
+    msg: String(msg || "").slice(0, 240),
+    ts: now(),
+  });
+  while (q.length > MAX_TRANSIENT_EVENTS_PER_PLAYER) q.shift();
+  eventQueue.set(pid, q);
+  hasEvents.add(pid);
+}
+function drainEventsForPlayer(pid: number, t = now()) {
+  if (!hasEvents.has(pid)) return [] as { kind: string; msg: string; ts: number }[];
+  const rows = eventQueue.get(pid) || [];
+  eventQueue.delete(pid);
+  hasEvents.delete(pid);
+  return rows.map((ev) => ({ kind: ev.kind, msg: ev.msg, ts: Number(ev.ts || t) }));
+}
+export function transientEventStatus() {
+  let pending = 0;
+  for (const q of eventQueue.values()) pending += q.length;
+  return { players: eventQueue.size, pending, maxPerPlayer: MAX_TRANSIENT_EVENTS_PER_PLAYER };
 }
 
 /* ---------- auth ---------- */
@@ -1728,7 +1754,13 @@ function purgeLegacyStructures() {
   logEconomyEvent("legacyStructuresPurged", { count: legacy.length });
 }
 
-const mtAt = new Map<number, number>(); // in-memory throttle, no meta writes
+const mtAt = new Map<number, number>(); // in-memory per-player maintenance throttle, no meta writes
+let worldTickStarted = false;
+let worldTickRunning = false;
+let worldTickAt = 0;
+let worldSlowTickAt = 0;
+const WORLD_TICK_MS = Math.max(250, envNum("SOLCRAFT_WORLD_TICK_MS", 1000));
+const WORLD_SLOW_TICK_MS = Math.max(4000, envNum("SOLCRAFT_WORLD_SLOW_TICK_MS", 8000));
 let towerBombTickAt = now();
 function towerRangeFor(owner: number) { return Number(buildingDef("watchtower")?.protect || TOWER_RADIUS) + Math.min(2, barracksCount(owner) * BARRACKS_TOWER_RANGE_BONUS); }
 function towerDpsFor(owner: number) { return TOWER_BOMB_DPS * (1 + Math.min(2, barracksCount(owner)) * BARRACKS_TOWER_DPS_BONUS); }
@@ -1817,20 +1849,73 @@ export function adminForceResolveBombs() {
   const resolved = resolveArmedBombs({ force: true, reason: "admin" });
   return ok({ resolved, ...((adminBombsStatus() as any) || {}) });
 }
-function maintain(p: Player) {
-  const t = now();
+function maintainActivePlayer(p: Player, t = now()) {
+  if (!p || isSpectator(p)) return;
+  if (t - (mtAt.get(p.id) || 0) < WORLD_SLOW_TICK_MS) return;
+  mtAt.set(p.id, t);
+  autoEatFoodForHealth(p, t);
+}
+
+function materializeKeepsAroundActivePlayers(t = now(), limit = 12) {
+  let done = 0;
+  const active = [...live.values()]
+    .filter((l) => !l.spectator && t - l.lastSeen < ACTIVE_PLAYER_WINDOW_MS)
+    .sort((a, b) => Number(b.lastSeen || 0) - Number(a.lastSeen || 0));
+  for (const l of active) {
+    materializeProceduralKeepsAround(Math.trunc(Number(l.x || 0)), Math.trunc(Number(l.z || 0)));
+    done++;
+    if (done >= limit) break;
+  }
+}
+
+export function maintainWorld(t = now()) {
   purgeLegacyStructures();
   towerBombTick();
   resolveArmedBombs();
-  if (t - (mtAt.get(p.id) || 0) < 8000) return;
-  mtAt.set(p.id, t);
-  autoEatFoodForHealth(p, t);
-  distributeBuildingRewards();
-  /* regrow: harvested doodads recover after 4 minutes */
-  const dead = db.doodads.select().where({ state: "gone", updatedAt: { $lt: new Date(t - 240000).toISOString() } as any });
-  const n = (dead as any).count?.() ?? 0;
-  if (n > 0) { (dead as any).deleteAll?.(); bump(); }
-  spawnTerritoryGoldCoins();
+
+  if (t - worldSlowTickAt >= WORLD_SLOW_TICK_MS) {
+    worldSlowTickAt = t;
+    distributeBuildingRewards();
+    /* regrow: harvested doodads recover after 4 minutes */
+    const dead = db.doodads.select().where({ state: "gone", updatedAt: { $lt: new Date(t - 240000).toISOString() } as any });
+    const n = (dead as any).count?.() ?? 0;
+    if (n > 0) { (dead as any).deleteAll?.(); bump(); }
+    spawnTerritoryGoldCoins();
+    materializeKeepsAroundActivePlayers(t);
+  }
+
+  for (const l of live.values()) {
+    if (l.spectator || t - l.lastSeen > ACTIVE_PLAYER_WINDOW_MS) continue;
+    const p = db.players.get(l.id) as Player | null;
+    if (p) maintainActivePlayer(p, t);
+  }
+}
+
+export function runWorldTick(reason = "manual") {
+  const t = now();
+  if (worldTickRunning || t - worldTickAt < WORLD_TICK_MS) return { ok: true, skipped: true, reason, nextInMs: Math.max(0, WORLD_TICK_MS - (t - worldTickAt)) };
+  worldTickRunning = true;
+  worldTickAt = t;
+  try {
+    maintainWorld(t);
+    return { ok: true, skipped: false, reason, at: t, events: transientEventStatus() };
+  } catch (e: any) {
+    console.error("[worldTick]", e);
+    return { ok: false, skipped: false, reason, at: t, msg: String(e?.message || e || "world tick failed") };
+  } finally {
+    worldTickRunning = false;
+  }
+}
+
+export function ensureWorldTickStarted() {
+  if (worldTickStarted) return;
+  worldTickStarted = true;
+  const interval = setInterval(() => { runWorldTick("interval"); }, WORLD_TICK_MS);
+  (interval as any)?.unref?.();
+}
+
+export function worldTickStatus() {
+  return { started: worldTickStarted, running: worldTickRunning, lastTickAt: worldTickAt, lastSlowTickAt: worldSlowTickAt, tickMs: WORLD_TICK_MS, slowTickMs: WORLD_SLOW_TICK_MS, events: transientEventStatus() };
 }
 
 /* ============================================================
@@ -1841,8 +1926,6 @@ function maintain(p: Player) {
    ============================================================ */
 export function snapshot(p: Player, q: { rev: number; ax: number; az: number; chat: number; mapRev?: number }): Snapshot {
   const run = () => {
-    maintain(p);
-    materializeProceduralKeepsAround(p.x, p.z);
     const t = now();
     const e = energyNow(p); // pure — NO write per poll
 
@@ -1866,14 +1949,8 @@ export function snapshot(p: Player, q: { rev: number; ax: number; az: number; ch
     /* chat: only what the client hasn't seen, from the ring */
     const chat = chatRing.filter((c) => c.id > (q.chat || 0));
 
-    /* events: skip the query unless this player has any pending */
-    let events: { kind: string; msg: string; ts: number }[] = [];
-    if (hasEvents.has(p.id)) {
-      const rows = db.events.select().where({ target: p.id }).all() as any[];
-      events = rows.map((ev) => ({ kind: ev.kind, msg: ev.msg, ts: Date.parse(ev.createdAt) || t }));
-      for (const ev of rows) db.events.delete(ev.id);
-      hasEvents.delete(p.id);
-    }
+    /* events: memory-only transient toasts; no SQLite insert/delete per delivery */
+    const events = drainEventsForPlayer(p.id, t);
 
     const territory = db.tiles.select().where({ owner: p.id }).count();
     const built = nonBombBuildings(p.id).length;

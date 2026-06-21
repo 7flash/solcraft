@@ -146,6 +146,20 @@ db.exec("CREATE INDEX IF NOT EXISTS idx_redemptions_status ON redemptions(status
 db.exec("CREATE INDEX IF NOT EXISTS idx_players_wallet ON players(wallet)");
 db.exec("CREATE INDEX IF NOT EXISTS idx_wallet_challenges_wallet_nonce ON walletChallenges(wallet, nonce)");
 
+// Stage 6 production indexes: each one mirrors a current query shape and is
+// intentionally additive, so existing live DB files migrate in-place safely.
+db.exec("CREATE INDEX IF NOT EXISTS idx_tiles_owner_xz ON tiles(owner, x, z)");
+db.exec("CREATE INDEX IF NOT EXISTS idx_buildings_owner_kind ON buildings(owner, kind)");
+db.exec("CREATE INDEX IF NOT EXISTS idx_buildings_kind_xz ON buildings(kind, x, z)");
+db.exec("CREATE INDEX IF NOT EXISTS idx_buildings_kind_cdUntil ON buildings(kind, cdUntil)");
+db.exec("CREATE INDEX IF NOT EXISTS idx_doodads_state_updated ON doodads(state, updatedAt)");
+db.exec("CREATE INDEX IF NOT EXISTS idx_loot_kind_xz ON loot(kind, x, z)");
+db.exec("CREATE INDEX IF NOT EXISTS idx_players_lastSeen ON players(lastSeen)");
+db.exec("CREATE INDEX IF NOT EXISTS idx_offers_open ON offers(open)");
+db.exec("CREATE INDEX IF NOT EXISTS idx_events_target_id ON events(target, id)");
+db.exec("CREATE INDEX IF NOT EXISTS idx_redemptions_player_status ON redemptions(player, status)");
+db.exec("CREATE INDEX IF NOT EXISTS idx_wallet_challenges_wallet_used ON walletChallenges(wallet, used)");
+
 export function metaGet(k: string, dflt = ""): string {
   const row = db.meta.select().where({ k }).first();
   return row ? row.v : dflt;

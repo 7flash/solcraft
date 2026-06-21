@@ -1,5 +1,5 @@
 import { createMeasure } from "measure-fn";
-import { auth, dispatch } from "@server/engine";
+import { auth, dispatch, ensureWorldTickStarted } from "@server/engine";
 
 const httpMeasure = createMeasure("http", { maxResultLength: 180 });
 
@@ -17,6 +17,7 @@ function actionMeasureFields(result: any, body: any, p: any) {
 }
 
 export async function POST(req: Request) {
+  ensureWorldTickStarted();
   let body: any = {};
   let playerId = 0;
   return httpMeasure.measure.root({
