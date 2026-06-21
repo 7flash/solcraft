@@ -1,4 +1,4 @@
-export const DB_SCHEMA_VERSION = 7;
+export const DB_SCHEMA_VERSION = 8;
 
 export function applyProductionDbSchema(db: { exec(sql: string): unknown }) {
   // Coordinates and ownership: current hot range queries plus future ECS/chunk adapters.
@@ -29,4 +29,18 @@ export function applyProductionDbSchema(db: { exec(sql: string): unknown }) {
   db.exec("CREATE INDEX IF NOT EXISTS idx_redemptions_status_createdAt ON redemptions(status, createdAt)");
   db.exec("CREATE INDEX IF NOT EXISTS idx_wallet_challenges_wallet_used ON walletChallenges(wallet, used)");
   db.exec("CREATE INDEX IF NOT EXISTS idx_wallet_challenges_wallet_used_createdAt ON walletChallenges(wallet, used, createdAt)");
+
+  // Stage 8: ECS/write-centralization preparation. These are additive only and
+  // support exact-cell cache validation, owner dashboards, and future dirty-row
+  // replay without changing the current table shape.
+  db.exec("CREATE INDEX IF NOT EXISTS idx_buildings_xz_id ON buildings(x, z, id)");
+  db.exec("CREATE INDEX IF NOT EXISTS idx_buildings_id_xz ON buildings(id, x, z)");
+  db.exec("CREATE INDEX IF NOT EXISTS idx_buildings_updatedAt ON buildings(updatedAt)");
+  db.exec("CREATE INDEX IF NOT EXISTS idx_buildings_owner_updatedAt ON buildings(owner, updatedAt)");
+  db.exec("CREATE INDEX IF NOT EXISTS idx_buildings_kind_updatedAt ON buildings(kind, updatedAt)");
+  db.exec("CREATE INDEX IF NOT EXISTS idx_tiles_updatedAt ON tiles(updatedAt)");
+  db.exec("CREATE INDEX IF NOT EXISTS idx_tiles_owner_updatedAt ON tiles(owner, updatedAt)");
+  db.exec("CREATE INDEX IF NOT EXISTS idx_players_level_xp ON players(level, xp)");
+  db.exec("CREATE INDEX IF NOT EXISTS idx_players_updatedAt ON players(updatedAt)");
 }
+

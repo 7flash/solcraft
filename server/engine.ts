@@ -42,6 +42,7 @@ import { tileCapacityForProgress, tileCapacityExplanation } from "./progressionR
 import { FOUNDATION_KIND, isFoundationBuildKind, foundationChoiceLabel } from "./foundationRules";
 import { adjustFactionStanding, factionDeltaText, factionSummaryForWire, factionTileCapacityBonus, readFactionStanding } from "./factionRules";
 import { devCommandsEnabled, isAdminPlayerName } from "./adminAuth";
+import { buildingAt, buildingCacheStats, deleteBuilding, getBuilding, hydrateBuildingStore, insertBuilding } from "./buildingStore";
 
 type Player = ReturnType<typeof db.players.get> & Record<string, any>;
 type Building = Record<string, any>;
@@ -157,6 +158,7 @@ function isSpectatorLike(row: any) {
 for (const q of db.players.select().all() as Player[]) {
   live.set(q.id, { id: q.id, name: q.name, body: q.body, hat: q.hat, x: q.x, z: q.z, hp: q.hp, equip: q.equip as Equip, faceImage: q.faceImage || null, appearance: parseAppearance((q as any).appearance), level: q.level || 1, xp: q.xp || 0, lastSeen: q.lastSeen || 0, spectator: isSpectatorLike(q), spawnX: q.spawnX ?? q.x ?? 0, spawnZ: q.spawnZ ?? q.z ?? 0 });
 }
+hydrateBuildingStore();
 function isSpectator(p: Player | null | undefined) {
   return isSpectatorLike(p);
 }
@@ -571,7 +573,6 @@ const packFull = (p: Player) => (p.pack as PackItem[]).every(Boolean);
 
 /* ---------- world queries (all indexed) ---------- */
 const tileAt = (x: number, z: number) => db.tiles.select().where({ x, z }).first() as any;
-const buildingAt = (x: number, z: number) => db.buildings.select().where({ x, z }).first() as Building | null;
 function doodadAt(x: number, z: number): "tree" | "rock" | "food" | null {
   const ex = db.doodads.select().where({ x, z }).first() as any;
   if (ex) return ex.state === "gone" ? null : (ex.state as "tree" | "rock" | "food");
@@ -1180,7 +1181,7 @@ function produceGoldFromSources() {
   return { produced: 0, mines: 0 };
 }
 export function collectGoldMine(p: Player, uid: number) {
-  const b = db.buildings.get(uid) as Building | null;
+  const b = getBuilding(uid) as Building | null;
   if (!b || b.kind !== GOLD_MINE_KIND || b.owner !== p.id) return err("Not your Coin Mint.");
   if (cheb(b.x, b.z, p.x, p.z) > 1) return err("Walk beside your Coin Mint first.");
   const amt = Math.max(0, Math.floor(Number(b.stored || 0)));
@@ -1420,7 +1421,7 @@ export function economyStatus() {
     leaderboard: leaderboardRows(),
     economyRows: economyRows(true).sort((a, b) => b.score - a.score).slice(0, 100),
     users: adminUsers(),
-    goldSources: goldSources.map((g) => { const mine = g.mineUid ? db.buildings.get(Number(g.mineUid)) as Building | null : null; return { ...g, owner: mine?.owner || g.owner || 0, ownerName: mine?.owner ? pinfo(mine.owner).name : "", stored: Math.floor(Number(mine?.stored || 0)), cap: GOLD_MINE_STORAGE_CAP, mineLevel: mine?.level || 0, mineHp: mine?.hp || 0, mineMaxHp: mine?.maxHp || 0, output: Math.floor(lastGoldMineOutput(mine)) }; }),
+    goldSources: goldSources.map((g) => { const mine = g.mineUid ? getBuilding(Number(g.mineUid)) as Building | null : null; return { ...g, owner: mine?.owner || g.owner || 0, ownerName: mine?.owner ? pinfo(mine.owner).name : "", stored: Math.floor(Number(mine?.stored || 0)), cap: GOLD_MINE_STORAGE_CAP, mineLevel: mine?.level || 0, mineHp: mine?.hp || 0, mineMaxHp: mine?.maxHp || 0, output: Math.floor(lastGoldMineOutput(mine)) }; }),
     map: { tiles: tiles.map((t:any)=>({x:t.x,z:t.z,owner:t.owner})), buildings: buildings.map((b:any)=>({id:b.id,kind:b.kind,x:b.x,z:b.z,owner:b.owner,hp:b.hp,maxHp:b.maxHp,stored:b.stored||0})) },
     eventLog,
     rules: ECONOMY_RULES,
@@ -1749,7 +1750,7 @@ function purgeLegacyStructures() {
   legacyPurgeAt = t;
   const legacy = (db.buildings.select().all() as Building[]).filter((b) => [BARB_CAMP_KIND, "wall", "gate"].includes(String(b.kind || "")));
   if (!legacy.length) return;
-  for (const b of legacy) db.buildings.delete(b.id);
+  for (const b of legacy) deleteBuilding(b);
   bump();
   logEconomyEvent("legacyStructuresPurged", { count: legacy.length });
 }
@@ -1781,7 +1782,7 @@ function towerBombTick() {
     }
     if (dmg <= 0) continue;
     bomb.hp = Math.max(0, Number(bomb.hp || 0) - dmg);
-    if (bomb.hp <= 0) { db.buildings.delete(bomb.id); if (bomb.owner) pushEvent(bomb.owner, "raid", "🏹 A Watchtower destroyed your active tool."); bump(); }
+    if (bomb.hp <= 0) { deleteBuilding(bomb); if (bomb.owner) pushEvent(bomb.owner, "raid", "🏹 A Watchtower destroyed your active tool."); bump(); }
   }
 }
 let armedBombResolveAt = 0;
@@ -1814,12 +1815,12 @@ function resolveArmedBombs(opts: { force?: boolean; reason?: string } = {}) {
     .sort((a, b) => normalizeBombFuseEnd(a, t) - normalizeBombFuseEnd(b, t));
   for (const b of bombs) {
     // It may already be gone because a previous blast in this same pass hit it.
-    const liveBomb = db.buildings.get(b.id) as Building | null;
+    const liveBomb = getBuilding(b.id) as Building | null;
     if (!liveBomb || liveBomb.kind !== "bomb") continue;
     const end = normalizeBombFuseEnd(liveBomb, t);
     if (!opts.force && end > t) continue;
     const owner = db.players.get(liveBomb.owner) as Player | null;
-    if (!owner) { db.buildings.delete(liveBomb.id); bump(); continue; }
+    if (!owner) { deleteBuilding(liveBomb); bump(); continue; }
     try {
       detonateBomb(owner, liveBomb);
       detonated++;
@@ -1915,7 +1916,7 @@ export function ensureWorldTickStarted() {
 }
 
 export function worldTickStatus() {
-  return { started: worldTickStarted, running: worldTickRunning, lastTickAt: worldTickAt, lastSlowTickAt: worldSlowTickAt, tickMs: WORLD_TICK_MS, slowTickMs: WORLD_SLOW_TICK_MS, events: transientEventStatus() };
+  return { started: worldTickStarted, running: worldTickRunning, lastTickAt: worldTickAt, lastSlowTickAt: worldSlowTickAt, tickMs: WORLD_TICK_MS, slowTickMs: WORLD_SLOW_TICK_MS, events: transientEventStatus(), buildingCache: buildingCacheStats() };
 }
 
 /* ============================================================
@@ -2368,7 +2369,7 @@ function placeWorldWonder(p: Player, x: number, z: number, promptRaw = "", recip
   const buildMs = wonderBuildMsFor(recipe);
   const size = wonderSizeForRecipe(recipe);
   const tiles = wonderFootprintTiles(recipe);
-  const b = db.buildings.insert({ owner: p.id, kind: "worldwonder", x, z, level: 1, hp: mhp, maxHp: mhp, accAt: startedAt, cdUntil: startedAt + buildMs, stored: 0, nm: recipe.name || `${p.name}'s Wonder`, cl: recipe.palette?.[0] || "#fff0a8" }) as any;
+  const b = insertBuilding({ owner: p.id, kind: "worldwonder", x, z, level: 1, hp: mhp, maxHp: mhp, accAt: startedAt, cdUntil: startedAt + buildMs, stored: 0, nm: recipe.name || `${p.name}'s Wonder`, cl: recipe.palette?.[0] || "#fff0a8" }) as any;
   saveWonderRecipe(Number(b.id), recipe);
   const landing = p.x === x && p.z === z ? findWonderLanding(p, x, z, recipe) : null;
   if (landing) { p.x = landing.x; p.z = landing.z; liveTouch(p); }
@@ -2459,7 +2460,7 @@ function spawnNeutralKeepAt(x: number, z: number, gold = 150, hp = 140, name = "
   const keepGold = Math.max(0, Math.min(100000, Math.floor(Number(gold || 150))));
   const existing = db.buildings.select().where({ owner: 0, kind: "keep", x, z }).first() as any;
   if (existing) return { ok: false as const, msg: "A Keep is already there." };
-  const b = db.buildings.insert({ owner: 0, kind: "keep", x, z, nm: keepName, level: 1, hp: keepHp, maxHp: keepHp, stored: keepGold, accAt: now(), cl: "#ffd76e" }) as any;
+  const b = insertBuilding({ owner: 0, kind: "keep", x, z, nm: keepName, level: 1, hp: keepHp, maxHp: keepHp, stored: keepGold, accAt: now(), cl: "#ffd76e" }) as any;
   ensureKeepSiegeTilesAround(x, z);
   bump();
   sysChat(`♜ ${keepName} appeared at ${x}, ${z}. Breach it for coins.`);
@@ -2471,7 +2472,7 @@ function adminDeleteBuilding(p: Player, b: Building, clearTile = false) {
   const x = Number(b.x || 0), z = Number(b.z || 0);
   if (kind === "keep" && owner === 0) cleanupNeutralKeepSiegeTilesAround(x, z, Number(b.id || 0));
   if (kind === "worldwonder") saveWonderRecipe(Number(b.id || 0), { deleted: true, deletedAt: now(), deletedBy: p.id, name: b.nm || "World Wonder" });
-  try { db.buildings.delete(b.id); } catch {}
+  try { deleteBuilding(b); } catch {}
   if (owner) dropStats(owner);
   if (clearTile) {
     const t = tileAt(x, z) as any;
@@ -2487,7 +2488,7 @@ export function adminDemolishAt(p: Player, body: any = {}) {
   const clearTile = !!body.clearTile;
   const removed: any[] = [];
   if (uid) {
-    const b = db.buildings.get(uid) as Building | null;
+    const b = getBuilding(uid) as Building | null;
     if (!b) return err("That building/object is already gone.");
     removed.push(adminDeleteBuilding(p, b, clearTile));
   } else {
@@ -2549,7 +2550,7 @@ function materializeProceduralKeepsAround(cx: number, cz: number) {
     const existing = (db.buildings.select().where({ owner: 0, kind: "keep", x: k.x, z: k.z }).first() as any);
     if (existing) continue;
     clearDoodadCell(k.x, k.z);
-    db.buildings.insert({ owner: 0, kind: "keep", x: k.x, z: k.z, nm: k.name, level: 1, hp: k.hp, maxHp: k.hp, stored: k.gold, accAt: now(), cl: "#7dcfe8" });
+    insertBuilding({ owner: 0, kind: "keep", x: k.x, z: k.z, nm: k.name, level: 1, hp: k.hp, maxHp: k.hp, stored: k.gold, accAt: now(), cl: "#7dcfe8" });
     ensureKeepSiegeTilesAround(k.x, k.z);
     bump();
   }
@@ -2581,7 +2582,7 @@ export function place(p: Player, kind: string, x: number, z: number, prompt = ""
   // Do not insert constructAt/constructUntil: older live DBs do not have those
   // columns. Construction is encoded with existing fields: accAt=start,
   // cdUntil=end. Snapshot exposes virtual constructAt/constructUntil for UI.
-  const b = db.buildings.insert({ owner: p.id, kind, x, z, level: 1, hp: mhp, maxHp: mhp, accAt: startedAt, cdUntil: startedAt + buildMs, stored: 0 });
+  const b = insertBuilding({ owner: p.id, kind, x, z, level: 1, hp: mhp, maxHp: mhp, accAt: startedAt, cdUntil: startedAt + buildMs, stored: 0 });
   /* clear any doodad/loot under the new building */
   const ex = db.doodads.select().where({ x, z }).first() as any;
   if (doodadAt(x, z)) { if (ex) (ex as any).state = "gone"; else db.doodads.insert({ x, z, state: "gone" }); }
@@ -2597,7 +2598,7 @@ export function place(p: Player, kind: string, x: number, z: number, prompt = ""
 
 export function completeFoundation(p: Player, uid: number, kind: string) {
   if (!isFoundationBuildKind(kind)) return err("Choose House, Lumber Camp, Mine, Farm, or Market.", "FOUNDATION_KIND_INVALID");
-  const b = db.buildings.get(uid) as Building | null;
+  const b = getBuilding(uid) as Building | null;
   if (!b || b.owner !== p.id) return err("That is not your foundation.");
   if (b.kind !== FOUNDATION_KIND) return err("This spot is already assigned.", "NOT_FOUNDATION");
   if (cheb(b.x, b.z, p.x, p.z) > 1) return err("Walk next to the foundation first.");
@@ -2644,7 +2645,7 @@ export function castBorderBomb(p: Player, variant = "popper", tx?: number, tz?: 
   if (bombCount(p, spec.id) <= 0) return err(`Craft a ${spec.name} first, then use Deploy (6) to place it.`);
   if (!consumeBombItem(p, spec.id)) return err(`Craft a ${spec.name} first, then use Deploy (6) to place it.`);
   const mhp = (spec.hp || buildMaxHp(def, 1)) + masonHp(p.skills as Skills);
-  const b = db.buildings.insert({ owner: p.id, kind: "bomb", x, z, nm: spec.id, level: 1, hp: mhp, maxHp: mhp, accAt: now(), cdUntil: now() + (spec.fuseMs || BOMB_FUSE_MS) });
+  const b = insertBuilding({ owner: p.id, kind: "bomb", x, z, nm: spec.id, level: 1, hp: mhp, maxHp: mhp, accAt: now(), cdUntil: now() + (spec.fuseMs || BOMB_FUSE_MS) });
   bump();
   const targetTile = tileAt(x, z);
   sysChat(`${p.name} deployed a ${spec.name}${targetTile && targetTile.owner !== p.id ? " on contested territory" : ""}. The fuse is live.`);
@@ -2673,7 +2674,7 @@ export function setProfileAppearance(p: Player, appearance: any) {
 }
 
 export function demolish(p: Player, uid: number) {
-  const b = db.buildings.get(uid) as Building | null;
+  const b = getBuilding(uid) as Building | null;
   if (!b || b.owner !== p.id) return err("Not your building.");
   if (b.kind === "worldwonder") return err("World Wonders cannot be demolished. They are history now.");
   const def = buildingDef(b.kind);
@@ -2685,14 +2686,14 @@ export function demolish(p: Player, uid: number) {
     }
     gain(p, back);
   }
-  db.buildings.delete(uid);
+  deleteBuilding(uid);
   dropStats(p.id);
   bump();
   return ok();
 }
 
 export function customize(p: Player, uid: number, nm?: string, cl?: string | null) {
-  const b = db.buildings.get(uid) as Building | null;
+  const b = getBuilding(uid) as Building | null;
   if (!b || b.owner !== p.id) return err("Not your building.");
   if (cl !== undefined && cl !== null && cl !== "" && !/^#[0-9a-fA-F]{6}$/.test(String(cl))) return err("Choose one of the safe building colors.");
   if (nm !== undefined) b.nm = String(nm || "").trim().slice(0, 16) || null;
@@ -2705,7 +2706,7 @@ export function customize(p: Player, uid: number, nm?: string, cl?: string | nul
 
 /* upgrade: levels boost production & regen by lvlMul() and add HP */
 export function upgrade(p: Player, uid: number) {
-  const b = db.buildings.get(uid) as Building | null;
+  const b = getBuilding(uid) as Building | null;
   if (!b || b.owner !== p.id) return err("Not your building.");
   if (cheb(b.x, b.z, p.x, p.z) > 1) return err("Walk next to it first.");
   const def = buildingDef(b.kind);
@@ -2732,7 +2733,7 @@ export function upgrade(p: Player, uid: number) {
 
 /* repair: anyone can repair their OWN damaged building */
 export function repair(p: Player, uid: number) {
-  const b = db.buildings.get(uid) as Building | null;
+  const b = getBuilding(uid) as Building | null;
   if (!b || b.owner !== p.id) return err("Not your building.");
   if (cheb(b.x, b.z, p.x, p.z) > 1) return err("Walk next to it first.");
   const def = buildingDef(b.kind);
@@ -2944,7 +2945,7 @@ function destroyBuilding(attacker: Player, b: Building, cause = "siege") {
   if (b.kind === GOLD_MINE_KIND) {
     sysChat(`⛏ Coin Mint at ${b.x}, ${b.z} collapsed. Coin spawns continue on claimed territory, but redemption needs another mint.`);
   }
-  db.buildings.delete(b.id);
+  deleteBuilding(b);
   if (destroyedKeepId) cleanupNeutralKeepSiegeTilesAround(b.x, b.z, destroyedKeepId);
   dropStats(b.owner); dropStats(attacker.id);
   bump();
@@ -2991,7 +2992,7 @@ function detonateBomb(p: Player, b: Building) {
       const before = Number(target.hp || 0);
       const r = damageBuilding(p, target, Number((spec as any).buildingDmg || 35), "destroy tool");
       damaged++;
-      if (!db.buildings.get(target.id)) destroyed++;
+      if (!getBuilding(target.id)) destroyed++;
       continue;
     }
     const t = tileAt(x, z) as any;
@@ -3003,7 +3004,7 @@ function detonateBomb(p: Player, b: Building) {
       db.tiles.delete(t.id); cleared++;
     }
   }
-  db.buildings.delete(b.id);
+  deleteBuilding(b);
   dropStats(p.id);
   bump();
   sysChat(`${p.name}'s ${spec.name} cleared ${cleared} tile${cleared === 1 ? "" : "s"} and damaged ${damaged} structure${damaged === 1 ? "" : "s"}.`);
@@ -3067,7 +3068,7 @@ function autoHarvestProducerRing(p: Player, b: Building, kind: "tree" | "rock") 
 /* E — use a nearby building. Owned buildings can perform real work;
    other buildings still respond cosmetically so the interaction feels coherent. */
 export function useBuilding(p: Player, uid: number) {
-  const b = db.buildings.get(uid) as Building | null;
+  const b = getBuilding(uid) as Building | null;
   if (!b) return err("Gone.");
   if (cheb(b.x, b.z, p.x, p.z) > 1) return err("Walk next to it first.");
   const def = buildingDef(b.kind);
@@ -3399,7 +3400,7 @@ export function donateNpc(p: Player, x: number, z: number) {
 }
 
 export function donateKeep(p: Player, uid: number, rawAmount = 10) {
-  const b = db.buildings.get(uid) as Building | null;
+  const b = getBuilding(uid) as Building | null;
   if (!b || Number(b.owner || 0) !== 0 || b.kind !== "keep") return err("That is not a neutral Keep.");
   if (cheb(b.x, b.z, p.x, p.z) > 1) return err("Walk beside the Keep first.");
   const amount = Math.max(1, Math.min(50, Math.floor(Number(rawAmount || 10))));
@@ -3421,7 +3422,7 @@ export function donateKeep(p: Player, uid: number, rawAmount = 10) {
 /* Siege targets infrastructure only: enemy buildings and destroy tools.
    No direct player killing; the war is on cities, vaults, and land. */
 export function raid(p: Player, uid: number) {
-  const b = db.buildings.get(uid) as Building | null;
+  const b = getBuilding(uid) as Building | null;
   if (!b) return err("Gone.");
   if (cheb(b.x, b.z, p.x, p.z) > 1) return err("Stand beside it to attack it.");
   if (energyNow(p).energy < RAID_COST) return err(`Need ${RAID_COST}⚡ to attack.`);
@@ -3439,7 +3440,7 @@ export function raid(p: Player, uid: number) {
   const dmg = b.kind === "bomb" ? SIEGE_TOOL_DMG + siegeBonus : (isNeutralKeep ? keepHit.damage : Math.max(2, 2 + Math.floor(siegeBonus / 3)));
   const r = damageBuilding(p, b, dmg, "siege");
 
-  if (r.ok && keepHit && db.buildings.get(b.id)) {
+  if (r.ok && keepHit && getBuilding(b.id)) {
     const delta = { empire: 1, bandits: -1 };
     const standing = adjustFactionStanding(p.id, delta);
     let coins = 0;
@@ -3494,7 +3495,7 @@ export function teleportHomeCancel(p: Player) {
   return ok();
 }
 export function teleportWonderStart(p: Player, uid: number) {
-  const b = db.buildings.get(uid) as Building | null;
+  const b = getBuilding(uid) as Building | null;
   if (!b || b.owner !== p.id || b.kind !== "worldwonder") return err("That World Wonder is not yours.");
   if (cheb(p.x, p.z, b.x, b.z) <= 2) return err("Already at that World Wonder.");
   channels.set(p.id, { x: p.x, z: p.z, until: now() + TELEPORT_MS, type: "wonder", uid: Number(b.id), tx: Number(b.x), tz: Number(b.z) });
@@ -3508,7 +3509,7 @@ export function teleportWonderFinish(p: Player) {
     clearChannel(p.id);
     return err("Teleport cancelled because you moved.");
   }
-  const b = db.buildings.get(Number(ch.uid || 0)) as Building | null;
+  const b = getBuilding(Number(ch.uid || 0)) as Building | null;
   if (!b || b.owner !== p.id || b.kind !== "worldwonder") { clearChannel(p.id); return err("That World Wonder is gone."); }
   const spot = findWonderLanding(p, Number(b.x), Number(b.z));
   p.x = spot.x; p.z = spot.z;

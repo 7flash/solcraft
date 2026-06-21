@@ -10,7 +10,9 @@
     "check": "bun run scripts/check.ts",
     "clean": "bun -e \"import { rmSync } from 'fs'; for (const p of ['node_modules','bun.lock','bun.lockb']) { try { rmSync(p,{recursive:true,force:true}); } catch {} }\"",
     "test:ecs": "bun test server/ecs/*.test.ts",
-    "test:ecs:watch": "bun test --watch server/ecs/*.test.ts"
+    "test:ecs:watch": "bun test --watch server/ecs/*.test.ts",
+    "test:backend": "bun test server/buildingStore.test.ts",
+    "test:backend:watch": "bun test --watch server/buildingStore.test.ts"
   },
   "dependencies": {
     "measure-fn": "4.0.4",
