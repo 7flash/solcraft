@@ -1,0 +1,620 @@
+{
+  "meta": {
+    "language": "en",
+    "name": "English"
+  },
+  "login": {
+    "kicker": "Shared frontier",
+    "titlePrefix": "World of",
+    "titleAccent": "SolCrafts",
+    "copy": "Explore from the capital, gather resources, claim land, and grow a settlement outward on one shared map.",
+    "coreLoopAria": "Core loop",
+    "loop": [
+      "Explore",
+      "Gather",
+      "Claim",
+      "Build"
+    ],
+    "checking": "Checking…",
+    "installPhantom": "Install Phantom",
+    "enterWorld": "Enter world",
+    "spectate": "Spectate",
+    "forgetSession": "Forget session",
+    "phantomRequiredTitle": "Phantom wallet required",
+    "walletCheckedTitle": "Wallet checked by server",
+    "walletLoginTitle": "Wallet login",
+    "phantomRequiredBody": "Install or enable Phantom to play. Spectate remains available without a wallet.",
+    "capitalKicker": "Capital services",
+    "capitalTitle": "Start near the capital",
+    "capitalText": "Banking, appearance, guide, and reward systems are moving into world buildings and NPCs instead of permanent HUD menus."
+  },
+  "toast": {
+    "interfaceScale": "Interface scale {value}",
+    "menuScale": "Menu scale {value}",
+    "interfaceMenuScaleReset": "Interface and menu scale reset.",
+    "musicOn": "Music on.",
+    "musicStarted": "Music started.",
+    "tutorialSkipped": "Tutorial skipped. Capital NPCs will host deeper guidance later.",
+    "tutorialRestarted": "Tutorial restarted.",
+    "tutorialReset": "Tutorial reset. It will start when you enter as a player.",
+    "buildGuideDone": "Build cards explain cost, footprint, and construction time.",
+    "treeChoppedNext": "Tree chopped. Next try Mine (3) on stone.",
+    "stoneMinedNext": "Stone mined. Next select Capture (4) to expand connected territory.",
+    "landCapturedNext": "Land captured. Build next to raise limits and make the camp useful.",
+    "characterUpdated": "Character updated.",
+    "colorsApplied": "{name} colors applied.",
+    "cameraRotated": "Camera rotated {degrees}°",
+    "cameraReset": "Camera reset.",
+    "notImage": "That is not an image file.",
+    "portraitLoadFailed": "Portrait could not be loaded. Try another image.",
+    "sharedLocation": "Shared your location.",
+    "selectBuildingFirst": "Select a building first.",
+    "rallyShared": "Rally shared in chat.",
+    "buildingLocationShared": "Shared building location.",
+    "tooFarWalk": "That point is too far to walk from here. Try moving in smaller steps or use a discovered travel point.",
+    "spectatorReadonly": "Spectator mode is read-only. Connect Phantom to claim, craft, build, trade, or collect. Spectators are visible as ghosts but cannot pick up coins.",
+    "wonderAiBusy": "World Wonder AI is already generating. The foundation will start after the plan is ready.",
+    "wonderGeneratorFailed": "Wonder generator failed.",
+    "wonderPlacementBusy": "World Wonder placement is already running. Wait for the current request.",
+    "wonderAlreadyFounding": "Already founding that Wonder. Wait for the server response.",
+    "spectatorModeFailed": "Spectator mode failed.",
+    "welcomeBack": "Welcome back. Your flag is ready.",
+    "networkHiccup": "Network hiccup — keeping movement synced.",
+    "lowEnergy": "Low energy — keep moving, then rest to refill.",
+    "outOfEnergy": "Out of energy. Roads and World Wonder districts are free to travel.",
+    "adminOnly": "Admin tools are only available to the world admin.",
+    "nothingToRemove": "Nothing to remove there.",
+    "woodToolPacked": "Wood axe packed away.",
+    "stoneToolPacked": "Stone pick packed away.",
+    "woodToolSelected": "Wood tool selected — trees are highlighted.",
+    "stoneToolSelected": "Stone tool selected — rocks are highlighted.",
+    "capturePacked": "Capture flag tucked away.",
+    "captureSelected": "Capture selected — click any free non-capital tile. Each tile costs stone.",
+    "swordSelected": "Sword selected — click a Keep, building, or nearby settler.",
+    "chooseCapturedTile": "Choose one of your empty captured tiles to build.",
+    "useStonePick": "Use the stone pick for rocks.",
+    "useWoodAxe": "Use the wood axe for trees.",
+    "swordTargets": "Sword targets Keeps, buildings, and settlers.",
+    "notYourBuilding": "Not your building.",
+    "perfOn": "Performance overlay on",
+    "perfOff": "Performance overlay off",
+    "walkCloserToTalk": "Walk closer to talk.",
+    "characterSynced": "Character synced."
+  },
+  "guide": {
+    "tabs": [
+      [
+        "actions",
+        "Actions"
+      ],
+      [
+        "buildings",
+        "Buildings"
+      ],
+      [
+        "economy",
+        "Economy"
+      ],
+      [
+        "skills",
+        "Skills"
+      ],
+      [
+        "done",
+        "Done"
+      ]
+    ],
+    "summaryComplete": "{done}/{total} complete",
+    "summaryClaimed": "{claimed} claimed",
+    "summaryRewardsReady": "{count} rewards ready",
+    "emptySection": "No cards in this section yet.",
+    "statusClaimed": "Claimed",
+    "statusReady": "Ready",
+    "statusTodo": "To do",
+    "claim": "Claim",
+    "reward": "✓ reward"
+  },
+  "walkthrough": {
+    "chop": {
+      "title": "Step 1: Axe",
+      "text": "Select the axe and click a tree. Wood drops as pickups on the map.",
+      "button": "Select axe"
+    },
+    "mine": {
+      "title": "Step 2: Pickaxe",
+      "text": "Select the pickaxe and click stone. The cursor tells you what can be worked.",
+      "button": "Select pickaxe"
+    },
+    "claim": {
+      "title": "Step 3: Capture",
+      "text": "Select capture, stand on any open tile outside the capital, and claim it.",
+      "button": "Select capture"
+    },
+    "build": {
+      "title": "Step 4: Build",
+      "text": "Select the hammer, click an empty captured tile, then choose a building in the right panel.",
+      "button": "Open build"
+    },
+    "fallback": {
+      "title": "Step 1: Axe",
+      "text": "Start by gathering wood.",
+      "button": "Select axe"
+    },
+    "note": "Basics stay here while you play. Skip anytime.",
+    "skip": "Skip"
+  },
+  "update": {
+    "title": "Update ready",
+    "reason": "A new game build is ready. Refresh when convenient.",
+    "refresh": "Refresh and continue"
+  },
+  "toolbelt": {
+    "axe": {
+      "label": "Axe",
+      "help": "Axe cursor: click trees to chop wood."
+    },
+    "pickaxe": {
+      "label": "Pickaxe",
+      "help": "Pickaxe cursor: click rocks to mine stone."
+    },
+    "hammer": {
+      "label": "Hammer",
+      "help": "Hammer cursor: click a captured tile, then choose a building in the right panel."
+    },
+    "shovel": {
+      "label": "Shovel",
+      "help": "Shovel cursor: click one of your buildings to demolish it."
+    },
+    "capture": {
+      "label": "Capture",
+      "help": "Capture cursor: click any free non-capital tile to claim it."
+    },
+    "sword": {
+      "label": "Sword",
+      "help": "Sword cursor: attack Keeps, buildings, or nearby settlers."
+    }
+  },
+  "moreMenu": {
+    "groups": {
+      "progress": {
+        "title": "Progress",
+        "text": "Identity, guide cards, skills, and economy status."
+      },
+      "advanced": {
+        "title": "Advanced tools",
+        "text": "Useful, but not part of the moment-to-moment movement loop."
+      },
+      "system": {
+        "title": "System",
+        "text": "Visuals, sound, help, and session controls."
+      }
+    },
+    "items": {
+      "character": {
+        "label": "Character",
+        "text": "Body, colors, and settler profile."
+      },
+      "guide": {
+        "label": "Guide",
+        "text": "Action/building cards and rewards."
+      },
+      "achievements": {
+        "label": "Achievements",
+        "text": "Skill tiers and progress."
+      },
+      "bank": {
+        "label": "Bank",
+        "text": "Exchange and wallet features."
+      },
+      "craft": {
+        "label": "Craft",
+        "text": "Gear, supplies, and deployables."
+      },
+      "siege": {
+        "label": "Siege",
+        "text": "Crafted tools that target territory."
+      },
+      "wonder": {
+        "label": "Wonder",
+        "text": "AI World Wonder planning."
+      },
+      "map": {
+        "label": "World Map",
+        "text": "Overview and admin jump tools."
+      },
+      "settings": {
+        "label": "Settings",
+        "text": "Camera, UI scale, sound, and tutorial reset."
+      },
+      "help": {
+        "label": "Help",
+        "text": "Controls and core gameplay explanation."
+      },
+      "sound": {
+        "label": "Sound",
+        "text": "Toggle music and UI sound."
+      },
+      "logout": {
+        "label": "Logout",
+        "text": "Leave this local session."
+      }
+    }
+  },
+  "objectPreview": {
+    "title": {
+      "tree": "Tree",
+      "rock": "Rock",
+      "food": "Crop patch",
+      "trade": "Capital exchange",
+      "npc": "Wanderer",
+      "keep": "Shared keep",
+      "buildTile": "Build site",
+      "shared": "Shared location",
+      "tile": "Frontier tile"
+    },
+    "summary": {
+      "npc": "Wanderer",
+      "food": "Farm crop",
+      "tile": "Walkable ground",
+      "trade": "World service",
+      "default": "World object"
+    },
+    "desc": {
+      "tree": "A harvestable tree. Select the axe from the bottom toolbelt if you want to chop it.",
+      "rock": "A harvestable rock. Select the pickaxe from the bottom toolbelt if you want to mine it.",
+      "food": "A crop patch grown by a nearby farm. Food restores health over time and can be harvested when you stand beside it.",
+      "trade": "A public exchange point. In the capital this becomes the natural place for bank, deposit, withdrawal, and trade actions.",
+      "npcBase": "{role} crossing the frontier between the capital and player settlements.",
+      "npcCoins": " They carry about {coins} coins.",
+      "npcDanger": " If attacked, they fight back for about {attack} health.",
+      "buildTile": "An empty captured tile. Choose the building you want here; construction starts immediately and completes over time.",
+      "keep": "A shared raid target. Coordinate in chat, walk there together, and attack before the keep regenerates too much health.",
+      "keepHp": " Current rally note: {hp}/{maxHp} HP.",
+      "keepCoins": " Scouts report about {coins} coins inside.",
+      "shared": "A place shared in chat. Open it here, then walk toward it when your group is ready.",
+      "tile": "Open ground. With no tool selected, clicking walkable land moves your character.",
+      "npcResource": " They gathered about {amount} {resource} from nearby frontier work."
+    },
+    "roles": {
+      "warrior": "Warrior",
+      "trader": "Trader",
+      "traveler": "Traveler",
+      "wanderer": "Wanderer"
+    },
+    "actions": {
+      "harvest-food": "Harvest food",
+      "open-trade": "Open exchange",
+      "walk-near": "Walk near",
+      "talk-npc": "Talk",
+      "attack-npc": "Attack",
+      "donate-npc": "Donate",
+      "choose-building": "Choose building",
+      "walk": "Walk here"
+    },
+    "aria": {
+      "preview3d": "{title} 3D preview",
+      "keepRally": "Shared keep rally details",
+      "chooseBuilding": "Choose building for selected tile"
+    },
+    "keepHpLabel": "HP when shared",
+    "keepCoinsLabel": "reported inside",
+    "npcTalk": "Talk",
+    "npcDonate": "Donate",
+    "npcAttack": "Attack",
+    "npcWalkNear": "Walk near",
+    "buildChoices": [
+      {
+        "id": "cottage",
+        "name": "House",
+        "icon": "🏠",
+        "text": "Expands your settlement and supports future services."
+      },
+      {
+        "id": "lumber",
+        "name": "Lumber Camp",
+        "icon": "🪵",
+        "text": "Improves wood gathering and frontier growth."
+      },
+      {
+        "id": "quarry",
+        "name": "Mine",
+        "icon": "⛏",
+        "text": "Improves stone gathering and building flow."
+      },
+      {
+        "id": "farm",
+        "name": "Farm",
+        "icon": "🌾",
+        "text": "Grows crops; food restores health over time."
+      },
+      {
+        "id": "market",
+        "name": "Market",
+        "icon": "🪙",
+        "text": "Turns settlement activity into coins."
+      }
+    ]
+  },
+  "npc": {
+    "watchingRoad": " I am watching the road between the capital and the settlements.",
+    "carryingResource": " I am carrying {amount} {resource} from the frontier.",
+    "carryingCoins": " I have {coins} coins for the road.",
+    "trader": "{name}: Donate supplies to earn trust with the Empire, or leave me to gather resources.{carrying}",
+    "warrior": "{name}: Keep your blade sheathed unless you want the Empire to remember it.{carrying}",
+    "traveler": "{name}: Roads, camps, and Wonders draw travelers like me.{carrying}",
+    "default": "{name}: The frontier is busy today.{carrying}"
+  },
+  "settings": {
+    "resumeAria": "Resume game",
+    "pauseAria": "Pause menu",
+    "paused": "Paused",
+    "title": "Settings",
+    "intro": "Audio, visuals, guide, and session controls live here. Press Esc again to close.",
+    "resume": "Resume",
+    "audio": "Audio",
+    "audioNote": "Browsers often require a click before music can start. Use Start music after entering the world.",
+    "startMusic": "Start music",
+    "musicOn": "Music on",
+    "musicOff": "Music off",
+    "uiSoundsOn": "UI sounds on",
+    "uiSoundsOff": "UI sounds off",
+    "visuals": "Visuals",
+    "quality": "Quality",
+    "motion": "Motion",
+    "auto": "Auto",
+    "crisp": "Crisp",
+    "balanced": "Balanced",
+    "fast": "Fast",
+    "smooth": "Smooth",
+    "classicHop": "Classic hop",
+    "lowPower": "Low-power",
+    "comfortPreset": "Comfort preset",
+    "reloadArt": "Reload art",
+    "interfaceSize": "Interface size · {value}",
+    "interfaceNote": "HUD, minimap, toolbelt, tooltips, and panels.",
+    "smaller": "{title} smaller",
+    "larger": "{title} larger",
+    "reset": "Reset {label}",
+    "camera": "Camera",
+    "cameraCloser": "Camera closer",
+    "cameraFarther": "Camera farther",
+    "cameraView": "Camera view",
+    "default": "Default",
+    "resetCamera": "Reset camera",
+    "controls": "Controls",
+    "toolbelt": "Toolbelt",
+    "controlsNote": "Use 1–6 for axe, pickaxe, hammer, shovel, capture, and sword. Esc opens this menu.",
+    "restartBasics": "Restart basics",
+    "logout": "Logout"
+  },
+  "help": {
+    "title": "How to play",
+    "intro": "Use the bottom bar like a city-builder hotbar: craft, gather with separate tools, capture, build, deploy crafted tools, and interact. Movement works in every action mode by clicking the world or using WASD, and each tile costs a tiny bit of energy that refills quickly. Tutorial objectives live in Quests.",
+    "hotkeys": "craft · wood · stone · capture · build · deploy · use/scroll",
+    "cards": {
+      "gather": {
+        "title": "Gather",
+        "text": "Select Wood or Stone, then click the matching highlighted resource. Drops become pickups on the ground instead of teleporting into your bag."
+      },
+      "build": {
+        "title": "Build",
+        "text": "Press 5, scroll the row, read exact cost/purpose, then click a valid owned pad."
+      },
+      "economy": {
+        "title": "Coin Economy Goal",
+        "text": "Claim more territory to increase coin opportunities, tax visitors on your land, and defend your Coin Mint."
+      },
+      "redeem": {
+        "title": "Redeem",
+        "text": "Your Phantom wallet is the account and payout wallet."
+      }
+    }
+  },
+  "character": {
+    "bodyParts": "Body parts",
+    "colorCombos": "Color combos",
+    "previous": "Previous {label}",
+    "next": "Next {label}",
+    "colors": "Colors",
+    "colorsAria": "{name} colors"
+  },
+  "wonder": {
+    "aiTimeHint": "usually 5–25s",
+    "buildTimeHint": "{seconds}s construction",
+    "modeChoices": [
+      {
+        "id": "district",
+        "name": "District / many tiles",
+        "text": "Multiple towers, halls, gardens, pylons, and accents spread across the plaza."
+      },
+      {
+        "id": "single",
+        "name": "Big single landmark",
+        "text": "One dominant monument centered on the plaza with support props."
+      }
+    ],
+    "palettes": [
+      {
+        "id": "solar",
+        "name": "Solar gold",
+        "colors": [
+          "#fff0a8",
+          "#ffd76e",
+          "#c79337",
+          "#14f195"
+        ]
+      },
+      {
+        "id": "arcane",
+        "name": "Arcane violet",
+        "colors": [
+          "#f3ead7",
+          "#9945ff",
+          "#5a2d91",
+          "#7dcfe8"
+        ]
+      },
+      {
+        "id": "emerald",
+        "name": "Emerald mint",
+        "colors": [
+          "#dfffee",
+          "#14f195",
+          "#0d7054",
+          "#7dcfe8"
+        ]
+      },
+      {
+        "id": "ember",
+        "name": "Ember red",
+        "colors": [
+          "#ffe3c2",
+          "#ffb45e",
+          "#d6604f",
+          "#8e3d26"
+        ]
+      },
+      {
+        "id": "frost",
+        "name": "Frost blue",
+        "colors": [
+          "#ecfbff",
+          "#b8e9ff",
+          "#7dcfe8",
+          "#31507d"
+        ]
+      },
+      {
+        "id": "royal",
+        "name": "Royal prism",
+        "colors": [
+          "#fff0a8",
+          "#9945ff",
+          "#4d287f",
+          "#ffd76e"
+        ]
+      }
+    ],
+    "namePresets": [
+      "Crystal Skyscraper",
+      "Solar Citadel",
+      "Arcane Observatory",
+      "Emerald Garden District",
+      "Royal Sky Bridge",
+      "Frost Beacon",
+      "Ember Forge Cathedral",
+      "Moonlit Archive"
+    ]
+  },
+  "ribbon": {
+    "worldWonder": "★ World Wonder",
+    "tiles": "tiles",
+    "wonderPlaceholder": "Describe the landmark: school, dish, observatory, market...",
+    "wonderFounding": "Founding…",
+    "wonderGenerating": "Generating…",
+    "wonderClickMap": "Click map to found",
+    "wonderTypePrompt": "Type prompt first",
+    "size": "Size",
+    "mode": "Mode",
+    "colors": "Colors",
+    "single": "Single",
+    "district": "District",
+    "foundValidTile": "click a valid tile to found.",
+    "adminTitle": "Admin world ops",
+    "adminText": "server-authoritative cleanup and event spawning",
+    "adminDemolish": "Demolish clicked object",
+    "adminSpawnKeep": "Spawn Keep on click",
+    "adminClearObject": "Clear object here",
+    "adminClearTile": "Clear tile here",
+    "adminKeepHere": "Keep here",
+    "adminFourKeeps": "4 Keeps around me",
+    "adminWorldMap": "World map / jump",
+    "adminHint": "Click Admin, choose demolish or spawn, then click the map. Small minimap ignores far outlier Keeps; expanded World Map still shows everything.",
+    "toolsTitle": "Tools",
+    "toolsText": "choose what your click does",
+    "axeAria": "Axe — chop trees",
+    "axeTipTitle": "🪓 Axe",
+    "axeTipBody": "Highlight trees and click one to chop. Lumber Camps create more trees.",
+    "axeLabel": "Axe",
+    "axeAction": "Chop trees",
+    "pickaxeAria": "Pickaxe — mine rocks",
+    "pickaxeTipTitle": "⛏ Pickaxe",
+    "pickaxeTipBody": "Highlight rocks and click one to mine. Quarries expose fresh stone.",
+    "pickaxeLabel": "Pickaxe",
+    "pickaxeAction": "Mine rocks",
+    "useAria": "Use — interact with buildings and supplies",
+    "useTipTitle": "✦ Use",
+    "useTipBody": "Click nearby buildings, consume usable items, or interact with trade posts.",
+    "useLabel": "Use",
+    "useAction": "Interact",
+    "craftAria": "Craft — make tools and supplies",
+    "craftTipTitle": "🧪 Craft",
+    "craftTipBody": "Craft gear, elixirs, and deployable tools.",
+    "craftLabel": "Craft",
+    "craftAction": "Supplies",
+    "deployAria": "Deploy — place crafted tools",
+    "deployTipTitle": "⚒ Deploy",
+    "deployTipBody": "Select crafted deployables, then click a valid tile.",
+    "deployLabel": "Deploy",
+    "deployAction": "Crafted tools",
+    "teleportTitle": "Teleport",
+    "teleportText": "settlement and unlocked wonders",
+    "homeAria": "Home base — return to your settlement flag",
+    "homeTipTitle": "✦ Home base",
+    "homeTipBody": "Cast briefly, then return to your settlement flag. Moving cancels the cast.",
+    "homeLabel": "Home Base",
+    "homeAction": "Settlement flag",
+    "worldWonderTip": "★ World Wonder",
+    "wonderTravelTip": "Travel to an explored/unlocked Wonder. Wonder taxes can be balanced server-side later.",
+    "wonderTravel": "Wonder travel",
+    "noWondersAria": "No World Wonders unlocked yet",
+    "noWonders": "No Wonders yet",
+    "exploreFound": "Explore/found one",
+    "free": "Free",
+    "planner": "Planner",
+    "aiWonder": "AI Wonder",
+    "buildSuffix": "build",
+    "decoration": "Decoration",
+    "craftDeployables": "Craft deployables",
+    "scienceSiege": "science-only siege tools",
+    "craft": "Craft",
+    "scienceOnly": "Science-only",
+    "cost": "Cost",
+    "owned": "Owned",
+    "need": "Need",
+    "science": "Science",
+    "you": "You",
+    "craftGear": "Craft gear & supplies",
+    "scienceLoadout": "science-only loadout",
+    "target": "Target",
+    "territory": "territory",
+    "fuse": "fuse",
+    "ownedShort": "Owned",
+    "craftFirst": "Craft first",
+    "useTitle": "Use",
+    "useText": "scrolls & supplies",
+    "returnScrollAria": "Return Scroll — infinite teleport to your flag after casting",
+    "returnScrollTitle": "✦ Return Scroll",
+    "returnScrollTip": "Infinite use. Stand still through the cast to return to your flag.",
+    "returnScroll": "Return Scroll",
+    "infiniteDelay": "Infinite · cast delay",
+    "usableItem": "Usable item",
+    "useCraftedItem": "Use this crafted item.",
+    "backpackSlot": "Backpack slot {slot}",
+    "craftElixirs": "Craft elixirs from Craft",
+    "noCraftedItems": "No crafted items",
+    "craftElixirsFirst": "Craft elixirs first"
+  },
+  "factions": {
+    "empire": "Empire",
+    "bandits": "Bandits",
+    "standing": "Faction standing",
+    "tileBonus": "Faction standing adds {bonus} trusted frontier tiles."
+  },
+  "resources": {
+    "wood": "wood",
+    "stone": "stone",
+    "food": "food",
+    "supplies": "supplies"
+  }
+}
