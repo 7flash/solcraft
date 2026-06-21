@@ -116,6 +116,10 @@ export function dbIntegrityReport(opts: { sampleLimit?: number } = {}) {
     events: countTable("events"),
     redemptions: countTable("redemptions"),
     walletChallenges: countTable("walletChallenges"),
+    ecsEntities: countTable("ecsEntities"),
+    ecsComponents: countTable("ecsComponents"),
+    ecsSnapshots: countTable("ecsSnapshots"),
+    ecsActionLog: countTable("ecsActionLog"),
   };
   const errors = issues.filter((i) => i.severity === "error").length;
   const warnings = issues.filter((i) => i.severity === "warn").length;

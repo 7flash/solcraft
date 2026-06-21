@@ -1,5 +1,5 @@
 import { createMeasure } from "measure-fn";
-import { ensureWorldTickStarted, join, joinSpectator } from "@server/engine";
+import { ensureWorldTickStarted, join, joinSpectator } from "@server/backend";
 import { jsonError, noStoreHeaders, readJsonLimited } from "@server/apiGuard";
 import { checkRateLimit, rateLimitHeaders } from "@server/rateLimit";
 

@@ -1,4 +1,4 @@
-import { auth, ensureWorldTickStarted, snapshot } from "@server/engine";
+import { auth, ensureWorldTickStarted, snapshot } from "@server/backend";
 import { intParam, noStoreHeaders, playerIdFrom, secretFrom } from "@server/apiGuard";
 import { checkRateLimit, rateLimitHeaders } from "@server/rateLimit";
 

@@ -1,4 +1,4 @@
-export const DB_SCHEMA_VERSION = 11;
+export const DB_SCHEMA_VERSION = 12;
 
 export function applyProductionDbSchema(db: { exec(sql: string): unknown }) {
   // Coordinates and ownership: current hot range queries plus future ECS/chunk adapters.
@@ -73,6 +73,18 @@ export function applyProductionDbSchema(db: { exec(sql: string): unknown }) {
   db.exec("CREATE INDEX IF NOT EXISTS idx_players_lastSeen_id ON players(lastSeen, id)");
   db.exec("CREATE INDEX IF NOT EXISTS idx_players_wallet_profileDone ON players(wallet, profileDone)");
   db.exec("CREATE INDEX IF NOT EXISTS idx_redemptions_wallet_status ON redemptions(wallet, status)");
+
+  // Stage 12: ECS authority mirror schema. These tables allow a production ECS
+  // backend to mirror legacy rows, log action routing, and keep rollback safe.
+  db.exec("CREATE UNIQUE INDEX IF NOT EXISTS uniq_ecs_entities_legacy ON ecsEntities(legacyTable, legacyId)");
+  db.exec("CREATE INDEX IF NOT EXISTS idx_ecs_entities_kind_active ON ecsEntities(kind, active)");
+  db.exec("CREATE UNIQUE INDEX IF NOT EXISTS uniq_ecs_components_entity_kind ON ecsComponents(entity, kind)");
+  db.exec("CREATE INDEX IF NOT EXISTS idx_ecs_components_kind_rev ON ecsComponents(kind, rev)");
+  db.exec("CREATE UNIQUE INDEX IF NOT EXISTS uniq_ecs_snapshots_name ON ecsSnapshots(name)");
+  db.exec("CREATE INDEX IF NOT EXISTS idx_ecs_snapshots_rev ON ecsSnapshots(rev)");
+  db.exec("CREATE INDEX IF NOT EXISTS idx_ecs_action_log_player_createdAt ON ecsActionLog(player, createdAt)");
+  db.exec("CREATE INDEX IF NOT EXISTS idx_ecs_action_log_action_createdAt ON ecsActionLog(action, createdAt)");
+  db.exec("CREATE INDEX IF NOT EXISTS idx_ecs_action_log_backend_ok ON ecsActionLog(backend, ok)");
 
 }
 

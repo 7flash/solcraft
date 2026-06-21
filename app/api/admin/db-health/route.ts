@@ -1,7 +1,7 @@
 import { jsonError, noStoreHeaders } from "@server/apiGuard";
 import { dbIntegrityReport } from "@server/dbIntegrity";
 import { ecsDbShapeChecklist } from "@server/ecs/dbShapeChecklist";
-import { ensureWorldTickStarted, worldTickStatus } from "@server/engine";
+import { ensureWorldTickStarted, worldTickStatus } from "@server/backend";
 
 export const dynamic = "force-dynamic";
 

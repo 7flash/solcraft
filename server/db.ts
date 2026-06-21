@@ -98,6 +98,33 @@ export const db = new Database(process.env.SOLCRAFT_DB || "solcraft.db", {
     kind: z.string(),
     msg: z.string(),
   }),
+  /* Stage 12 ECS authority mirror tables. Legacy tables remain the rollback source
+     until SOLCRAFT_BACKEND_MODE=ecs has passed production soak. */
+  ecsEntities: z.object({
+    kind: z.string(),
+    legacyTable: z.union([z.string(), z.null()]).default(null),
+    legacyId: z.number().default(0),
+    active: z.number().default(1),
+  }),
+  ecsComponents: z.object({
+    entity: z.number(),
+    kind: z.string(),
+    payload: z.string(),
+    rev: z.number().default(0),
+  }),
+  ecsSnapshots: z.object({
+    name: z.string(),
+    rev: z.number().default(0),
+    payload: z.string(),
+  }),
+  ecsActionLog: z.object({
+    player: z.number(),
+    action: z.string(),
+    ok: z.number().default(0),
+    reasonCode: z.union([z.string(), z.null()]).default(null),
+    backend: z.string().default("ecs"),
+  }),
+
   /* one-use Phantom/Solana sign-in challenges */
   walletChallenges: z.object({
     wallet: z.string(),

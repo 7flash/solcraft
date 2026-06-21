@@ -1,5 +1,5 @@
 // @ts-nocheck
-import { auth } from "@server/engine";
+import { auth } from "@server/backend";
 import { cleanWonderPrompt, applyWonderDesignOptions, normalizeWonderFootprint, normalizeWonderMode, normalizeWonderPaletteId, wonderPaletteColors } from "@server/wonderRecipe";
 import { generateWonderRecipe, wonderAiProviderStatus } from "@server/wonderAi";
 import { jsonError, noStoreHeaders, playerIdFrom, readJsonLimited, secretFrom } from "@server/apiGuard";

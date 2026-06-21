@@ -9,7 +9,22 @@
 export type EcsComponentTablePlan = {
   component: string;
   legacyTable: string;
-  legacyKeys: string[];
+  legacyKeys: string[
+  {
+    component: "EcsEntityMirror",
+    legacyTable: "ecsEntities",
+    legacyKeys: ["kind", "legacyTable", "legacyId", "active"],
+    targetInvariant: "Each ECS entity can be traced back to its legacy row until legacy rollback is removed.",
+    ready: true,
+  },
+  {
+    component: "EcsComponentMirror",
+    legacyTable: "ecsComponents",
+    legacyKeys: ["entity", "kind", "payload", "rev"],
+    targetInvariant: "Dual-write component payloads can be replayed or diffed before ECS tables become authoritative.",
+    ready: false,
+  },
+];
   targetInvariant: string;
   ready: boolean;
 };
@@ -49,6 +64,21 @@ export const ECS_COMPONENT_TABLE_PLAN: EcsComponentTablePlan[] = [
     legacyKeys: ["kind", "gid"],
     targetInvariant: "Loot insert/delete is centralized; amount stacks are not introduced until pickup semantics are tested.",
     ready: true,
+  },
+
+  {
+    component: "EcsEntityMirror",
+    legacyTable: "ecsEntities",
+    legacyKeys: ["kind", "legacyTable", "legacyId", "active"],
+    targetInvariant: "Each ECS entity can be traced back to its legacy row until legacy rollback is removed.",
+    ready: true,
+  },
+  {
+    component: "EcsComponentMirror",
+    legacyTable: "ecsComponents",
+    legacyKeys: ["entity", "kind", "payload", "rev"],
+    targetInvariant: "Dual-write component payloads can be replayed or diffed before ECS tables become authoritative.",
+    ready: false,
   },
 ];
 

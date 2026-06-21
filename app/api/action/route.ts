@@ -1,5 +1,5 @@
 import { createMeasure } from "measure-fn";
-import { auth, dispatch, ensureWorldTickStarted } from "@server/engine";
+import { auth, dispatch, ensureWorldTickStarted } from "@server/backend";
 import { actionRatePolicy, validateActionBody } from "@server/actionValidation";
 import { jsonError, noStoreHeaders, playerIdFrom, readJsonLimited, secretFrom } from "@server/apiGuard";
 import { checkRateLimit, rateLimitHeaders } from "@server/rateLimit";

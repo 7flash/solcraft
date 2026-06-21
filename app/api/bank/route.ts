@@ -1,6 +1,6 @@
 // @ts-nocheck
 import { createMeasure } from "measure-fn";
-import { auth } from "@server/engine";
+import { auth } from "@server/backend";
 import { bankStatusForPlayer, exchangeBankStatusForPlayer, ensureDepositWallet, scanBankDeposits, requestBankWithdrawal } from "@server/bank";
 
 const httpMeasure = createMeasure("http.bank", { maxResultLength: 220 });
