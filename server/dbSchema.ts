@@ -1,4 +1,4 @@
-export const DB_SCHEMA_VERSION = 10;
+export const DB_SCHEMA_VERSION = 11;
 
 export function applyProductionDbSchema(db: { exec(sql: string): unknown }) {
   // Coordinates and ownership: current hot range queries plus future ECS/chunk adapters.
@@ -61,6 +61,18 @@ export function applyProductionDbSchema(db: { exec(sql: string): unknown }) {
   db.exec("CREATE INDEX IF NOT EXISTS idx_players_spawn_xz ON players(spawnX, spawnZ)");
   db.exec("CREATE INDEX IF NOT EXISTS idx_players_profileDone_lastSeen ON players(profileDone, lastSeen)");
   db.exec("CREATE INDEX IF NOT EXISTS idx_players_level_xp_lastSeen ON players(level, xp, lastSeen)");
+
+  // Stage 11: DB integrity / ECS migration audit support. These indexes are
+  // additive and support health checks, owner repair, and future component
+  // dirty-row replay without changing table shape.
+  db.exec("CREATE INDEX IF NOT EXISTS idx_doodads_xz_state ON doodads(x, z, state)");
+  db.exec("CREATE INDEX IF NOT EXISTS idx_doodads_updatedAt_state ON doodads(updatedAt, state)");
+  db.exec("CREATE INDEX IF NOT EXISTS idx_buildings_owner_id_updatedAt ON buildings(owner, id, updatedAt)");
+  db.exec("CREATE INDEX IF NOT EXISTS idx_tiles_owner_id_updatedAt ON tiles(owner, id, updatedAt)");
+  db.exec("CREATE INDEX IF NOT EXISTS idx_loot_kind_id_createdAt ON loot(kind, id, createdAt)");
+  db.exec("CREATE INDEX IF NOT EXISTS idx_players_lastSeen_id ON players(lastSeen, id)");
+  db.exec("CREATE INDEX IF NOT EXISTS idx_players_wallet_profileDone ON players(wallet, profileDone)");
+  db.exec("CREATE INDEX IF NOT EXISTS idx_redemptions_wallet_status ON redemptions(wallet, status)");
 
 }
 

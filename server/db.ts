@@ -6,6 +6,7 @@
    ============================================================ */
 import { Database, z } from "sqlite-zod-orm";
 import { DB_SCHEMA_VERSION, applyProductionDbSchema } from "./dbSchema";
+import { applyStartupDataMigrations } from "./dbMigration";
 
 export const db = new Database(process.env.SOLCRAFT_DB || "solcraft.db", {
   players: z.object({
@@ -129,10 +130,9 @@ db.exec("PRAGMA journal_mode = WAL");
 db.exec("PRAGMA synchronous = NORMAL");
 db.exec("PRAGMA busy_timeout = 4000");
 db.exec("PRAGMA cache_size = -16000"); // 16 MB page cache — snapshots are read-heavy
-// One tile/building/loot pile per coordinate. Clean old duplicates before adding hard authority indexes.
-db.exec("DELETE FROM tiles WHERE id NOT IN (SELECT MIN(id) FROM tiles GROUP BY x, z)");
-db.exec("DELETE FROM buildings WHERE id NOT IN (SELECT MIN(id) FROM buildings GROUP BY x, z)");
-db.exec("DELETE FROM loot WHERE id NOT IN (SELECT MIN(id) FROM loot GROUP BY x, z)");
+// One tile/building/loot pile per coordinate. Startup migrations keep old DB
+// files compatible with the hard coordinate indexes that back exact-cell stores.
+applyStartupDataMigrations(db);
 db.exec("CREATE UNIQUE INDEX IF NOT EXISTS uniq_tiles_xz ON tiles(x, z)");
 db.exec("CREATE UNIQUE INDEX IF NOT EXISTS uniq_buildings_xz ON buildings(x, z)");
 db.exec("CREATE UNIQUE INDEX IF NOT EXISTS uniq_loot_xz ON loot(x, z)");
