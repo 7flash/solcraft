@@ -17,7 +17,7 @@ test("limitAdviceRows warns near tile and resource caps", () => {
   const rows = limitAdviceRows({ territory: 22, tileCap: 24, inv: { w: 97, s: 10 }, storageCap: { w: 100, s: 100 } });
   assert.equal(rows[0].key, "tiles");
   assert.ok(rows.some((r) => r.key === "w"));
-  assert.ok(limitAdviceSummary({ territory: 1, tileCap: 24, inv: {}, storageCap: {} }).includes("healthy"));
+  assert.ok(limitAdviceSummary({ territory: 1, tileCap: 24, inv: {}, storageCap: {} }).includes("Ready"));
 });
 
 test("splitGameplayHint separates action lead from guidance body", () => {

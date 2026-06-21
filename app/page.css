@@ -1602,3 +1602,14 @@ input:focus,select:focus{border-color:var(--line2);box-shadow:0 0 0 3px rgba(20,
 .object-preview-pop{width:min(350px,calc(100vw - 20px))!important}.object-preview-pop .utility-close{display:none!important}.ui45-preview-summary{grid-template-columns:1fr!important}.ui45-object-actions{display:flex!important;gap:8px;flex-wrap:wrap}.ui45-object-actions .btn{min-height:36px}.object-preview-pop .face-preview.small.empty{display:none!important}.object-preview-stage span{font-family:var(--ui30-font,Inter,system-ui,sans-serif);font-weight:950;color:#f7ead6;text-shadow:-2px -2px 0 #061016,2px -2px 0 #061016,-2px 2px 0 #061016,2px 2px 0 #061016,0 8px 18px rgba(0,0,0,.45)}
 .sc-root[data-tool-cursor="walk"] .sc-world canvas,.sc-root[data-tool-cursor="inspect"] .sc-world canvas,.sc-root[data-tool-cursor="interact"] .sc-world canvas,.sc-root[data-tool-cursor="axe"] .sc-world canvas,.sc-root[data-tool-cursor="pickaxe"] .sc-world canvas,.sc-root[data-tool-cursor="hammer"] .sc-world canvas,.sc-root[data-tool-cursor="shovel"] .sc-world canvas,.sc-root[data-tool-cursor="capture"] .sc-world canvas,.sc-root[data-tool-cursor="sword"] .sc-world canvas{image-rendering:auto}
 @media(max-width:720px){.chat{left:8px!important;bottom:calc(var(--safe-b) + 64px)!important;width:min(340px,calc(100vw - 16px))!important}.notice-rail{top:calc(var(--safe-y) + 68px)!important}}
+
+/* Stage 46: tutorial should be a readable top helper, not a floating puzzle box. */
+.walkthrough-layer{pointer-events:none!important;}
+.walkthrough-scrim{display:none!important;}
+.walkthrough-nub{display:none!important;}
+.walkthrough-callout{left:50%!important;top:max(10px,env(safe-area-inset-top))!important;transform:translateX(-50%)!important;width:min(520px,calc(100vw - 20px))!important;max-height:min(42dvh,260px)!important;border-radius:18px!important;padding:12px 14px!important;background:linear-gradient(180deg,rgba(11,18,27,.98),rgba(6,11,18,.96))!important;border:1px solid rgba(243,234,215,.16)!important;box-shadow:0 18px 48px rgba(0,0,0,.52),inset 0 1px 0 rgba(255,255,255,.06)!important;}
+.walkthrough-callout h3{font:950 16px/1.05 var(--f-display)!important;letter-spacing:-.02em!important;}
+.walkthrough-callout p{font:700 12px/1.35 var(--f-body)!important;color:#eadfca!important;}
+.walkthrough-actions{justify-content:flex-start!important;}
+.walkthrough-progress{float:none!important;display:inline-flex!important;margin:0 0 7px 0!important;}
+.ui31-hud-hint{display:none!important;}

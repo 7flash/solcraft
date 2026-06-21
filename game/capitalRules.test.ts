@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { capitalBlocksNaturalResource, capitalBlocksPlayerTerritory, keepCrossIndexAt, keepCrossPositionsInBox, settlementSpawnAllowed } from "./capitalRules.ts";
+import { capitalBlocksNaturalResource, capitalBlocksPlayerTerritory, keepCrossIndexAt, keepCrossPositionsInBox, settlementSpawnAllowed, settlementSpawnPoint, settlementSpawnPositions } from "./capitalRules.ts";
 
 test("capital core blocks player territory and service zone blocks natural resources", () => {
   assert.equal(capitalBlocksPlayerTerritory(0, 0), true);
@@ -9,16 +9,24 @@ test("capital core blocks player territory and service zone blocks natural resou
   assert.equal(capitalBlocksNaturalResource(13, 0), false);
 });
 
-test("new settlements start outside the capital reserve", () => {
-  assert.equal(settlementSpawnAllowed(14, 0), false);
-  assert.equal(settlementSpawnAllowed(16, 0), true);
-  assert.equal(settlementSpawnAllowed(20, 20), true);
+test("new settlements start well outside the capital gates", () => {
+  assert.equal(settlementSpawnAllowed(20, 0), false);
+  assert.equal(settlementSpawnAllowed(28, 0), true);
+  assert.equal(settlementSpawnAllowed(32, 32), true);
 });
 
-test("keeps live on a cross expanding from the capital", () => {
-  assert.deepEqual(keepCrossIndexAt(0, -28), { lane: "north", index: 0, distance: 28 });
-  assert.equal(keepCrossIndexAt(28, 28), null);
-  assert.equal(keepCrossIndexAt(0, -29), null);
-  const near = keepCrossPositionsInBox(0, 0, 30).map((p) => `${p.x},${p.z}`).sort();
-  assert.deepEqual(near, ["-28,0", "0,-28", "0,28", "28,0"]);
+test("settlement spawns use four fair player arms", () => {
+  assert.deepEqual(settlementSpawnPoint(0), { lane: "east", ring: 0, x: 28, z: 9 });
+  assert.deepEqual(settlementSpawnPoint(1), { lane: "south", ring: 0, x: -9, z: 28 });
+  assert.deepEqual(settlementSpawnPoint(2), { lane: "west", ring: 0, x: -28, z: -9 });
+  assert.deepEqual(settlementSpawnPoint(3), { lane: "north", ring: 0, x: 9, z: -28 });
+  assert.equal(new Set(settlementSpawnPositions(12).map((p) => `${p.x},${p.z}`)).size, 12);
+});
+
+test("keeps live in diagonal wilderness lanes farther from the capital", () => {
+  assert.deepEqual(keepCrossIndexAt(42, -42), { lane: "northeast", index: 0, distance: 42 });
+  assert.equal(keepCrossIndexAt(42, 0), null);
+  assert.equal(keepCrossIndexAt(42, -43), null);
+  const near = keepCrossPositionsInBox(0, 0, 43).map((p) => `${p.x},${p.z}`).sort();
+  assert.deepEqual(near, ["-42,-42", "-42,42", "42,-42", "42,42"]);
 });

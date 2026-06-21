@@ -64,7 +64,7 @@ export function limitAdviceRows(m: any): LimitAdviceRow[] {
       cls: tileRatio >= 0.96 ? "bad" : "warn",
       title: `Tile limit ${m.territory || 0}/${tileCap}`,
       short: tileRatio >= 0.96 ? "Tile limit full" : "Near tile limit",
-      body: "Build settlement structures or expand from another captured tile when you need more room.",
+      body: "Your level controls the main land limit. Help others, donate, build, and raid Keeps to grow.",
     });
   }
 
@@ -96,7 +96,7 @@ export function limitAdviceRows(m: any): LimitAdviceRow[] {
 
 export function limitAdviceSummary(m: any): string {
   const rows = limitAdviceRows(m);
-  if (!rows.length) return "Limits are healthy. Claim outward, build producers, and keep collecting coins.";
+  if (!rows.length) return "Ready. Capture open land, build producers, and help the world grow.";
   return rows.map((r) => `${r.title}: ${r.body}`).join(" ");
 }
 

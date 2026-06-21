@@ -944,17 +944,15 @@ export default function mount() {
     const requiredRaw = String(snap.requiredVersion || snap.me?.requiredVersion || "");
     const required = Number(requiredRaw || 0) || 0;
     const acked = readAckedClientVersion();
-    // Previous logic only compared requiredVersion to page boot time. That can
-    // miss users who were in menu/admin/not polling during deploy. Now every
-    // deployment version is shown once until the player clicks Refresh.
-    if (requiredRaw && requiredRaw !== acked) {
+    // Do not interrupt a first-time login with a stale deploy modal. The first
+    // successful snapshot becomes the browser's baseline. Future version changes
+    // still show the refresh gate once.
+    if (requiredRaw && !acked) {
+      writeAckedClientVersion(requiredRaw);
+    } else if (requiredRaw && requiredRaw !== acked && (!required || required > CLIENT_BOOT_AT)) {
       ST.updateRequired = true;
       ST.updateVersion = requiredRaw;
       ST.updateReason = String(snap.updateReason || snap.me?.updateReason || "A game update landed. Refresh once so your client and the server agree.");
-    } else if (required && required > CLIENT_BOOT_AT && !ST.updateRequired) {
-      ST.updateRequired = true;
-      ST.updateVersion = requiredRaw;
-      ST.updateReason = "A game update landed. Refresh once so your client and the server agree.";
     }
     const forceMe = !ST.me || ST.me.id !== snap.me.id;
     const localMotion = !forceMe && world?.hasPendingMove?.();
@@ -4966,7 +4964,7 @@ export default function mount() {
     const meta = {
       chop: { panel: "chop", title: "Step 1: Axe", text: "Select the axe and click a tree. Wood drops as pickups on the map.", btn: "Select axe", click: "gather-wood" },
       mine: { panel: "mine", title: "Step 2: Pickaxe", text: "Select the pickaxe and click stone. The cursor tells you what can be worked.", btn: "Select pickaxe", click: "gather-stone" },
-      claim: { panel: "claim", title: "Step 3: Capture", text: "Select capture and click connected highlighted land to grow your border.", btn: "Select capture", click: "claim" },
+      claim: { panel: "claim", title: "Step 3: Capture", text: "Select capture, stand on any open tile outside the capital, and claim it.", btn: "Select capture", click: "claim" },
       build: { panel: "build", title: "Step 4: Build", text: "Select the hammer, click an empty captured tile, then choose a building in the right panel.", btn: "Open build", click: "select-build" },
     }[step] || { panel: "chop", title: "Step 1: Axe", text: "Start by gathering wood.", btn: "Select axe", click: "gather-wood" };
     const place = walkthroughPlacement(meta.panel);
@@ -4977,14 +4975,14 @@ export default function mount() {
         <div className="walkthrough-progress">{Math.max(1, WALK_STEPS.indexOf(step) + 1)} / {WALK_STEPS.length}</div>
         <h3>{meta.title}</h3>
         <p>{meta.text}</p>
-        <div className="tiny">Follow the steps, or skip and play your way.</div>
+        <div className="tiny">Basics stay here while you play. Skip anytime.</div>
         <div className="walkthrough-actions"><button className="btn primary" data-click={meta.click} data-panel={meta.panel}>{meta.btn}</button><button className="btn" data-click="guide-skip">Skip</button></div>
       </div>
     </div>;
   }
 
   function ModalLayer() {
-    if (ST.updateRequired) return <div className="modal-wrap"><div className="modal" style={{ width: "min(420px,94vw)", textAlign: "center" }}><h2>Refresh required</h2><p className="tiny">{ST.updateReason || "A game update landed. Refresh once so your client and the server agree."}</p><button className="btn primary" data-click="reload-page">Refresh and continue</button></div></div>;
+    if (ST.updateRequired) return <div className="modal-wrap"><div className="modal" style={{ width: "min(420px,94vw)", textAlign: "center" }}><h2>Update ready</h2><p className="tiny">{ST.updateReason || "A new game build is ready. Refresh when convenient."}</p><button className="btn primary" data-click="reload-page">Refresh and continue</button></div></div>;
     if (ST.screen === "playing" && ST.me && (ST.needsProfile || !ST.me.profileDone)) return <div className="modal-wrap"><IntroModal /></div>;
     if (ST.screen !== "playing" || !ST.modal) return <div />;
     return (

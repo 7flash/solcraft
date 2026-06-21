@@ -40,7 +40,7 @@ export const ECONOMY_RULES = {
   leaderboardWeightPower: 0.70,
   buildingScoreTiles: 9,
 
-  tileBaseCapacity: 24,
+  tileBaseCapacity: 18,
   tileCapacityPerBuilding: 0,
   tileDecayPerCycle: 6,
 
@@ -382,9 +382,9 @@ for (const b of LIBRARY) {
 for (const b of LIBRARY) {
   if (b.id === "cottage") {
     b.name = "House";
-    b.tileCapBonus = 20;
-    b.blurb = "A permanent home that lets your settlement claim more land.";
-    b.effect = "+20 tile capacity.";
+    b.tileCapBonus = 2;
+    b.blurb = "A permanent home. Levels set your main land limit; Houses add a small amount of local support.";
+    b.effect = "+2 tile support.";
   }
   if (b.id === "warehouse") {
     b.storageBonus = WAREHOUSE_RESOURCE_CAP_BONUS;

@@ -38,6 +38,7 @@ import { applyKeepRegen, keepRaidHitPreview, keepRaidNote } from "./mechanics/ke
 import { academyScienceCapFor, resourceCapFor, scienceStatusFor, storageCapsFor } from "./mechanics/science";
 import { craftDestroyToolFor, tunedDestroySpecFor } from "./mechanics/destroyTools";
 import { capitalBlocksPlayerTerritory } from "./capitalRules";
+import { tileCapacityForProgress, tileCapacityExplanation } from "./progressionRules";
 import { FOUNDATION_KIND, isFoundationBuildKind, foundationChoiceLabel } from "./foundationRules";
 
 type Player = ReturnType<typeof db.players.get> & Record<string, any>;
@@ -366,10 +367,10 @@ function resourceCap(p: Player, res: string): number { return resourceCapFor(sci
 function storageCaps(p: Player) { return storageCapsFor(scienceContext(), p); }
 function scienceStatus(p: Player) { return scienceStatusFor(scienceContext(), p); }
 function tileCapacityFor(p: Player): number {
-  const t = gameTuning();
-  const buildings = nonBombBuildings(p.id);
-  const tunedBonus = buildings.reduce((a, b) => a + Number(buildingDef(b.kind)?.tileCapBonus || 0), 0);
-  return Math.round(t.tileBaseCapacity + tunedBonus);
+  // Tile ownership is progression-gated, not just building-spam gated.
+  // Houses help a little, but level gained from helpful MMO actions is the
+  // main expansion path so throwaway accounts cannot cheaply out-expand active players.
+  return tileCapacityForProgress({ level: p.level || 1, buildings: nonBombBuildings(p.id) as any[] });
 }
 function ownedTileCount(p: Player): number {
   return db.tiles.select().where({ owner: p.id }).count();
@@ -378,7 +379,7 @@ function tileCapacityBlockReason(p: Player, action = "claim"): string {
   const owned = ownedTileCount(p);
   const cap = tileCapacityFor(p);
   if (owned < cap) return "";
-  return `Tile limit reached (${owned}/${cap}). Build Houses, a Town Hall, or a World Wonder to expand capacity before you ${action} more land.`;
+  return `Tile limit reached (${owned}/${cap}). ${tileCapacityExplanation({ level: p.level || 1, buildings: nonBombBuildings(p.id) as any[] })}`;
 }
 function energyRefillPerMinute(p: Player) {
   return tokenRegenPerMin(Number(p.tokenBalance || 0));
@@ -791,8 +792,8 @@ function guideQuestDefs(): GuideQuestDef[] {
       reward: { xp: 20, inv: { s: 15 } }, done: (_s, p) => Number(p.inv?.s || 0) >= 1 || hasOwnedKind(p, "quarry"),
     },
     {
-      id: "action-claim", category: "actions", glyph: "◇", title: "Capture connected land", text: "Use Capture (4) to grow from your protected camp.",
-      detail: "Press 4 or click Capture. Valid tiles highlight around your connected territory. Click a highlighted tile and your settler will walk there and claim it if you have enough energy.",
+      id: "action-claim", category: "actions", glyph: "◇", title: "Capture free land", text: "Use Capture to claim any open tile outside the capital.",
+      detail: "Select Capture, stand on an open tile, and claim it if you have enough storage space and action energy. Your level controls how much land you can own.",
       reward: { xp: 25, inv: { f: 10 } }, done: (s) => s.territory >= 13,
     },
     {
@@ -1491,7 +1492,7 @@ function distributeBuildingRewards() {
     // Older worlds may already be over capacity. Do not delete territory during
     // maintenance; new claims/captures are blocked instead so land never seems to
     // randomly disappear after a tick or refresh.
-    pushEvent(p.id, "fill", `Tile capacity exceeded (${owned}/${cap}). Existing tiles are kept, but new claims are blocked until you build more normal buildings, Town Halls, or a World Wonder.`);
+    pushEvent(p.id, "fill", `Tile capacity exceeded (${owned}/${cap}). Existing tiles are kept, but new captures are blocked until your level or settlement support increases.`);
   }
 
   settlePendingRedemptions();
@@ -1562,7 +1563,7 @@ export async function join(name: string, body: number, hat: number, walletAuth: 
     liveTouch(p);
     if ((p as any).profileDone) sysChat(`${p.name} settled a new hold on the frontier`);
     bump();
-    return { id: p.id, secret, wallet, existing: false, needsProfile: !(p as any).profileDone, loginGate };
+    return { id: p.id, secret, wallet, existing: false, needsProfile: !(p as any).profileDone, spawnX: ox, spawnZ: oz, homeX: ox, homeZ: oz, loginGate };
   });
 }
 
@@ -2214,7 +2215,7 @@ export function claim(p: Player, x: number, z: number) {
   addXp(p, XP.claim);
   autoTrainSkill(p, "vigor", 3);
   refreshMilestones(p);
-  return ok({ note: "Tile claimed with stone foundation." });
+  return ok({ note: "Tile captured." });
 }
 
 function clearDoodadCell(x: number, z: number) {
