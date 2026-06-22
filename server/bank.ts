@@ -27,8 +27,8 @@ export type BankSettings = {
 
 const DEFAULT_BANK: BankSettings = {
   enabled: process.env.SOLCRAFTS_BANK_ENABLED === "1",
-  token: process.env.SOLCRAFTS_TOKEN || process.env.SOLCRAFTS_TOKEN_ADDRESS || process.env.SOLCRAFTS_TOKEN_MINT || process.env.NEXT_PUBLIC_SOLCRAFTS_TOKEN_ADDRESS || "solcrafts",
-  tokenAddress: process.env.SOLCRAFTS_TOKEN_ADDRESS || process.env.SOLCRAFTS_TOKEN_MINT || process.env.NEXT_PUBLIC_SOLCRAFTS_TOKEN_ADDRESS || "",
+  token: process.env.SOLCRAFTS_TOKEN || process.env.SOLCRAFTS_TOKEN_ADDRESS || process.env.SOLCRAFTS_TOKEN_MINT || process.env.SOLCRAFT_CONFIG || "solcrafts",
+  tokenAddress: process.env.SOLCRAFTS_TOKEN_ADDRESS || process.env.SOLCRAFTS_TOKEN_MINT || process.env.SOLCRAFT_CONFIG || "",
   tokenLabel: process.env.SOLCRAFTS_TOKEN_LABEL || "$CRAFTS",
   bankWallet: process.env.SOLCRAFTS_BANK_WALLET || "@dev",
   treasuryWallet: process.env.SOLCRAFTS_MAIN_TREASURY || "@dev",

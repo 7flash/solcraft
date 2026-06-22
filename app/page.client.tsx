@@ -3424,7 +3424,7 @@ export default function mount() {
     const bad = canCastBombAt(x, z, true);
     if (bad) { sfx.err(); say(bad); return; }
     if (craftedToolCount(spec.id) <= 0) { sfx.err(); say(`Craft a ${spec.name} first.`); return; }
-    act("spawnBomb", { variant: spec.id, x, z }).then((r) => { if (r && r.ok) { sfx.raid(); world.shockwave(x, z, 0xffd76e); updateHints(); paint(true); } });
+    act("removedDeployTool", { variant: spec.id, x, z }).then((r) => { if (r && r.ok) { sfx.raid(); world.shockwave(x, z, 0xffd76e); updateHints(); paint(true); } });
   }
   function BottomBar() {
     if (ST.screen !== "playing") return <div />;
@@ -4454,8 +4454,8 @@ export default function mount() {
     ST.me.guideSummary = { ...(ST.me.guideSummary || {}), done, claimed, claimable, total: quests.length, pct: quests.length ? Math.round(done * 100 / quests.length) : 100 };
   }
 
-  function claimGuideRewardClient(id: string) {
-    return act("claimGuideReward", { id }).then((r) => {
+  function guideVisitClient(id: string) {
+    return act("guideVisit", { id }).then((r) => {
       if (r?.ok) {
         if (ST.me) {
           if (r.inv) ST.me.inv = r.inv;
@@ -4490,7 +4490,7 @@ export default function mount() {
         <div className="guide-meta">
           <span className={"guide-chip " + (row.done ? "ok" : "wait")}>{status}</span>
           <span className="guide-chip">{row.rewardText}</span>
-          {row.done && !row.claimed ? <button className="btn primary" onClick={() => claimGuideRewardClient(row.id)}>Claim</button> : null}
+          {row.done && !row.claimed ? <button className="btn primary" onClick={() => guideVisitClient(row.id)}>Claim</button> : null}
           {row.claimed ? <span className="guide-chip ok">✓ reward</span> : null}
         </div>
       </div>
@@ -4543,7 +4543,7 @@ export default function mount() {
 
   function QuestPanel() {
     return <UtilityShell className="quest-pop" title="Guide" sub="Independent guide cards for every core action and building. Complete any card, then claim its reward.">
-      <QuestPanelView rows={guideRows()} tabs={GUIDE_TABS} activeTab={ST.questTab || "actions"} onTab={setGuideTab} onClaim={claimGuideRewardClient} />
+      <QuestPanelView rows={guideRows()} tabs={GUIDE_TABS} activeTab={ST.questTab || "actions"} onTab={setGuideTab} onClaim={guideVisitClient} />
     </UtilityShell>;
   }
 

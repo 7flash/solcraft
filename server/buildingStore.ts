@@ -1,11 +1,16 @@
-import { db } from "./db";
+import { db } from './db';
 
 export type BuildingRow = Record<string, any>;
 
-const buildingById = new Map<number, BuildingRow>();
-const buildingIdByCell = new Map<string, number>();
-let hydrated = false;
-let hydratedAt = 0;
+// `var` + lazy map access avoids TDZ crashes when diagnostics import this module
+// through a cycle during db boot/tests.
+var buildingById: Map<number, BuildingRow> | undefined;
+var buildingIdByCell: Map<string, number> | undefined;
+var hydrated = false;
+var hydratedAt = 0;
+
+function idMap() { return buildingById || (buildingById = new Map<number, BuildingRow>()); }
+function cellMap() { return buildingIdByCell || (buildingIdByCell = new Map<string, number>()); }
 
 function cellKey(x: number, z: number) {
   return `${Math.trunc(Number(x || 0))},${Math.trunc(Number(z || 0))}`;
@@ -18,26 +23,30 @@ function rowId(row: any) {
 
 function uncacheBuilding(id: number, row?: BuildingRow | null) {
   if (!id) return;
-  const cached = row || buildingById.get(id);
-  if (cached) buildingIdByCell.delete(cellKey(cached.x, cached.z));
-  buildingById.delete(id);
+  const byId = idMap();
+  const byCell = cellMap();
+  const cached = row || byId.get(id);
+  if (cached) byCell.delete(cellKey(cached.x, cached.z));
+  byId.delete(id);
 }
 
 function cacheBuilding(row: BuildingRow | null | undefined) {
   if (!row) return null;
   const id = rowId(row);
   if (!id) return row;
-  const old = buildingById.get(id);
-  if (old) buildingIdByCell.delete(cellKey(old.x, old.z));
-  buildingById.set(id, row);
-  buildingIdByCell.set(cellKey(row.x, row.z), id);
+  const byId = idMap();
+  const byCell = cellMap();
+  const old = byId.get(id);
+  if (old) byCell.delete(cellKey(old.x, old.z));
+  byId.set(id, row);
+  byCell.set(cellKey(row.x, row.z), id);
   return row;
 }
 
 export function hydrateBuildingStore(force = false) {
   if (hydrated && !force) return buildingCacheStats(false);
-  buildingById.clear();
-  buildingIdByCell.clear();
+  idMap().clear();
+  cellMap().clear();
   for (const row of db.buildings.select().all() as BuildingRow[]) cacheBuilding(row);
   hydrated = true;
   hydratedAt = Date.now();
@@ -46,8 +55,8 @@ export function hydrateBuildingStore(force = false) {
 
 export function invalidateBuildingStore() {
   hydrated = false;
-  buildingById.clear();
-  buildingIdByCell.clear();
+  idMap().clear();
+  cellMap().clear();
 }
 
 function ensureHydrated() {
@@ -58,9 +67,6 @@ export function getBuilding(uid: number): BuildingRow | null {
   ensureHydrated();
   const id = Math.trunc(Number(uid || 0));
   if (!id) return null;
-  // Always refresh the row from SQLite. The exact-cell cache owns identity and
-  // coordinates only; range queries may mutate row objects that are different
-  // JS instances, so returning a stale cached row would be a correctness bug.
   const row = db.buildings.get(id) as BuildingRow | null;
   if (!row) { uncacheBuilding(id); return null; }
   return cacheBuilding(row) || null;
@@ -69,12 +75,12 @@ export function getBuilding(uid: number): BuildingRow | null {
 export function buildingAt(x: number, z: number): BuildingRow | null {
   ensureHydrated();
   const k = cellKey(x, z);
-  const id = buildingIdByCell.get(k);
+  const id = cellMap().get(k);
   if (id) {
     const row = db.buildings.get(id) as BuildingRow | null;
     if (row) return cacheBuilding(row) || null;
-    buildingIdByCell.delete(k);
-    buildingById.delete(id);
+    cellMap().delete(k);
+    idMap().delete(id);
   }
   const row = db.buildings.select().where({ x: Math.trunc(Number(x || 0)), z: Math.trunc(Number(z || 0)) }).first() as BuildingRow | null;
   return cacheBuilding(row) || null;
@@ -93,9 +99,9 @@ export function insertBuilding(row: BuildingRow): BuildingRow {
 
 export function deleteBuilding(target: number | BuildingRow | null | undefined): boolean {
   ensureHydrated();
-  const id = typeof target === "number" ? Math.trunc(Number(target || 0)) : rowId(target);
+  const id = typeof target === 'number' ? Math.trunc(Number(target || 0)) : rowId(target);
   if (!id) return false;
-  const row = typeof target === "object" && target ? target : buildingById.get(id) || null;
+  const row = typeof target === 'object' && target ? target : idMap().get(id) || null;
   db.buildings.delete(id);
   uncacheBuilding(id, row);
   return true;
@@ -103,16 +109,13 @@ export function deleteBuilding(target: number | BuildingRow | null | undefined):
 
 export function refreshBuilding(rowOrId: number | BuildingRow | null | undefined): BuildingRow | null {
   ensureHydrated();
-  const row = typeof rowOrId === "number" ? db.buildings.get(rowOrId) as BuildingRow | null : rowOrId || null;
+  const row = typeof rowOrId === 'number' ? db.buildings.get(rowOrId) as BuildingRow | null : rowOrId || null;
   return cacheBuilding(row) || null;
 }
 
 export function buildingCacheStats(ensure = true) {
-  if (ensure) ensureHydrated();
-  return {
-    hydrated,
-    hydratedAt,
-    ids: buildingById.size,
-    cells: buildingIdByCell.size,
-  };
+  try { if (ensure) ensureHydrated(); } catch (e: any) {
+    return { hydrated: false, hydratedAt: 0, ids: 0, cells: 0, error: String(e?.message || e) };
+  }
+  return { hydrated: !!hydrated, hydratedAt, ids: idMap().size, cells: cellMap().size };
 }

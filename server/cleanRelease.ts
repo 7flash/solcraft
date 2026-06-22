@@ -79,3 +79,12 @@ export const CLEAN_ACTION_SURFACE = [
 export function cleanActionSurface() {
   return [...CLEAN_ACTION_SURFACE].sort();
 }
+
+export function cleanReleaseSummary() {
+  return {
+    version: "stage29-40-rc",
+    buildings: cleanBuildCatalog().map((b: any) => ({ id: b.id, name: b.name || b.label || b.id })),
+    actions: cleanActionSurface(),
+    removedBuildings: [...REMOVED_BUILDING_IDS],
+  };
+}

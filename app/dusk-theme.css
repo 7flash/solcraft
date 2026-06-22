@@ -1,0 +1,124 @@
+/* Stage 51: Dusk Industrial palette. This is a smooth/low-poly theme, not pixel-art rendering. */
+:root {
+  --dusk-ink: #070411;
+  --dusk-deep-oxblood: #280E14;
+  --dusk-dark-umber: #392319;
+  --dusk-brown-black: #453927;
+  --dusk-warm-brown: #594C38;
+  --dusk-rust-dark: #67220B;
+  --dusk-copper: #985D23;
+  --dusk-brass: #CEB443;
+  --dusk-olive-stone: #8C8565;
+  --dusk-slate-deep: #222F42;
+  --dusk-slate: #425067;
+  --dusk-slate-light: #5D6A7E;
+  --dusk-blue-gray: #82979E;
+  --dusk-bone: #D7DFCF;
+  --dusk-red-mark: #A03C35;
+  --dusk-electric-blue: #243D87;
+  --dusk-signal-green: #2F952F;
+}
+
+#solcraft-root,
+.sc-root {
+  --ui-bg: color-mix(in srgb, var(--dusk-ink) 88%, transparent);
+  --ui-bg-2: color-mix(in srgb, var(--dusk-deep-oxblood) 82%, transparent);
+  --ui-panel: color-mix(in srgb, var(--dusk-ink) 78%, var(--dusk-slate-deep));
+  --ui-panel-2: color-mix(in srgb, var(--dusk-deep-oxblood) 70%, var(--dusk-brown-black));
+  --ui-border: color-mix(in srgb, var(--dusk-slate) 76%, var(--dusk-ink));
+  --ui-border-strong: var(--dusk-brass);
+  --ui-text: var(--dusk-bone);
+  --ui-muted: var(--dusk-blue-gray);
+  --ui-subtle: var(--dusk-olive-stone);
+  --ui-accent: var(--dusk-brass);
+  --ui-accent-2: var(--dusk-copper);
+  --ui-danger: var(--dusk-red-mark);
+  --ui-good: var(--dusk-signal-green);
+  --ui-info: var(--dusk-electric-blue);
+  color: var(--ui-text);
+}
+
+.sc-root .panel,
+.sc-root .modal,
+.sc-root .card,
+.sc-root .ctx,
+.sc-root .tip,
+.sc-root .channel,
+.sc-root .toast,
+.sc-root .notice,
+.sc-root .ui2-panel,
+.sc-root .ui2-card,
+.sc-root .object-preview,
+.sc-root .selected-panel {
+  background: linear-gradient(180deg, var(--ui-panel), var(--ui-panel-2));
+  border-color: var(--ui-border);
+  color: var(--ui-text);
+  box-shadow: 0 18px 48px color-mix(in srgb, var(--dusk-ink) 76%, transparent);
+}
+
+.sc-root button,
+.sc-root .btn,
+.sc-root .primary,
+.sc-root .action-slot,
+.sc-root .building-button,
+.sc-root .ui2-toolbelt-bar button {
+  color: var(--ui-text);
+  background: color-mix(in srgb, var(--dusk-slate-deep) 72%, var(--dusk-deep-oxblood));
+  border-color: var(--ui-border);
+}
+
+.sc-root button:hover,
+.sc-root .btn:hover,
+.sc-root .action-slot:hover,
+.sc-root .building-button:hover {
+  border-color: var(--ui-accent);
+  background: color-mix(in srgb, var(--dusk-slate) 52%, var(--dusk-deep-oxblood));
+}
+
+.sc-root .primary,
+.sc-root .btn.primary,
+.sc-root button.primary {
+  color: var(--dusk-ink);
+  background: linear-gradient(180deg, var(--dusk-brass), var(--dusk-copper));
+  border-color: var(--dusk-brass);
+}
+
+.sc-root .danger,
+.sc-root .danger-button,
+.sc-root .btn.danger {
+  color: var(--dusk-bone);
+  background: color-mix(in srgb, var(--dusk-red-mark) 58%, var(--dusk-deep-oxblood));
+  border-color: var(--dusk-red-mark);
+}
+
+.sc-root .muted,
+.sc-root .tiny,
+.sc-root .building-meta,
+.sc-root .building-cost,
+.sc-root .ui2-muted {
+  color: var(--ui-muted);
+}
+
+.sc-root .resource,
+.sc-root .stat-row,
+.sc-root .chip,
+.sc-root .wonder-view-chip,
+.sc-root .recipe-req {
+  background: color-mix(in srgb, var(--dusk-slate-deep) 66%, transparent);
+  border-color: color-mix(in srgb, var(--dusk-slate) 72%, var(--dusk-ink));
+  color: var(--ui-text);
+}
+
+.sc-root .sc-vignette {
+  background:
+    radial-gradient(circle at 50% 38%, transparent 0 45%, color-mix(in srgb, var(--dusk-ink) 34%, transparent) 78%, color-mix(in srgb, var(--dusk-ink) 70%, transparent) 100%),
+    linear-gradient(180deg, color-mix(in srgb, var(--dusk-slate-deep) 14%, transparent), color-mix(in srgb, var(--dusk-deep-oxblood) 18%, transparent));
+  pointer-events: none;
+}
+
+/* Keep generated canvases/sprites smooth. The palette is constrained; the rendering is not pixelated. */
+.sc-root canvas,
+.sc-root img,
+.sc-root svg {
+  image-rendering: auto;
+}

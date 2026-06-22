@@ -121,3 +121,9 @@ export function measureConsoleError(name: string, ctx: Partial<BackendRequestCon
   console.error(`[solcraft] ${name}`, safe);
   return captureMeasureActivity(name, ctx, safe, "error");
 }
+
+
+export function recentMeasureActivity(limit = 50) {
+  const n = Math.max(1, Math.min(200, Math.trunc(Number(limit || 50))));
+  return ring.slice(-n).reverse();
+}

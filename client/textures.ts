@@ -1,5 +1,6 @@
 // @ts-nocheck
 import * as THREE from "three";
+import { duskHex, duskNumber } from "./theme/duskIndustrialPalette";
 
 const DEFAULT_ATLAS: Record<string, string> = {
   terrain: "/api/atlas-runtime/terrain",
@@ -11,31 +12,10 @@ const DEFAULT_ATLAS: Record<string, string> = {
   cursor: "/api/atlas-runtime/cursor",
 };
 
-function envFlag(name: string, fallback: boolean) {
-  const env = (globalThis as any)?.process?.env || {};
-  const raw = env[name];
-  if (raw == null || raw === "") return fallback;
-  return /^(1|true|yes|on)$/i.test(String(raw));
-}
-
-// The shipped game must run without public assets. Atlases are opt-in per
-// category via NEXT_PUBLIC_SOLCRAFT_* flags so doll/tool/cursor art can be
-// enabled independently after an atlas is published.
-const FORCE_PROCEDURAL_TERRAIN = envFlag("NEXT_PUBLIC_SOLCRAFT_PROCEDURAL_TERRAIN", true);
-const FORCE_FALLBACK_ATLASES = envFlag("NEXT_PUBLIC_SOLCRAFT_FORCE_FALLBACK_ATLASES", true);
-const ATLAS_ENABLED: Record<string, boolean> = {
-  terrain: envFlag("NEXT_PUBLIC_SOLCRAFT_TERRAIN_ATLAS", false),
-  building: envFlag("NEXT_PUBLIC_SOLCRAFT_BUILDING_ATLAS", false),
-  fx: envFlag("NEXT_PUBLIC_SOLCRAFT_FX_ATLAS", false),
-  ui: envFlag("NEXT_PUBLIC_SOLCRAFT_UI_ATLAS", false),
-  doll: envFlag("NEXT_PUBLIC_SOLCRAFT_DOLL_ATLAS", false),
-  tool: envFlag("NEXT_PUBLIC_SOLCRAFT_TOOL_ATLAS", false),
-  cursor: envFlag("NEXT_PUBLIC_SOLCRAFT_CURSOR_ATLAS", false),
-};
-function atlasEnabled(kind: string) {
-  if (ATLAS_ENABLED[kind]) return true;
-  return !FORCE_FALLBACK_ATLASES;
-}
+// Stage 31: art atlases are being regenerated. Keep the live game on the
+// procedural/canvas fallback path until the new atlas contract is published.
+const FORCE_PROCEDURAL_TERRAIN = true;
+const FORCE_FALLBACK_ATLASES = true;
 
 let ATLAS: Record<string, string> = { ...DEFAULT_ATLAS };
 let ATLAS_BOUNDS: Record<string, any> = {
@@ -86,8 +66,8 @@ function clearCaches() {
 }
 
 export function atlasMode(kind: string) {
-  if (kind === "terrain" && FORCE_PROCEDURAL_TERRAIN && !atlasEnabled(kind)) return "procedural";
-  if (!atlasEnabled(kind)) return "procedural";
+  if (kind === "terrain" && FORCE_PROCEDURAL_TERRAIN) return "procedural";
+  if (FORCE_FALLBACK_ATLASES) return "procedural";
   return ATLAS_MODE[kind] || (kind === "terrain" ? "procedural" : "atlas");
 }
 
@@ -107,9 +87,9 @@ export async function loadAtlasRuntimeConfig(force = false) {
       if (cfg?.mode) ATLAS_MODE[id] = cfg.mode;
     }
     Object.assign(ATLAS_MODE, json.modesByAtlas || {});
-    if (FORCE_PROCEDURAL_TERRAIN && !atlasEnabled("terrain")) ATLAS_MODE.terrain = "procedural";
-    for (const id of Object.keys(ATLAS_MODE)) {
-      if (!atlasEnabled(id)) ATLAS_MODE[id] = "procedural";
+    if (FORCE_PROCEDURAL_TERRAIN) ATLAS_MODE.terrain = "procedural";
+    if (FORCE_FALLBACK_ATLASES) {
+      for (const id of Object.keys(ATLAS_MODE)) ATLAS_MODE[id] = "procedural";
     }
     runtimeSig = String(json.generatedAt || Date.now());
     clearCaches();
@@ -214,19 +194,20 @@ export const TERRAIN_SLOT: Record<string, [number, number]> = {
 };
 
 const TERRAIN_PALETTES: Record<string, { a: string; b: string; speck: string; line?: string }> = {
-  grass: { a: "#8fba78", b: "#c8cf8c", speck: "#4e8352" },
-  forest: { a: "#5f9461", b: "#9eb86e", speck: "#244c34" },
-  water: { a: "#4d91a0", b: "#88c6c5", speck: "#d5fbff", line: "#d5fbff" },
-  sand: { a: "#d7c59a", b: "#ead8aa", speck: "#b19a6d" },
-  rocky: { a: "#9c9587", b: "#c7bdab", speck: "#5e5b55" },
-  cobble: { a: "#9c9587", b: "#c7bdab", speck: "#5e5b55", line: "#5e5b55" },
-  soil: { a: "#9a7352", b: "#c19062", speck: "#543c2c" },
-  dirt: { a: "#9a7352", b: "#c19062", speck: "#543c2c" },
-  farm: { a: "#a58a55", b: "#cfac68", speck: "#5d4425", line: "#fff1b3" },
-  moss: { a: "#71996d", b: "#b1bb76", speck: "#385f3e" },
-  deck: { a: "#9a7651", b: "#c89b62", speck: "#58391f", line: "#55351c" },
-  claimed: { a: "#6fa67b", b: "#a7c18a", speck: "#416f45" },
-  plain: { a: "#91b77a", b: "#c9ce8c", speck: "#5f8557" },
+  // Dusk Industrial palette: smooth procedural texture, constrained colors.
+  grass: { a: duskHex("brownBlack"), b: duskHex("warmBrown"), speck: duskHex("oliveStone") },
+  forest: { a: duskHex("darkUmber"), b: duskHex("brownBlack"), speck: duskHex("oliveStone") },
+  water: { a: duskHex("slateDeep"), b: duskHex("slate"), speck: duskHex("blueGray"), line: duskHex("blueGray") },
+  sand: { a: duskHex("warmBrown"), b: duskHex("oliveStone"), speck: duskHex("darkUmber") },
+  rocky: { a: duskHex("slate"), b: duskHex("slateLight"), speck: duskHex("slateDeep") },
+  cobble: { a: duskHex("slate"), b: duskHex("slateLight"), speck: duskHex("slateDeep"), line: duskHex("slateDeep") },
+  soil: { a: duskHex("darkUmber"), b: duskHex("copper"), speck: duskHex("ink") },
+  dirt: { a: duskHex("darkUmber"), b: duskHex("copper"), speck: duskHex("ink") },
+  farm: { a: duskHex("warmBrown"), b: duskHex("brass"), speck: duskHex("darkUmber"), line: duskHex("bone") },
+  moss: { a: duskHex("brownBlack"), b: duskHex("oliveStone"), speck: duskHex("darkUmber") },
+  deck: { a: duskHex("darkUmber"), b: duskHex("copper"), speck: duskHex("ink"), line: duskHex("rustDark") },
+  claimed: { a: duskHex("deepOxblood"), b: duskHex("warmBrown"), speck: duskHex("slateDeep") },
+  plain: { a: duskHex("brownBlack"), b: duskHex("warmBrown"), speck: duskHex("oliveStone") },
 };
 
 function smooth01(n: number) { return n * n * (3 - 2 * n); }
@@ -251,8 +232,8 @@ function fbm(x: number, y: number, seed = 0) {
 function terrainFallbackDraw(kind: string, tint?: number) {
   return (ctx: CanvasRenderingContext2D, w: number, h: number) => {
     const p = TERRAIN_PALETTES[kind] || TERRAIN_PALETTES.sand;
-    const warmA = mixHex(p.a, "#f6d7a8", TERRAIN_PREFS.warmth * 0.24);
-    const warmB = mixHex(p.b, "#ffc98a", TERRAIN_PREFS.warmth * 0.16);
+    const warmA = mixHex(p.a, duskHex("oliveStone"), TERRAIN_PREFS.warmth * 0.10);
+    const warmB = mixHex(p.b, duskHex("copper"), TERRAIN_PREFS.warmth * 0.08);
     const detail = TERRAIN_PREFS.texture;
     const img = ctx.createImageData(w, h);
     const a = new THREE.Color(warmA), b = new THREE.Color(warmB);
@@ -289,7 +270,7 @@ function terrainFallbackDraw(kind: string, tint?: number) {
       for (let x = 0; x < w; x += 32) { ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x + 10, h); ctx.stroke(); }
       for (let y = 0; y < h; y += 32) { ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(w, y + 8); ctx.stroke(); }
     } else if (kind === "forest") {
-      ctx.globalAlpha = 0.11 + detail * 0.12; ctx.fillStyle = "#1f4a31";
+      ctx.globalAlpha = 0.11 + detail * 0.12; ctx.fillStyle = duskHex("oliveStone");
       for (let i = 0; i < 45; i++) { const x = hash2(i, 3, 4) * w, y = hash2(i, 5, 6) * h; ctx.fillRect(x, y, 5 + hash2(i, 7, 8) * 10, 2); }
     }
     if (kind === "claimed" && tint != null) {
@@ -299,7 +280,7 @@ function terrainFallbackDraw(kind: string, tint?: number) {
       ctx.fillRect(0, 0, w, h);
       // Soft center mark only; no busy chevrons or heavy tile-border pattern.
       ctx.globalAlpha = 0.07 + detail * 0.05;
-      ctx.strokeStyle = "#fff7df";
+      ctx.strokeStyle = duskHex("bone");
       ctx.lineWidth = 4;
       ctx.beginPath();
       ctx.moveTo(w * 0.44, h * 0.50); ctx.lineTo(w * 0.50, h * 0.44); ctx.lineTo(w * 0.56, h * 0.50); ctx.lineTo(w * 0.50, h * 0.56); ctx.closePath();
@@ -324,7 +305,7 @@ export function terrainMaterial(kind = "sand", color?: number, opts: any = {}) {
   const cached = matCache.get(key) as THREE.MeshStandardMaterial | undefined;
   if (cached) return cached;
   const mat = new THREE.MeshStandardMaterial({
-    color: k === "claimed" && color != null ? color : 0xffffff,
+    color: k === "claimed" && color != null ? color : duskNumber(k === "water" ? "slate" : "bone"),
     map: terrainTexture(k, Number(opts?.repeat || 1) || 1, tint),
     roughness: k === "water" ? 0.68 : 0.94,
     metalness: 0,

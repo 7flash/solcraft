@@ -7,6 +7,7 @@ import { GEAR_BY_ID, LIB_BY_ID, hrand, type Equip } from "@server/shared";
 import { texturedMaterial } from "./textures";
 import { buildDollBillboard, activeHeldToolFromEquip } from "./dolls";
 import { makeWonderGroup } from "./wonderMeshes";
+import { duskNumber } from "./theme/duskIndustrialPalette";
 
 export const M = (color: number, opts: any = {}) =>
   new THREE.MeshStandardMaterial({ color, roughness: 0.8, metalness: 0, ...opts });
@@ -37,7 +38,7 @@ export function addSphere(g: THREE.Object3D, r: number, mat: any, x: number, y: 
   g.add(m); return m;
 }
 export function buildTree(g: THREE.Object3D, x: number, z: number, s = 1) {
-  addCyl(g, 0.04 * s, 0.06 * s, 0.26 * s, 0x7a5230, x, 0.13 * s, z, 6);
+  addCyl(g, 0.04 * s, 0.06 * s, 0.26 * s, duskNumber("darkUmber"), x, 0.13 * s, z, 6);
   addCone(g, 0.2 * s, 0.34 * s, 0x3f9148, x, 0.4 * s, z, 7);
   addCone(g, 0.15 * s, 0.28 * s, 0x52ad58, x, 0.62 * s, z, 7);
 }
@@ -213,8 +214,8 @@ export const BUILD_VISUALS: Record<string, Builder> = {
     addCyl(g, 0.26, 0.3, 0.3, c, 0, 0.15, 0);
     const water = addCyl(g, 0.2, 0.2, 0.06, ME(0x2e9bb0, 0x3ee6ff, 0.3), 0, 0.31, 0);
     (water as any).userData.baseY = 0.31; ctx.bobbers.push(water);
-    addBox(g, 0.05, 0.5, 0.05, 0x7a5230, -0.22, 0.45, 0);
-    addBox(g, 0.05, 0.5, 0.05, 0x7a5230, 0.22, 0.45, 0);
+    addBox(g, 0.05, 0.5, 0.05, duskNumber("darkUmber"), -0.22, 0.45, 0);
+    addBox(g, 0.05, 0.5, 0.05, duskNumber("darkUmber"), 0.22, 0.45, 0);
     addCone(g, 0.36, 0.22, 0x4f8a58, 0, 0.78, 0, 4, Math.PI / 4);
     return g;
   },
@@ -243,7 +244,7 @@ export const BUILD_VISUALS: Record<string, Builder> = {
     r1.position.set(-0.14, 0.26, -0.1); r1.castShadow = true; g.add(r1);
     const r2 = new THREE.Mesh(new THREE.DodecahedronGeometry(0.12, 0), M(0x99958a));
     r2.position.set(0.16, 0.21, 0.14); r2.castShadow = true; g.add(r2);
-    addBox(g, 0.3, 0.04, 0.14, 0x7a5230, 0.1, 0.05, 0.3, 0.3);
+    addBox(g, 0.3, 0.04, 0.14, duskNumber("darkUmber"), 0.1, 0.05, 0.3, 0.3);
     return g;
   },
   sawmill: (ctx, c) => {
@@ -280,7 +281,7 @@ export const BUILD_VISUALS: Record<string, Builder> = {
   tavern: (ctx, c) => {
     const g = new THREE.Group();
     addBox(g, 0.68, 0.42, 0.5, c, 0, 0.21, 0);
-    addBox(g, 0.72, 0.05, 0.54, 0x7a5230, 0, 0.45, 0);
+    addBox(g, 0.72, 0.05, 0.54, duskNumber("darkUmber"), 0, 0.45, 0);
     addCone(g, 0.5, 0.3, 0x9c5e42, 0, 0.62, 0, 4, Math.PI / 4).scale.z = 0.7;
     addBox(g, 0.14, 0.14, 0.02, ME(0xffe2a8, 0xffc878, 0.95), -0.18, 0.24, 0.26);
     addBox(g, 0.15, 0.24, 0.02, 0x5d4430, 0.14, 0.14, 0.26);
@@ -308,7 +309,7 @@ export const BUILD_VISUALS: Record<string, Builder> = {
     addCyl(g, 0.18, 0.26, 0.9, c, 0, 0.45, 0, 8);
     addCyl(g, 0.28, 0.24, 0.16, 0x96826e, 0, 0.96, 0, 8);
     addCone(g, 0.26, 0.3, 0xd6604f, 0, 1.17, 0, 8);
-    addBox(g, 0.025, 0.34, 0.025, 0x7a5230, 0, 1.45, 0);
+    addBox(g, 0.025, 0.34, 0.025, duskNumber("darkUmber"), 0, 1.45, 0);
     ctx.wavers.push(addBox(g, 0.22, 0.12, 0.015, 0x14f195, 0.13, 1.54, 0));
     return g;
   },
@@ -318,7 +319,7 @@ export const BUILD_VISUALS: Record<string, Builder> = {
     const roof = new THREE.Mesh(new THREE.CylinderGeometry(0.28, 0.28, 0.7, 12, 1, false, 0, Math.PI), M(0xb05a44));
     roof.rotation.z = Math.PI / 2; roof.position.set(0, 0.42, 0);
     roof.castShadow = roof.receiveShadow = true; g.add(roof);
-    addBox(g, 0.16, 0.22, 0.02, 0x7a5230, 0, 0.13, 0.26);
+    addBox(g, 0.16, 0.22, 0.02, duskNumber("darkUmber"), 0, 0.13, 0.26);
     return g;
   },
   windmill: (ctx, c) => {
@@ -406,7 +407,7 @@ export const BUILD_VISUALS: Record<string, Builder> = {
     const g = new THREE.Group();
     addCyl(g, 0.025, 0.035, 0.72, 0x5d4430, 0, 0.36, 0, 6);
     addBox(g, 0.24, 0.04, 0.04, 0x5d4430, 0.1, 0.72, 0);
-    const l = addSphere(g, 0.09, ME(c, 0xffd76e, 1.4), 0.23, 0.62, 0, 9);
+    const l = addSphere(g, 0.09, ME(c, duskNumber("brass"), 1.4), 0.23, 0.62, 0, 9);
     ctx.flickers.push(l);
     return g;
   },
@@ -420,7 +421,7 @@ export const BUILD_VISUALS: Record<string, Builder> = {
   campfire: (ctx, c) => {
     const g = new THREE.Group();
     addCyl(g, 0.28, 0.32, 0.06, 0x5d4430, 0, 0.03, 0, 8);
-    for (const r of [-0.35, 0.35]) addCyl(g, 0.04, 0.04, 0.55, 0x7a5230, 0, 0.12, 0, 7).rotation.z = Math.PI / 2 + r;
+    for (const r of [-0.35, 0.35]) addCyl(g, 0.04, 0.04, 0.55, duskNumber("darkUmber"), 0, 0.12, 0, 7).rotation.z = Math.PI / 2 + r;
     const flame = addCone(g, 0.13, 0.32, ME(c, 0xff6a00, 1.5), 0, 0.28, 0, 7);
     ctx.flickers.push(flame);
     return g;
@@ -446,7 +447,7 @@ export const BUILD_VISUALS: Record<string, Builder> = {
   },
   signpost: (ctx, c) => {
     const g = new THREE.Group();
-    addCyl(g, 0.025, 0.035, 0.62, 0x7a5230, 0, 0.31, 0, 6);
+    addCyl(g, 0.025, 0.035, 0.62, duskNumber("darkUmber"), 0, 0.31, 0, 6);
     addBox(g, 0.46, 0.16, 0.05, c, 0.16, 0.52, 0);
     return g;
   },
@@ -460,7 +461,7 @@ export const BUILD_VISUALS: Record<string, Builder> = {
     const g = new THREE.Group();
     addSphere(g, 0.25, M(c, { roughness: 0.55, metalness: 0.15 }), 0, 0.26, 0, 14);
     addCyl(g, 0.035, 0.045, 0.14, 0x6e7480, 0.12, 0.48, 0, 8);
-    const fuse = addBox(g, 0.04, 0.2, 0.04, ME(0xffd76e, 0xff6a00, 1.2), 0.15, 0.58, 0, 0.4);
+    const fuse = addBox(g, 0.04, 0.2, 0.04, ME(duskNumber("brass"), 0xff6a00, 1.2), 0.15, 0.58, 0, 0.4);
     ctx.flickers.push(fuse);
     return g;
   },
@@ -488,8 +489,8 @@ export const BUILD_VISUALS: Record<string, Builder> = {
     addBox(g, 0.76, 0.46, 0.62, c, 0, 0.23, 0);
     addBox(g, 0.84, 0.08, 0.7, 0xa89e8c, 0, 0.5, 0);
     addCone(g, 0.6, 0.28, 0xd0b15c, 0, 0.68, 0, 4, Math.PI / 4);
-    addBox(g, 0.26, 0.22, 0.035, ME(0xffd76e, 0xffb72e, 0.95), 0, 0.22, 0.33);
-    addSphere(g, 0.055, ME(0xf2cc4e, 0xffd76e, 1.1), 0, 0.47, 0.35, 8);
+    addBox(g, 0.26, 0.22, 0.035, ME(duskNumber("brass"), 0xffb72e, 0.95), 0, 0.22, 0.33);
+    addSphere(g, 0.055, ME(0xf2cc4e, duskNumber("brass"), 1.1), 0, 0.47, 0.35, 8);
     addBox(g, 0.1, 0.24, 0.04, 0x6e7480, -0.24, 0.22, 0.34);
     addBox(g, 0.1, 0.24, 0.04, 0x6e7480, 0.24, 0.22, 0.34);
     return g;
@@ -500,7 +501,7 @@ export const BUILD_VISUALS: Record<string, Builder> = {
     addBox(g, 0.68, 0.38, 0.56, c, 0, 0.19, 0);
     addCone(g, 0.54, 0.31, 0x5d3f8e, 0, 0.56, 0, 4, Math.PI / 4);
     addBox(g, 0.18, 0.22, 0.025, 0x5d4430, -0.16, 0.15, 0.29);
-    addBox(g, 0.48, 0.08, 0.16, 0x7a5230, 0.06, 0.28, 0.33);
+    addBox(g, 0.48, 0.08, 0.16, duskNumber("darkUmber"), 0.06, 0.28, 0.33);
     const flask = addSphere(g, 0.095, ME(0x14f195, 0x14f195, 1.15), 0.2, 0.43, 0.34, 10);
     flask.scale.y = 1.18;
     (flask as any).userData.baseY = 0.43;
@@ -529,7 +530,7 @@ export const BUILD_VISUALS: Record<string, Builder> = {
     ctx.bobbers.push(orb);
     ctx.spinsY.push(orb);
     ctx.flickers.push(orb);
-    addCyl(g, 0.018, 0.022, 0.4, 0x7a5230, 0.32, 0.82, -0.2, 6);
+    addCyl(g, 0.018, 0.022, 0.4, duskNumber("darkUmber"), 0.32, 0.82, -0.2, 6);
     const flag = addBox(g, 0.18, 0.09, 0.014, 0x9945ff, 0.42, 0.98, -0.2);
     ctx.wavers.push(flag);
     return g;
@@ -555,7 +556,7 @@ export const BUILD_VISUALS: Record<string, Builder> = {
     const g = new THREE.Group();
     addBox(g, 0.76, 0.34, 0.54, c, 0, 0.17, 0);
     addCone(g, 0.58, 0.32, 0x48505c, 0, 0.5, 0, 4, Math.PI / 4);
-    addBox(g, 0.06, 0.46, 0.06, 0x7a5230, -0.28, 0.52, 0.2);
+    addBox(g, 0.06, 0.46, 0.06, duskNumber("darkUmber"), -0.28, 0.52, 0.2);
     addBox(g, 0.22, 0.14, 0.025, ME(0x14f195, 0x14f195, 0.8), -0.18, 0.7, 0.2);
     addBox(g, 0.16, 0.06, 0.08, 0xd7dde6, 0.26, 0.28, 0.28, 0.6);
     return g;
@@ -572,7 +573,7 @@ export const BUILD_VISUALS: Record<string, Builder> = {
     const g = new THREE.Group();
     addBox(g, 0.78, 0.16, 0.72, 0x5a4b35, 0, 0.08, 0);
     addBox(g, 0.42, 0.34, 0.36, 0x7b6542, -0.14, 0.32, -0.08);
-    const nug = addSphere(g, 0.08, ME(0xffd76e, 0xffd76e, 1.2), 0.28, 0.28, 0.2, 8);
+    const nug = addSphere(g, 0.08, ME(duskNumber("brass"), duskNumber("brass"), 1.2), 0.28, 0.28, 0.2, 8);
     ctx.bobbers.push(nug); ctx.spinsY.push(nug);
     addBox(g, 0.46, 0.08, 0.1, 0x8a5e34, 0.12, 0.52, -0.08, -0.4);
     addCyl(g, 0.04, 0.04, 0.32, 0xc8c1b1, 0.36, 0.18, -0.2, 8).rotation.z = Math.PI / 2;
@@ -596,7 +597,7 @@ export const BUILD_VISUALS: Record<string, Builder> = {
     addCyl(g, 0.16, 0.18, 0.45, c, 0, 1.02, 0, 8);
     addCone(g, 0.22, 0.28, 0x3f8ab5, 0, 1.38, 0, 8);
     addBox(g, 0.12, 0.16, 0.02, ME(0xffe2a8, 0xffc878, 0.9), 0, 0.5, 0.31);
-    addBox(g, 0.02, 0.3, 0.02, 0x7a5230, 0, 1.6, 0);
+    addBox(g, 0.02, 0.3, 0.02, duskNumber("darkUmber"), 0, 1.6, 0);
     ctx.wavers.push(addBox(g, 0.2, 0.1, 0.015, 0x14f195, 0.11, 1.7, 0));
     return g;
   },
@@ -616,7 +617,7 @@ const BUILDING_THEMES: Record<string, { secondary: number; glow?: number }> = {
   "#f6e7c8": { secondary: 0xd6604f, glow: 0xfff0cf },
   "#3f8ab5": { secondary: 0x7dcfe8, glow: 0x9ee7ff },
   "#35b87a": { secondary: 0x14f195, glow: 0x8cffcf },
-  "#e0b54a": { secondary: 0xffe0a6, glow: 0xffd76e },
+  "#e0b54a": { secondary: 0xffe0a6, glow: duskNumber("brass") },
   "#9263c4": { secondary: 0x9945ff, glow: 0xd9b8ff },
   "#f08bb0": { secondary: 0xd6604f, glow: 0xffd5dc },
   "#4a4f5a": { secondary: 0x7dcfe8, glow: 0xcbd1d8 },

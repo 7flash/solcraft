@@ -1,26 +1,29 @@
 /**
- * Central feature gates for stabilizing the core game without deleting legacy systems.
- * Wire these into UI/menu visibility first, then into action guards once parity tests exist.
+ * Server-only feature gates for the clean ECS release.
+ *
+ * Do not read browser-prefixed env values here. Static browser boot options are
+ * injected by app/page.tsx into window.__SOLCRAFT_CONFIG__; gameplay gates are
+ * server authority only.
  */
 export const FEATURE_FLAGS = {
-  coreEcsGameplay: false,
+  coreEcsGameplay: true,
   walletLogin: true,
   bank: true,
-  redeem: true,
+  redeem: false,
   wonders: true,
   atlasStudio: true,
   audioRuntime: true,
   adminTools: true,
-  bombsAndSiege: true,
-  trade: true,
+  bombsAndSiege: false,
+  trade: false,
   chat: true,
-  skills: true,
+  skills: false,
 } as const;
 
 export type FeatureFlagName = keyof typeof FEATURE_FLAGS;
 
 export function featureEnabled(name: FeatureFlagName, env: Record<string, string | undefined> = process.env): boolean {
-  const raw = env[`SOLCRAFT_FEATURE_${name}`] ?? env[`NEXT_PUBLIC_SOLCRAFT_FEATURE_${name}`];
-  if (raw == null || raw === "") return FEATURE_FLAGS[name];
+  const raw = env[`SOLCRAFT_FEATURE_${name}`];
+  if (raw == null || raw === '') return FEATURE_FLAGS[name];
   return /^(1|true|yes|on)$/i.test(String(raw));
 }

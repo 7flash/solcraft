@@ -11,14 +11,8 @@ function cleanId(value: any) {
   const id = Math.trunc(Number(value || 0));
   return id > 0 ? id : 0;
 }
-
-function cleanWallet(value: any) {
-  return String(value || "").trim();
-}
-
-function rowId(row: any) {
-  return cleanId(row?.id);
-}
+function cleanWallet(value: any) { return String(value || "").trim(); }
+function rowId(row: any) { return cleanId(row?.id); }
 
 function uncachePlayer(id: number, row?: PlayerRow | null) {
   if (!id) return;
@@ -27,7 +21,6 @@ function uncachePlayer(id: number, row?: PlayerRow | null) {
   if (wallet) playerIdByWallet.delete(wallet);
   playerByIdCache.delete(id);
 }
-
 function cachePlayer(row: PlayerRow | null | undefined) {
   if (!row) return null;
   const id = rowId(row);
@@ -52,28 +45,21 @@ export function hydratePlayerStore(force = false) {
   hydratedAt = Date.now();
   return playerCacheStats(false);
 }
-
 export function invalidatePlayerStore() {
   hydrated = false;
   playerByIdCache.clear();
   playerIdByWallet.clear();
 }
-
-function ensureHydrated() {
-  if (!hydrated) hydratePlayerStore();
-}
+function ensureHydrated() { if (!hydrated) hydratePlayerStore(); }
 
 export function getPlayer(idLike: any): PlayerRow | null {
   ensureHydrated();
   const id = cleanId(idLike);
   if (!id) return null;
-  // Refresh from SQLite before returning. Like the building/tile/loot stores,
-  // this cache owns identity indexes; mutable row contents remain DB-backed.
   const row = db.players.get(id) as PlayerRow | null;
   if (!row) { uncachePlayer(id); return null; }
   return cachePlayer(row) || null;
 }
-
 export function playerByWallet(walletLike: any): PlayerRow | null {
   ensureHydrated();
   const wallet = cleanWallet(walletLike);
@@ -87,40 +73,49 @@ export function playerByWallet(walletLike: any): PlayerRow | null {
   const row = db.players.select().where({ wallet }).first() as PlayerRow | null;
   return cachePlayer(row) || null;
 }
-
 export function allPlayers(): PlayerRow[] {
   ensureHydrated();
   const rows = db.players.select().all() as PlayerRow[];
   for (const row of rows) cachePlayer(row);
   return rows;
 }
-
 export function insertPlayer(row: PlayerRow): PlayerRow {
   ensureHydrated();
   const inserted = db.players.insert(row as any) as PlayerRow;
   cachePlayer(inserted);
   return inserted;
 }
-
 export function refreshPlayer(rowOrId: number | PlayerRow | null | undefined): PlayerRow | null {
   ensureHydrated();
   const row = typeof rowOrId === "number" ? db.players.get(rowOrId) as PlayerRow | null : rowOrId || null;
   return cachePlayer(row) || null;
 }
 
+function persistLastSeen(id: number, at: number) {
+  try {
+    const p = db.players.get(id) as any;
+    if (!p) return null;
+    p.lastSeen = at;
+    p.updatedAt = Math.max(Number(p.updatedAt || 0), at);
+    return p;
+  } catch {
+    return null;
+  }
+}
+
 export function touchPlayerSeen(rowOrId: number | PlayerRow | null | undefined, at = Date.now(), minIntervalMs = 15000): PlayerRow | null {
   const p = typeof rowOrId === "number" ? getPlayer(rowOrId) : refreshPlayer(rowOrId);
   if (!p) return null;
-  if (at - Number(p.lastSeen || 0) > Math.max(0, minIntervalMs)) p.lastSeen = at;
-  return refreshPlayer(p);
+  const id = rowId(p);
+  if (!id) return null;
+  if (at - Number(p.lastSeen || 0) >= Math.max(0, minIntervalMs)) {
+    const saved = persistLastSeen(id, at);
+    return saved ? cachePlayer(saved) : getPlayer(id);
+  }
+  return p;
 }
 
 export function playerCacheStats(ensure = true) {
   if (ensure) ensureHydrated();
-  return {
-    hydrated,
-    hydratedAt,
-    ids: playerByIdCache.size,
-    wallets: playerIdByWallet.size,
-  };
+  return { hydrated, hydratedAt, ids: playerByIdCache.size, wallets: playerIdByWallet.size };
 }

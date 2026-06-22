@@ -37,15 +37,12 @@ function safeJson(raw: any, fallback: any) { try { return typeof raw === "string
 function cleanName(name: string, fallback = "Wanderer") { return String(name || fallback).trim().slice(0, 18) || fallback; }
 function randomSecret(prefix = "") { return `${prefix}${crypto.randomUUID()}`; }
 function num(v: any, fallback = 0) { const n = Number(v); return Number.isFinite(n) ? n : fallback; }
-const ECS_RESOURCE_KEYS = ["w", "p", "s", "f", "g", "sh", "sc"] as const;
-const ECS_RESOURCE_KEY_SET = new Set<string>(ECS_RESOURCE_KEYS as readonly string[]);
-
 function isSpectator(p: any) { return String(p?.secret || "").startsWith("spectator:"); }
 function pinfo(id: number) { const p = getPlayer(id) as any; return { name: p?.name || "Neutral", body: p?.body || 0x808080, hat: p?.hat || 0x111111 }; }
 function bodyPalette(seed: number) { const colors = [0x6a5ae0, 0x14f195, 0xffc857, 0xff5c7a, 0x7dcfe8, 0x9945ff]; return { body: colors[Math.abs(seed) % colors.length], hat: colors[(Math.abs(seed) + 2) % colors.length] }; }
 function spawnOrigin(idx: number) { const ring = Math.floor(Math.sqrt(idx)); const side = Math.max(1, ring * 2 + 1); const step = 9; const x = ((idx % side) - ring) * step; const z = (Math.floor(idx / side) - ring) * step; return [x, z] as const; }
 function spectatorSpawnPoint(idx: number) { return [Math.cos(idx) * 6 | 0, Math.sin(idx) * 6 | 0] as const; }
-function maxResourceBag(inv: any) { const out: any = {}; for (const k of ECS_RESOURCE_KEYS) out[k] = Math.max(0, Number(inv?.[k] || 0)); return out; }
+function maxResourceBag(inv: any) { const out: any = {}; for (const k of RES_KEYS) out[k] = Math.max(0, Number(inv?.[k] || 0)); return out; }
 function tileCapacityFor(p: any) { return tileCapacityForPlayer(p); }
 function resourceCaps(p: any) { return storageCapsForPlayer(p); }
 function ownedTileCount(id: number) { return Number(db.tiles.select().where({ owner: id }).count() || 0); }

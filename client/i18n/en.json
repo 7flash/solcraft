@@ -415,7 +415,6 @@
     "colorCombos": "Color combos",
     "previous": "Previous {label}",
     "next": "Next {label}",
-    "colors": "Colors",
     "colorsAria": "{name} colors"
   },
   "wonder": {
@@ -433,68 +432,14 @@
         "text": "One dominant monument centered on the plaza with support props."
       }
     ],
-    "palettes": [
-      {
-        "id": "solar",
-        "name": "Solar gold",
-        "colors": [
-          "#fff0a8",
-          "#ffd76e",
-          "#c79337",
-          "#14f195"
-        ]
-      },
-      {
-        "id": "arcane",
-        "name": "Arcane violet",
-        "colors": [
-          "#f3ead7",
-          "#9945ff",
-          "#5a2d91",
-          "#7dcfe8"
-        ]
-      },
-      {
-        "id": "emerald",
-        "name": "Emerald mint",
-        "colors": [
-          "#dfffee",
-          "#14f195",
-          "#0d7054",
-          "#7dcfe8"
-        ]
-      },
-      {
-        "id": "ember",
-        "name": "Ember red",
-        "colors": [
-          "#ffe3c2",
-          "#ffb45e",
-          "#d6604f",
-          "#8e3d26"
-        ]
-      },
-      {
-        "id": "frost",
-        "name": "Frost blue",
-        "colors": [
-          "#ecfbff",
-          "#b8e9ff",
-          "#7dcfe8",
-          "#31507d"
-        ]
-      },
-      {
-        "id": "royal",
-        "name": "Royal prism",
-        "colors": [
-          "#fff0a8",
-          "#9945ff",
-          "#4d287f",
-          "#ffd76e"
-        ]
-      }
-    ],
+    "paletteNames": {
+      "solar": "Solar gold",
+      "arcane": "Arcane violet",
+      "emerald": "Emerald mint",
+      "ember": "Ember red",
+      "frost": "Frost blue",
+      "royal": "Royal prism"
+    },
     "namePresets": [
       "Crystal Skyscraper",
       "Solar Citadel",
@@ -516,7 +461,6 @@
     "wonderTypePrompt": "Type prompt first",
     "size": "Size",
     "mode": "Mode",
-    "colors": "Colors",
     "single": "Single",
     "district": "District",
     "foundValidTile": "click a valid tile to found.",
@@ -606,15 +550,19 @@
     "craftElixirsFirst": "Craft elixirs first"
   },
   "factions": {
-    "empire": "Empire",
-    "bandits": "Bandits",
-    "standing": "Faction standing",
-    "tileBonus": "Faction standing adds {bonus} trusted frontier tiles."
+    "empire": "Reputation",
+    "bandits": "Reputation",
+    "standing": "Reputation",
+    "tileBonus": "Reputation adds {bonus} trusted frontier tiles."
   },
   "resources": {
     "wood": "wood",
     "stone": "stone",
     "food": "food",
     "supplies": "supplies"
+  },
+  "reputation": {
+    "standing": "Reputation",
+    "tileBonus": "Reputation adds {bonus} trusted frontier tiles."
   }
 }

@@ -24,10 +24,10 @@ function fallbackAtlasSvg(atlas: string, cols: number, rows: number) {
   const h = Math.round((1024 / Math.max(1, cols)) * Math.max(1, rows));
   const cells: string[] = [];
   for (let y = 0; y < rows; y++) for (let x = 0; x < cols; x++) {
-    const hue = (x * 44 + y * 31 + atlas.length * 17) % 360;
-    cells.push(`<rect x="${x * w / cols}" y="${y * h / rows}" width="${w / cols}" height="${h / rows}" fill="hsl(${hue} 55% 42%)"/><text x="${(x + .5) * w / cols}" y="${(y + .52) * h / rows}" text-anchor="middle" dominant-baseline="middle" font-size="34" fill="white" font-family="monospace">${x + y * cols}</text>`);
+    const fill = duskAtlasFallbackCell(atlas, x, y);
+    cells.push(`<rect x="${x * w / cols}" y="${y * h / rows}" width="${w / cols}" height="${h / rows}" fill="${fill}"/><text x="${(x + .5) * w / cols}" y="${(y + .52) * h / rows}" text-anchor="middle" dominant-baseline="middle" font-size="34" fill="${DUSK_ATLAS_TEXT}" font-family="system-ui, sans-serif">${x + y * cols}</text>`);
   }
-  return `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}"><rect width="100%" height="100%" fill="#111827"/>${cells.join("")}</svg>`;
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}"><rect width="100%" height="100%" fill="${DUSK_ATLAS_BG}"/>${cells.join("")}</svg>`;
 }
 
 export async function GET(req: Request, ctx: any) {
