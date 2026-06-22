@@ -5,73 +5,10 @@
    ============================================================ */
 
 import { capitalBlocksNaturalResource, keepCrossIndexAt, keepCrossPositionsInBox, settlementSpawnPoint, SETTLEMENT_SPAWN_STEP as CAPITAL_SETTLEMENT_SPAWN_STEP } from "./capitalRules";
+import { SOLCRAFT_ECONOMY, ECONOMY_RULES_SINGLE_SOURCE, CLEAN_BUILD_COSTS_SINGLE_SOURCE } from "./economyConfig";
 
-export const ECONOMY_RULES = {
-  // Energy: concave, capped, floored. Movement has a tiny cost to stop spam, but recovers quickly.
-  energyCap: 100,
-  energyBaseNoHolderPerMinute: 40,
-  energyBaseHolderPerMinute: 40,
-  energyMaxHolderPerMinute: 120,
-  energyRegenBasePerMinute: 80,
-  energyRegenBonusPerMinute: 80,
-  energyRegenHardCapPerMinute: 300,
-  energyRefHold: 100_000,
-  energyMaxBase: 100,
-  energyMaxBonus: 100,
-  minCraftsForHolderEnergy: 0,
-  minCraftsForRewards: 100,
-  energyBalanceCap: 100_000,
-  activeWindowMs: 10 * 60 * 1000,
-
-  // Reward cycles: gold is an in-game ticket; $CRAFTS settlement floats pro-rata against real fee pool.
-  rewardCycleMs: 5 * 60 * 1000,
-  leaderboardWinnerCount: 20,
-  leaderboardRankPower: 0.80,
-  goldCyclePool: 1000,
-  rewardPoolShare: 0.80,
-  reservePoolShare: 0.20,
-  goldPerCrafts: 1000, // indicative only; settlement rate floats at redemption cycle close
-  withdrawGoldPerCrafts: 0, // deprecated fixed price, kept for old callers
-  redeemMinGold: 100,
-  redeemCapGoldPerWalletCycle: 1000,
-  leaderboardTopShare: 0.25,
-  leaderboardMinWinners: 5,
-  leaderboardMaxWinners: 20,
-  leaderboardWeightPower: 0.70,
-  buildingScoreTiles: 9,
-
-  tileBaseCapacity: 18,
-  tileCapacityPerBuilding: 0,
-  tileDecayPerCycle: 6,
-
-  moveEnergy: 1,
-  chopEnergy: 5,
-  mineEnergy: 5,
-  claimEnergy: 0,
-  claimWood: 0,
-  claimStone: 2,
-  attackEnergy: 6, // legacy; direct attacks are disabled, siege uses raidEnergy
-  destroyBombEnergy: 10,
-  teleportEnergy: 0, // infinite Return Scroll; cast delay still applies
-  raidEnergy: 6,
-  repairEnergy: 0,
-
-  chopMs: 4000,
-  mineMs: 5000,
-  teleportMs: 8000,
-  withdrawMs: 12000,
-  treeWood: 3,
-  rockStone: 3,
-
-  destroyMaxActive: 3,
-  respawnMs: 10000,
-  spawnProtectionMs: 6000,
-  deathWoodDropPct: 0.20,
-  deathStoneDropPct: 0.20,
-  deathGoldDropPct: 0.30,
-  deathGoldDropCap: 50,
-  deathGoldBurnPct: 0.10,
-} as const;
+// One exported economy rule object; runtime code reads the centralized config.
+export const ECONOMY_RULES = ECONOMY_RULES_SINGLE_SOURCE;
 
 export const holdWeight = (hold: number) => Math.max(0, Math.min(1, Math.sqrt(Math.min(Math.max(0, hold || 0), ECONOMY_RULES.energyBalanceCap) / ECONOMY_RULES.energyRefHold)));
 export const tokenRegenPerMin = (hold: number) => ECONOMY_RULES.energyRegenBasePerMinute + ECONOMY_RULES.energyRegenBonusPerMinute * holdWeight(hold);
@@ -96,10 +33,10 @@ export const SIEGE_BUILDING_DMG = 1;
 export const SIEGE_TOOL_DMG = 80;
 export const STRONGBOX_CAP = 1000;
 export const VAULT_CAP = 5000;
-export const RESOURCE_BASE_CAP = 120;
-export const WAREHOUSE_RESOURCE_CAP_BONUS = 600;
+export const RESOURCE_BASE_CAP = SOLCRAFT_ECONOMY.resources.materialBaseCap;
+export const WAREHOUSE_RESOURCE_CAP_BONUS = SOLCRAFT_ECONOMY.resources.warehouseMaterialCapBonus;
 export const GRANARY_FOOD_CAP_BONUS = 300;
-export const TOWNHALL_STORAGE_BONUS = 300;
+export const TOWNHALL_STORAGE_BONUS = SOLCRAFT_ECONOMY.resources.townHallStorageBonus;
 export const TOWNHALL_TILE_CAP_BONUS = 90;
 export const BARRACKS_TOWER_RANGE_BONUS = 1;
 export const BARRACKS_TOWER_DPS_BONUS = 0.25;
@@ -338,15 +275,15 @@ export const LIBRARY: BuildingDef[] = [
 ];
 
 const SIMPLE_BUILDING_COSTS: Record<string, Partial<Record<ResKey | "e", number>>> = {
-  road: { w: 1 },
-  cottage: { w: 30 }, well: { w: 24 }, farm: { w: 24 }, lumber: { w: 32 }, quarry: { w: 36 },
-  sawmill: { w: 38 }, market: { w: 70 }, vault: { w: 90 }, goldmine: { w: 120 }, watchtower: { w: 80 },
+  // Starter costs come from economyConfig.ts. Keep other kinds here only as
+  // legacy/admin-only fallbacks so production tuning has one obvious source.
+  ...CLEAN_BUILD_COSTS_SINGLE_SOURCE,
+  well: { w: 24 }, sawmill: { w: 38 }, market: { w: 70 }, vault: { w: 90 }, goldmine: { w: 120 }, watchtower: { w: 80 },
   tavern: { w: 55 }, forge: { w: 75 }, shrine: { w: 65 }, granary: { w: 44 }, windmill: { w: 60 },
   fountain: { w: 30 }, garden: { w: 18 }, flowerbed: { w: 8 }, waterfall: { w: 20 }, pond: { w: 14 },
   statue: { w: 24 }, lantern: { w: 8 }, bench: { w: 10 }, campfire: { w: 8 }, arch: { w: 22 },
   obelisk: { w: 28 }, hedge: { w: 8 }, signpost: { w: 8 }, crystal: { w: 22 },
-  workshop: { w: 60 }, academy: { w: 92 }, alchemy: { w: 58 }, warehouse: { w: 80 }, barracks: { w: 90 }, townhall: { w: 140 },
-  worldwonder: {},
+  workshop: { w: 60 }, academy: { w: 92 }, alchemy: { w: 58 }, barracks: { w: 90 }, townhall: { w: 140 },
 };
 const DECOR_COST = { w: 24, s: 12 } as const;
 function woodOnlyBuildCost(cost: Partial<Record<ResKey | "e", number>>, fallback = 40): Partial<Record<ResKey | "e", number>> {

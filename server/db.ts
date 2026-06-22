@@ -7,6 +7,7 @@
 import { Database, z } from "sqlite-zod-orm";
 import { DB_SCHEMA_VERSION, applyProductionDbSchema } from "./dbSchema";
 import { applyStartupDataMigrations } from "./dbMigration";
+import { runForwardDbMigrations } from "./dbMigrations";
 
 export const db = new Database(process.env.SOLCRAFT_DB || "solcraft.db", {
   players: z.object({
@@ -142,6 +143,39 @@ export const db = new Database(process.env.SOLCRAFT_DB || "solcraft.db", {
     status: z.string().default("pending"), // pending | paid | rejected
     sig: z.union([z.string(), z.null()]).default(null), // tx signature once paid
   }),
+  coin_ledger: z.object({
+    player: z.number().default(0),
+    delta: z.number().default(0),
+    balanceAfter: z.number().default(0),
+    reason: z.string().default("adjust"),
+    refType: z.union([z.string(), z.null()]).default(null),
+    refId: z.union([z.string(), z.null()]).default(null),
+    idempotencyKey: z.union([z.string(), z.null()]).default(null),
+    metaJson: z.union([z.string(), z.null()]).default(null),
+    createdAt: z.number().default(0),
+  }),
+  crafts_ledger: z.object({
+    player: z.number().default(0),
+    wallet: z.union([z.string(), z.null()]).default(null),
+    token: z.union([z.string(), z.null()]).default(null),
+    amountRaw: z.string().default("0"),
+    balanceRawAfter: z.string().default("0"),
+    direction: z.string().default("credit"),
+    reason: z.string().default("adjust"),
+    refType: z.union([z.string(), z.null()]).default(null),
+    refId: z.union([z.string(), z.null()]).default(null),
+    idempotencyKey: z.union([z.string(), z.null()]).default(null),
+    metaJson: z.union([z.string(), z.null()]).default(null),
+    createdAt: z.number().default(0),
+  }),
+  action_idempotency: z.object({
+    player: z.number().default(0),
+    action: z.string().default(""),
+    idempotencyKey: z.string().default(""),
+    requestHash: z.string().default(""),
+    responseJson: z.union([z.string(), z.null()]).default(null),
+    createdAt: z.number().default(0),
+  }),
   meta: z.object({
     k: z.string(),
     v: z.string(),
@@ -174,9 +208,10 @@ db.exec("CREATE INDEX IF NOT EXISTS idx_redemptions_status ON redemptions(status
 db.exec("CREATE INDEX IF NOT EXISTS idx_players_wallet ON players(wallet)");
 db.exec("CREATE INDEX IF NOT EXISTS idx_wallet_challenges_wallet_nonce ON walletChallenges(wallet, nonce)");
 
-// Stage 7 production schema: additive indexes only. Keep this centralized so
-// ECS migrations and current SQLite query shapes evolve from one checklist.
+// Stage 7+ production schema: additive migrations/indexes only. Keep this
+// centralized so ECS/bank/audit query shapes evolve from one checklist.
 applyProductionDbSchema(db);
+runForwardDbMigrations(db);
 
 export function metaGet(k: string, dflt = ""): string {
   const row = db.meta.select().where({ k }).first();

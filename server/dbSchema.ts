@@ -1,4 +1,4 @@
-export const DB_SCHEMA_VERSION = 64;
+export const DB_SCHEMA_VERSION = 65;
 export const CURRENT_DB_SCHEMA_VERSION = DB_SCHEMA_VERSION;
 
 function execIndex(db: any, sql: string) {
@@ -27,6 +27,47 @@ export function applyProductionDbSchema(db: { exec(sql: string): unknown }) {
       refId TEXT,
       idempotencyKey TEXT,
       metaJson TEXT,
+      createdAt INTEGER NOT NULL DEFAULT (strftime('%s','now') * 1000)
+    )`,
+
+    `CREATE TABLE IF NOT EXISTS hard_currency_ledger (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      player INTEGER NOT NULL DEFAULT 0,
+      wallet TEXT,
+      currency TEXT NOT NULL DEFAULT '$CRAFTS',
+      deltaRaw TEXT NOT NULL DEFAULT '0',
+      balanceRaw TEXT NOT NULL DEFAULT '0',
+      direction TEXT NOT NULL DEFAULT 'credit',
+      reason TEXT NOT NULL DEFAULT 'adjust',
+      refType TEXT,
+      refId TEXT,
+      idempotencyKey TEXT,
+      metaJson TEXT,
+      createdAt INTEGER NOT NULL DEFAULT (strftime('%s','now') * 1000)
+    )`,
+
+    `CREATE TABLE IF NOT EXISTS crafts_ledger (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      player INTEGER NOT NULL DEFAULT 0,
+      wallet TEXT,
+      token TEXT,
+      amountRaw TEXT NOT NULL DEFAULT '0',
+      balanceRawAfter TEXT NOT NULL DEFAULT '0',
+      direction TEXT NOT NULL DEFAULT 'credit',
+      reason TEXT NOT NULL DEFAULT 'adjust',
+      refType TEXT,
+      refId TEXT,
+      idempotencyKey TEXT,
+      metaJson TEXT,
+      createdAt INTEGER NOT NULL DEFAULT (strftime('%s','now') * 1000)
+    )`,
+    `CREATE TABLE IF NOT EXISTS action_idempotency (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      player INTEGER NOT NULL DEFAULT 0,
+      action TEXT NOT NULL DEFAULT '',
+      idempotencyKey TEXT NOT NULL DEFAULT '',
+      requestHash TEXT NOT NULL DEFAULT '',
+      responseJson TEXT,
       createdAt INTEGER NOT NULL DEFAULT (strftime('%s','now') * 1000)
     )`,
     `CREATE TABLE IF NOT EXISTS bankWithdrawals (
@@ -159,8 +200,16 @@ export function applyProductionDbSchema(db: { exec(sql: string): unknown }) {
     'CREATE INDEX IF NOT EXISTS idx_npcs_kind_lastStep ON npcs(kind, lastStepAt)',
     'CREATE INDEX IF NOT EXISTS idx_npcs_target ON npcs(targetX, targetZ)',
     'CREATE INDEX IF NOT EXISTS idx_wonders_owner_state ON wonders(owner, state)',
-    'CREATE INDEX IF NOT EXISTS idx_coin_ledger_player_created ON coin_ledger(player, createdAt)',
+
+    'CREATE INDEX IF NOT EXISTS idx_crafts_ledger_player_created ON crafts_ledger(player, createdAt)',
+    'CREATE INDEX IF NOT EXISTS idx_crafts_ledger_wallet_created ON crafts_ledger(wallet, createdAt)',
+    "CREATE UNIQUE INDEX IF NOT EXISTS uniq_crafts_ledger_player_idem ON crafts_ledger(player, idempotencyKey) WHERE idempotencyKey IS NOT NULL AND idempotencyKey != ''",
+    'CREATE UNIQUE INDEX IF NOT EXISTS uniq_action_idempotency_player_action_key ON action_idempotency(player, action, idempotencyKey)',
+    'CREATE INDEX IF NOT EXISTS idx_action_idempotency_created ON action_idempotency(createdAt)',
+        'CREATE INDEX IF NOT EXISTS idx_coin_ledger_player_created ON coin_ledger(player, createdAt)',
     "CREATE UNIQUE INDEX IF NOT EXISTS uniq_coin_ledger_player_idem ON coin_ledger(player, idempotencyKey) WHERE idempotencyKey IS NOT NULL AND idempotencyKey != ''",
+    'CREATE INDEX IF NOT EXISTS idx_hard_currency_player_currency_created ON hard_currency_ledger(player, currency, createdAt)',
+    "CREATE UNIQUE INDEX IF NOT EXISTS uniq_hard_currency_player_currency_idem ON hard_currency_ledger(player, currency, idempotencyKey) WHERE idempotencyKey IS NOT NULL AND idempotencyKey != ''",
     'CREATE INDEX IF NOT EXISTS idx_admin_config_history_name_created ON admin_config_history(name, createdAt)',
     'CREATE INDEX IF NOT EXISTS idx_referral_codes_owner ON referralCodes(ownerPlayerId, active, createdAt)',
     'CREATE INDEX IF NOT EXISTS idx_referral_codes_code ON referralCodes(code)',

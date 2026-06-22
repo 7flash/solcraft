@@ -17,7 +17,9 @@
     "smoke:rc": "bun scripts/smoke-release-candidate.ts",
     "dev:rc": "SOLCRAFT_BACKEND_MODE=ecs SOLCRAFT_ENABLE_LEGACY_BACKEND=0 SOLCRAFT_DB=solcraft.clean.db bun run main.ts",
     "clean": "bun -e \"import { rmSync } from 'fs'; for (const p of ['node_modules','bun.lock','bun.lockb']) { try { rmSync(p,{recursive:true,force:true}); } catch {} }\"",
-    "admin:invites": "bun scripts/create-admin-invite-codes.ts --count 64"
+    "admin:invites": "bun scripts/create-admin-invite-codes.ts --count 64",
+    "audit:backend-consistency": "bun scripts/audit-backend-consistency.ts",
+    "test:backend-consistency": "bun scripts/audit-backend-consistency.ts"
   },
   "dependencies": {
     "measure-fn": "4.0.4",

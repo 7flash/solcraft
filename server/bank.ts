@@ -4,7 +4,8 @@ import { db, metaGet, metaSet } from "./db";
 import { getPlayer } from "./playerStore";
 import { getBankDeposit, listBankDeposits, upsertBankDeposit, getBankScan, listBankScans, upsertBankScan, listBankWithdrawals, insertBankWithdrawal, updateBankWithdrawal, insertBankError, listBankErrors, bankTableAvailable } from "./bankTables";
 import { withImmediateTx } from "./dbTx";
-import { appendCoinLedger, coinLedgerBalance } from "./coinLedger";
+import { appendCoinLedger } from "./coinLedger";
+import { appendHardCurrencyLedger, hardCurrencyBalanceRaw } from "./hardCurrencyLedger";
 
 const bankMeasure = createMeasure("bank", { maxResultLength: 220 });
 const META_BANK_SETTINGS = "solcraft:bank:settings:v1";
@@ -82,6 +83,7 @@ export function publicBankSettings() {
     minWithdrawUi: s.minWithdrawUi,
     decimals: s.decimals,
     withdrawGameCoinsEnabled: !!s.withdrawGameCoinsEnabled,
+    hardCurrencyWithdrawals: true,
   };
 }
 export function setBankSettings(patch: Partial<BankSettings> = {}) {
@@ -164,19 +166,25 @@ export function bankStatusForPlayer(p: any) {
   const dep = bankTableAvailable() ? getBankDeposit(p.id) : deposits()[String(p.id)] || null;
   const scan = bankTableAvailable() ? getBankScan(p.id) : scans()[String(p.id)] || null;
   const rows = withdrawalRows(p.id, 20).slice(-20).reverse();
-  const bankRaw = BigInt(Math.max(0, Math.floor(Number(p?.inv?.g || 0)))).toString();
+  const depositedRaw = hardCurrencyBalanceRaw(p.id, s.tokenLabel).toString();
+  const softCoins = Math.max(0, Math.floor(Number(p?.inv?.g || 0)));
   return {
     ok: true,
     config: publicBankSettings(),
     wallet: p.wallet || "",
     deposit: dep,
     latestDepositScan: scan,
-    bankTokens: { amountRaw: bankRaw, amountUi: bankRaw, tokenLabel: s.tokenLabel },
+    // Hard token balance comes from deposits/reward pools only. Gameplay coins are
+    // intentionally reported separately and are not withdrawable by default.
+    bankTokens: tokenUnits(depositedRaw, s),
+    depositedCrafts: tokenUnits(depositedRaw, s),
+    softCoins,
     walletBalance: tokenUnits(p.tokenBalanceRaw || 0, s),
     walletBalanceApproxUi: String(p.tokenBalance || 0),
     withdrawals: rows,
     notes: [
-      "Bank tokens are your in-game exchange balance.",
+      `Deposited ${s.tokenLabel} is tracked separately from gameplay coins.`,
+      "Gameplay coins are soft currency for Wonders, cosmetics, and services; they are not directly withdrawable by default.",
       `Wallet ${s.tokenLabel} is your on-chain connected-wallet balance.`,
       "Your personal deposit address is generated once and reused.",
       "Send tokens to that address, then scan to credit your in-game balance.",
@@ -263,12 +271,18 @@ export async function scanBankDeposits(p: any, limit = 50) {
         fresh.push({ signature: d.signature, slot: d.slot, amountRaw: String(d.amountRaw || "0"), amountUi: d.amountUi, confirmedAt: d.confirmedAt });
       }
       if (creditRaw > 0n) {
-        const tokens = Math.floor(Number(rawToUi(creditRaw, s.decimals)) || 0);
-        if (tokens > 0) withImmediateTx(`bank.scan.credit:${p.id}`, () => {
-          const inv = { ...(p.inv || {}) };
-          inv.g = Math.max(0, Number(inv.g || 0)) + tokens;
-          p.inv = inv;
-          appendCoinLedger({ player: p.id, delta: tokens, reason: "bankDepositCredit", refType: "bankDepositScan", refId: result.latestSignature || fresh[0]?.signature || String(Date.now()), idempotencyKey: `deposit:${p.id}:${result.latestSignature || fresh.map((d:any)=>d.signature).join(',')}`, meta: { creditRaw: creditRaw.toString(), amountUi: rawToUi(creditRaw, s.decimals), token: s.token } });
+        withImmediateTx(`bank.scan.credit:${p.id}`, () => {
+          appendHardCurrencyLedger({
+            player: p.id,
+            wallet: p.wallet || "",
+            currency: s.tokenLabel,
+            deltaRaw: creditRaw.toString(),
+            reason: "bankDepositCredit",
+            refType: "bankDepositScan",
+            refId: result.latestSignature || fresh[0]?.signature || String(Date.now()),
+            idempotencyKey: `deposit:${p.id}:${result.latestSignature || fresh.map((d:any)=>d.signature).join(',')}`,
+            meta: { amountUi: rawToUi(creditRaw, s.decimals), token: s.token, tokenAddress: s.tokenAddress },
+          });
         });
       }
       byPlayer[String(p.id)] = { ts: Date.now(), latestSignature: result.latestSignature || prev.latestSignature || null, scanned: result.scanned || 0, signatures: Array.from(seen).slice(-1000), deposits: [...(prev.deposits || []), ...fresh].slice(-200), creditedRaw: String((BigInt(prev.creditedRaw || "0") + creditRaw)), creditedUi: rawToUi(BigInt(prev.creditedRaw || "0") + creditRaw, s.decimals) };
@@ -281,7 +295,6 @@ export async function scanBankDeposits(p: any, limit = 50) {
 export async function requestBankWithdrawal(p: any, amountUi: string | number, toWallet?: string, idempotencyKeyInput?: string) {
   const s = bankSettings();
   if (!s.enabled) return { ok: false, reasonCode: "BANK_DISABLED", msg: "Bank withdrawals are not enabled yet." };
-  if (!s.withdrawGameCoinsEnabled) return { ok: false, reasonCode: "BANK_WITHDRAWALS_REVIEW", msg: "Withdrawals from in-game coins are paused until the hard-currency ledger is explicitly enabled. Deposits, scans, and in-game bank credits still work." };
   const to = String(toWallet || p.wallet || "").trim();
   if (!SOL_ADDR.test(to)) return { ok: false, reasonCode: "WALLET_REQUIRED", msg: "Connect Phantom or provide a valid Solana wallet." };
   const amountRaw = decimalToRaw(amountUi, s.decimals);
@@ -296,10 +309,8 @@ export async function requestBankWithdrawal(p: any, amountUi: string | number, t
     const existing = withdrawalByIdempotency(rows, p.id, idem);
     if (existing) return { ok: true, duplicate: true, withdrawal: existing, status: bankStatusForPlayer(p), msg: `Withdrawal request already exists for ${existing.amountUi} ${s.tokenLabel}.` };
 
-    const bankTokens = Math.max(0, Math.floor(Number(p?.inv?.g || 0)));
-    const ledgerBal = coinLedgerBalance(p.id);
-    if (bankTokens < spendUi) return { ok: false, reasonCode: "BANK_TOKENS_LOW", msg: `Not enough bank tokens. You have ${bankTokens} ${s.tokenLabel}.` };
-    if (ledgerBal < spendUi) return { ok: false, reasonCode: "BANK_LEDGER_LOW", msg: `Withdrawable deposited balance is ${ledgerBal} ${s.tokenLabel}. Gameplay coins cannot drain the token treasury.` };
+    const hardBalRaw = hardCurrencyBalanceRaw(p.id, s.tokenLabel);
+    if (hardBalRaw < amountRaw) return { ok: false, reasonCode: "BANK_LEDGER_LOW", msg: `Withdrawable deposited balance is ${rawToUi(hardBalRaw, s.decimals)} ${s.tokenLabel}. Gameplay coins cannot drain the token treasury.` };
 
     const id = crypto.randomUUID?.() || `${Date.now()}:${p.id}`;
     const row: any = {
@@ -323,10 +334,18 @@ export async function requestBankWithdrawal(p: any, amountUi: string | number, t
     };
 
     withImmediateTx(`bank.withdraw.request:${p.id}`, () => {
-      const inv = { ...(p.inv || {}) };
-      inv.g = Math.max(0, Math.floor(Number(inv.g || 0)) - spendUi);
-      p.inv = inv;
-      appendCoinLedger({ player: p.id, delta: -spendUi, reason: "bankWithdrawalDebit", refType: "bankWithdrawal", refId: id, idempotencyKey: `withdraw-debit:${idem}`, meta: { amountRaw: amountRaw.toString(), amountUi: row.amountUi, to } });
+      appendHardCurrencyLedger({
+        player: p.id,
+        wallet: p.wallet || "",
+        currency: s.tokenLabel,
+        deltaRaw: (-amountRaw).toString(),
+        reason: "bankWithdrawalDebit",
+        refType: "bankWithdrawal",
+        refId: id,
+        idempotencyKey: `withdraw-debit:${idem}`,
+        meta: { amountRaw: amountRaw.toString(), amountUi: row.amountUi, to },
+      });
+      appendCoinLedger({ player: p.id, delta: 0, reason: "bankWithdrawalAudit", refType: "bankWithdrawal", refId: id, idempotencyKey: `withdraw-audit:${idem}`, meta: { amountRaw: amountRaw.toString(), amountUi: row.amountUi, to, hardCurrency: true } });
       rows = withdrawals();
       rows.push(row);
       insertBankWithdrawal(row);
@@ -348,10 +367,17 @@ export async function requestBankWithdrawal(p: any, amountUi: string | number, t
       } finally { sowl.close?.(); }
     } catch (e: any) {
       withImmediateTx(`bank.withdraw.refund:${p.id}`, () => {
-        const refund = { ...(p.inv || {}) };
-        refund.g = Math.max(0, Math.floor(Number(refund.g || 0)) + spendUi);
-        p.inv = refund;
-        appendCoinLedger({ player: p.id, delta: spendUi, reason: "bankWithdrawalRefund", refType: "bankWithdrawal", refId: id, idempotencyKey: `withdraw-refund:${idem}`, meta: { amountRaw: amountRaw.toString(), amountUi: row.amountUi, error: String(e?.message || e) } });
+        appendHardCurrencyLedger({
+          player: p.id,
+          wallet: p.wallet || "",
+          currency: s.tokenLabel,
+          deltaRaw: amountRaw.toString(),
+          reason: "bankWithdrawalRefund",
+          refType: "bankWithdrawal",
+          refId: id,
+          idempotencyKey: `withdraw-refund:${idem}`,
+          meta: { amountRaw: amountRaw.toString(), amountUi: row.amountUi, error: String(e?.message || e) },
+        });
         row.status = "failed";
         row.failedAt = Date.now();
         row.error = String(e?.message || e || "Token send failed");
@@ -439,12 +465,10 @@ export async function adminBankProcessPendingWithdrawals(limit = 25) {
       try {
         const player = bankPlayerById(row.playerId);
         if (!row.debitedAt && player) {
-          const spendUi = Math.floor(Number(rawToUi(row.amountRaw, s.decimals)) || 0);
-          const inv = { ...(player.inv || {}) };
-          if (Math.floor(Number(inv.g || 0)) < spendUi) throw new Error(`Player ${row.playerId} no longer has enough in-game balance to cover ${row.amountUi} ${s.tokenLabel}.`);
-          inv.g = Math.max(0, Math.floor(Number(inv.g || 0)) - spendUi);
-          player.inv = inv;
-          row.debitedAt = Date.now();
+          // New withdrawals debit the hard-currency ledger at request time.
+          // Legacy queued rows without debitedAt are refused instead of touching
+          // gameplay coins, because gameplay coins are soft currency.
+          throw new Error(`Legacy pending withdrawal ${row.id} was not debited from the hard-currency ledger. Recreate the request with an idempotency key.`);
         }
         const result = await sowl.bank.sendToken({ token: row.token || s.token, from: s.bankWallet, to: row.to, amountRaw: BigInt(String(row.amountRaw || "0")), sender: "rpc", live: true });
         row.status = "sent";
