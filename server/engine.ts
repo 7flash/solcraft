@@ -3675,7 +3675,7 @@ function dispatchInner(p: Player, body: any) {
     case "placeWonder": return placeWorldWonder(p, body.x | 0, body.z | 0, body.prompt, body.recipe);
     case "makeBomb":
     case "spawnBomb":
-    case "placeBomb": return err("Crafting, bombs, packs, and deployables are removed from the SolCrafts production loop.", "FEATURE_REMOVED");
+    case "placeBomb": return err("Crafting, bombs, packs, and deployables are unavailable.", "FEATURE_REMOVED");
     case "demolish": return demolish(p, body.uid | 0);
     case "customize": return customize(p, body.uid | 0, body.nm, body.cl);
     case "profileFace": return setProfileFace(p, body.faceImage == null ? null : String(body.faceImage));
@@ -3686,7 +3686,7 @@ function dispatchInner(p: Player, body: any) {
     case "harvestStart": return harvestStart(p, body.x | 0, body.z | 0);
     case "harvestFinish": return harvestFinish(p, body.x | 0, body.z | 0);
     case "harvestCancel": return harvestCancel(p);
-    case "craft": return err("Crafting, bombs, packs, and deployables are removed from the SolCrafts production loop.", "FEATURE_REMOVED");
+    case "craft": return err("Crafting, bombs, packs, and deployables are unavailable.", "FEATURE_REMOVED");
     case "learn": return err("Skills are hidden in the minimal build.");
     case "use": return useBuilding(p, body.uid | 0);
     case "trade": return trade(p, body.idx | 0);

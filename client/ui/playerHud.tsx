@@ -11,7 +11,7 @@ function StatusBar({ label, icon, now, max, pct, id, tip }: any) {
 }
 
 function MaterialChip({ icon, label, value }: any) {
-  return <span className="player-hud__material-chip"><i>{icon}</i><b>{value}</b><em>{label}</em></span>;
+  return <span className="player-hud__material-chip" aria-label={`${value} ${label}`}><i>{icon}</i><b>{value}</b><em>{label}</em></span>;
 }
 
 function SharedStorageBar({ vm }: any) {
@@ -19,7 +19,7 @@ function SharedStorageBar({ vm }: any) {
   const stone = `${Math.max(0, Number(vm.stonePct || 0)).toFixed(2)}%`;
   const food = `${Math.max(0, Number(vm.foodPct || 0)).toFixed(2)}%`;
   return <section className="player-hud__storage-card" title="Wood, stone, and food share this one storage pool. Warehouses increase it. Coins are separate and unlimited." data-tip-title="Shared storage" data-tip-body={vm.storageText + ". Warehouses are the storage upgrade; coins do not count."}>
-    <div className="player-hud__storage-head"><b>Shared storage</b><span>{vm.storageUsed}/{vm.storageLimit || "?"}</span><em>{vm.storageFree} free</em></div>
+    <div className="player-hud__storage-head"><b>Shared storage</b><span>{vm.storageUsed}/{vm.storageLimit || "?"}</span><em>{vm.storageFree} space</em></div>
     <div className="player-hud__storage-track" aria-label="Shared storage segments">
       <i className="wood" style={{ width: wood }} /><i className="stone" style={{ width: stone }} /><i className="food" style={{ width: food }} />
     </div>

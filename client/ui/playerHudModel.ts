@@ -60,7 +60,7 @@ export function playerHudViewModel(input: PlayerHudInput) {
     storageUsed: usedStorage,
     storageLimit: maxStorage,
     storageFree: Math.max(0, maxStorage - usedStorage),
-    storageText: maxStorage ? `${usedStorage}/${maxStorage} wood + stone + food · ${Math.max(0, maxStorage - usedStorage)} free` : `${usedStorage} materials · storage cap loading`,
+    storageText: maxStorage ? `${usedStorage}/${maxStorage} wood + stone + food · ${Math.max(0, maxStorage - usedStorage)} space` : `${usedStorage} materials · storage cap loading`,
     wondersBuilt: Math.max(0, Number(input.wondersBuilt ?? m.wondersBuilt ?? 0) || 0),
     energyNow: Math.floor(eNow),
     maxEnergy: Math.max(1, Number(m.maxE || 1)),

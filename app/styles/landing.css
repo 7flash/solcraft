@@ -1,0 +1,66 @@
+.ui31-login-card,
+.ui31-capital-card{
+  border:1px solid rgba(255,255,255,.12);
+  box-shadow:0 24px 80px rgba(0,0,0,.35),0 0 0 1px rgba(255,255,255,.05) inset;
+}
+.ui31-login-card{
+  max-width:720px;
+  margin-inline:auto;
+  text-align:center;
+  backdrop-filter:blur(18px);
+}
+.ui31-login-card h1{
+  font-size:clamp(42px,7vw,84px);
+  letter-spacing:-.055em;
+  text-shadow:0 10px 24px rgba(0,0,0,.45);
+}
+.ui31-login-card h1 span{color:#ffb000;letter-spacing:-.04em;}
+.ui31-login-copy{
+  max-width:760px;
+  margin-inline:auto;
+  font-size:clamp(18px,2.2vw,27px);
+  font-weight:800;
+  line-height:1.45;
+}
+.ui31-login-loop{grid-template-columns:repeat(4,minmax(0,1fr));}
+.ui31-entry-fields{
+  display:grid;
+  grid-template-columns:repeat(2,minmax(0,1fr));
+  gap:10px;
+  max-width:540px;
+  margin:16px auto 12px;
+}
+.ui31-entry-fields label{
+  display:grid;
+  gap:6px;
+  font-size:12px;
+  font-weight:800;
+  text-transform:uppercase;
+  letter-spacing:.04em;
+  color:rgba(255,255,255,.72);
+}
+.ui31-entry-fields em{font-style:normal;color:rgba(255,255,255,.48);}
+.ui31-entry-fields input,
+.profile-referral-input{
+  width:100%;
+  border-radius:14px;
+  border:1px solid rgba(255,255,255,.14);
+  background:rgba(8,12,22,.68);
+  color:#fff;
+  padding:12px 13px;
+  font-size:15px;
+  outline:none;
+}
+.ui31-entry-fields input:focus,
+.profile-referral-input:focus{
+  border-color:rgba(20,241,149,.72);
+  box-shadow:0 0 0 3px rgba(20,241,149,.14);
+}
+.ui31-play{
+  font-size:clamp(18px,2.6vw,28px);
+  border-radius:18px;
+  padding:18px 30px;
+  background:linear-gradient(180deg,#ffc247,#f0a318);
+  color:#101628;
+  box-shadow:0 18px 42px rgba(240,163,24,.35);
+}

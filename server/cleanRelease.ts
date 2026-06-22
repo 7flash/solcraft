@@ -51,8 +51,8 @@ export function cleanBuildKindResponse(kind: any) {
     ok: false,
     reasonCode: "BUILDING_REMOVED",
     msg: isRemovedBuildKind(k)
-      ? "That building was removed from the clean release. Use House, Lumber Camp, Quarry, Farm, Warehouse, or World Wonder."
-      : "That building is not part of the clean release build list.",
+      ? "That building is unavailable. Use House, Lumber Camp, Quarry, Farm, Warehouse, or World Wonder."
+      : "That building is unavailable right now.",
     kind: k,
   };
 }

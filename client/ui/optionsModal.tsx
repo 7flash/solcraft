@@ -11,7 +11,7 @@ export function OptionsModalView(props: any) {
       </div>
       <button className="utility-close" data-click="modal-close" aria-label="Close options">×</button>
     </div>
-    <p className="tiny">Production layout: audio, video, controls, and session actions are grouped so Esc/settings no longer feels like a debug panel.</p>
+    <p className="tiny">Audio, video, controls, and session actions are grouped for quick access.</p>
     <div className="settings-tabs sc-settings-tabs"><a href="#options-audio">Audio</a><a href="#options-video">Video</a><a href="#options-controls">Controls</a></div>
     <div className="grid production-options-grid" style={{ gridTemplateColumns: "repeat(auto-fit,minmax(220px,1fr))" }}>
       <div id="options-audio" className="card"><div className="card-title">Audio</div><div className="tiny">Music and UI sounds are controlled separately.</div><button className="btn primary" data-click="start-music">Start uploaded music</button><button className="btn" data-click="toggle-music">{musicMuted ? "Turn music on" : "Turn music off"}</button><button className="btn" data-click="toggle-ui-sound">{uiMuted ? "Turn UI sound on" : "Turn UI sound off"}</button></div>

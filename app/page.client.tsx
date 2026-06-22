@@ -279,9 +279,26 @@ export default function mount() {
   function currentWonderSize() { return normalizeWonderFootprintClient(ST.wonderFootprint || ST.wonderRecipe?.footprint || 9); }
   function currentWonderMode() { return ["single", "district"].includes(String(ST.wonderMode || ST.wonderRecipe?.mode)) ? String(ST.wonderMode || ST.wonderRecipe?.mode) : "district"; }
   function currentWonderPalette() { return WONDER_PALETTES.find((p) => p.id === (ST.wonderPaletteId || ST.wonderRecipe?.paletteId)) || WONDER_PALETTES[0]; }
-  function currentWonderNameFallback() { return cleanWonderPromptClient(ST.wonderName || ST.wonderPrompt || "World Wonder").replace(/[^ws'’-]/g, " ").replace(/s+/g, " ").trim().slice(0, 42) || "World Wonder"; }
+  function currentWonderNameFallback() { return cleanWonderPromptClient(ST.wonderName || ST.wonderPrompt || "World Wonder").replace(/[^\w\s'’-]/g, " ").replace(/\s+/g, " ").trim().slice(0, 42) || "World Wonder"; }
+  function wonderRecipeForWire(b: any) {
+    if (!b || b.kind !== "worldwonder") return null;
+    const existing = b.wonder || null;
+    if (existing && (Array.isArray(existing.parts) && existing.parts.length || existing.name || existing.prompt)) return existing;
+    const size = normalizeWonderFootprintClient(existing?.footprint || b.footprint || WONDER_PLAZA_SIZE);
+    const accent = String(b.cl || "#ffd76e");
+    return {
+      name: b.nm || "World Wonder",
+      prompt: `${b.nm || "World Wonder"} tower landmark`,
+      footprint: size,
+      mode: "single",
+      paletteId: "solar",
+      palette: [accent, "#ffd76e", "#14f195", "#7dcfe8"],
+      aura: "gold",
+      parts: [{ primitive: "box", pos: [0, 1.05, 0], scale: [0.9, 2.1, 0.9], color: accent }],
+    };
+  }
   function setWonderName(value) {
-    ST.wonderName = String(value || "").replace(/[<>`{}]/g, " ").replace(/s+/g, " ").slice(0, 42);
+    ST.wonderName = String(value || "").replace(/[<>`{}]/g, " ").replace(/\s+/g, " ").slice(0, 42);
     invalidateWonderPlan(ST.wonderName ? `Wonder name set to ${ST.wonderName}. Click a valid map tile to generate and found it there.` : "Wonder name cleared. Type a prompt, then click a valid map tile to generate and found it.");
   }
   function setWonderFootprint(value) {
@@ -1073,7 +1090,7 @@ export default function mount() {
   }
 
   function cleanWonderPromptClient(value) {
-    return String(value || "").replace(/s+/g, " ").trim().slice(0, 180);
+    return String(value || "").replace(/\s+/g, " ").trim().slice(0, 180);
   }
   function wonderFactsLine() {
     const size = currentWonderSize();
@@ -1756,7 +1773,7 @@ export default function mount() {
       const plinth = territoryTopHex(b.ownerBody || ST.me?.body || 0x14f195, ST.me && b.owner === ST.me.id);
       const cs = constructionStateForBuilding(b);
       const labelName = b.capital && ST.me && !capitalLabelVisibleForPlayer(b, ST.me.x, ST.me.z) ? "" : b.nm;
-      const { group, parts } = b.kind === "road" ? makeRoadBuildingGroup(b) : makeBuildingGroup(b.kind, { nm: labelName, cl: b.cl, plinth, wonder: b.wonder, buildProgress: cs ? cs.progress : 1, buildUntil: cs ? cs.end : b.cdUntil });
+      const { group, parts } = b.kind === "road" ? makeRoadBuildingGroup(b) : makeBuildingGroup(b.kind, { nm: labelName, cl: b.cl, plinth, wonder: wonderRecipeForWire(b), buildProgress: cs ? cs.progress : 1, buildUntil: cs ? cs.end : b.cdUntil });
       decorateBuilding(group, b);
       group.position.set(b.x, 0.22, b.z); scene.add(group);
       // Buildings are intentionally static. Triggered use pulses animate them briefly.
@@ -1787,13 +1804,13 @@ export default function mount() {
           ? Math.max(0, Math.min(1, (Date.now() - buildStart) / Math.max(1, buildUntil - buildStart)))
           : 1;
         const buildBucket = buildUntil > Date.now() ? Math.floor(buildProgress * 20) : 20;
-        const sig = [b.kind, b.nm || "", b.cl || "", b.ownerBody, b.ownerFace || "", b.level, Math.ceil(b.hp), b.maxHp, b.cdUntil || 0, b.constructUntil || 0, buildBucket, b.wonder ? JSON.stringify(b.wonder) : ""].join("|");
+        const sig = [b.kind, b.nm || "", b.cl || "", b.ownerBody, b.ownerFace || "", b.level, Math.ceil(b.hp), b.maxHp, b.cdUntil || 0, b.constructUntil || 0, buildBucket, b.kind === "worldwonder" ? JSON.stringify(wonderRecipeForWire(b) || {}) : ""].join("|");
         let have = buildPool.get(b.uid);
         if (have && have.sig !== sig) { removeBuild(b.uid); have = null; }
         if (!have) {
           const plinth = territoryTopHex(b.ownerBody, ST.me && b.owner === ST.me.id);
           const labelName = b.capital && ST.me && !capitalLabelVisibleForPlayer(b, ST.me.x, ST.me.z) ? "" : b.nm;
-          const { group, parts } = b.kind === "road" ? makeRoadBuildingGroup(b) : makeBuildingGroup(b.kind, { nm: labelName, cl: b.cl, plinth, wonder: b.wonder, buildProgress, buildUntil: b.cdUntil });
+          const { group, parts } = b.kind === "road" ? makeRoadBuildingGroup(b) : makeBuildingGroup(b.kind, { nm: labelName, cl: b.cl, plinth, wonder: wonderRecipeForWire(b), buildProgress, buildUntil: b.cdUntil });
           decorateBuilding(group, b);
           group.position.set(b.x, 0.22, b.z); scene.add(group);
           // Buildings do not idle-spin/bob/flicker; interaction triggers a short pulse instead.
@@ -1805,7 +1822,7 @@ export default function mount() {
         }
         have.uid = b.uid; indexBuildAt(have);
         if (have.usedAt && Number(b.usedAt || 0) > Number(have.usedAt || 0)) animateBuildingUse(b.uid);
-        Object.assign(have, { acc: b.acc, accAt: b.accAt, cdUntil: b.cdUntil, constructAt: b.constructAt || 0, constructUntil: b.constructUntil || 0, usedAt: Number(b.usedAt || 0), ownerName: b.ownerName, ownerFace: b.ownerFace || null, nm: b.nm, cl: b.cl, level: b.level, hp: b.hp, maxHp: b.maxHp, stored: b.stored || 0, ownerBody: b.ownerBody, wonder: b.wonder || null, buildBucket });
+        Object.assign(have, { acc: b.acc, accAt: b.accAt, cdUntil: b.cdUntil, constructAt: b.constructAt || 0, constructUntil: b.constructUntil || 0, usedAt: Number(b.usedAt || 0), ownerName: b.ownerName, ownerFace: b.ownerFace || null, nm: b.nm, cl: b.cl, level: b.level, hp: b.hp, maxHp: b.maxHp, stored: b.stored || 0, ownerBody: b.ownerBody, wonder: wonderRecipeForWire(b) || null, buildBucket });
       }
       for (const uid of [...buildPool.keys()]) if (!seen.has(uid)) removeBuild(uid, true);
       const lootSeen = new Set();
@@ -3159,11 +3176,11 @@ export default function mount() {
       case "select-spawn-tool": return selectDeployTool();
       case "use-tool": advanceWalkthroughAction("use"); return doUseTool();
       case "select-building": return selectBuilding(readStr(el, "id"));
-      case "make-bomb": return say("Bombs were removed from the clean release. Use Attack/Raid pressure instead.", 2400);
-      case "craft-recipe": return say("Crafting is removed from the client for this release.", 2200);
+      case "make-bomb": return say("Bombs are unavailable. Use Attack or Raid pressure instead.", 2400);
+      case "craft-recipe": return say("Crafting is unavailable. Gather, capture tiles, and build from the Hammer menu.", 2200);
       case "select-spawn": return selectDeploy(readStr(el, "id"));
       case "home-cast": return startHomeCast();
-      case "use-pack-slot": return say("Packs are removed from the client for this release.", 2200);
+      case "use-pack-slot": return say("Packs are unavailable. Use the main toolbelt actions instead.", 2200);
       case "place-building": {
         const id = readStr(el, "id");
         if (id === "worldwonder") {
@@ -3177,7 +3194,7 @@ export default function mount() {
           if (r?.ok) { sfx.build(); world.shockwave(target.x, target.z, 0xffe2a8); ST.objectPreview = null; ST.panel = null; closeTools(); pollSoon(); paint(true); say(r.note || "Construction started.", 1800); }
         });
       }
-      case "foundation-build": return say("Foundations were removed. Select Hammer, click an empty owned tile, then choose a building from the right panel.", 2600);
+      case "foundation-build": return say("Select Hammer, click an empty captured tile, then choose a building from the right panel.", 2600);
       case "build-tile-choice": {
         const kind = readStr(el, "id");
         const target = ST.objectPreview || {};
@@ -3186,20 +3203,20 @@ export default function mount() {
           if (r?.ok) { sfx.build(); world.shockwave(target.x, target.z, 0xffe2a8); ST.objectPreview = null; ST.panel = null; closeTools(); pollSoon(); paint(true); say(r.note || "Construction started.", 1800); }
         });
       }
-      case "unequip": return say("Equipment is removed from the client for this release.", 2200);
+      case "unequip": return say("Equipment is unavailable right now.", 2200);
       case "pack-trophy": return say(`${readStr(el, "name", "Trophy")} — a trophy of the frontier.`);
-      case "pack-drop": return say("Packs are removed from the client for this release.", 2200);
+      case "pack-drop": return say("Packs are unavailable. Use the main toolbelt actions instead.", 2200);
       case "pack-spawn-select": ST.destroying = readStr(el, "id"); return selectDeployTool();
-      case "pack-equip": return say("Equipment is removed from the client for this release.", 2200);
-      case "learn-skill": return say("Skills are being rebuilt for the ECS release and are hidden for now.", 2200);
+      case "pack-equip": return say("Equipment is unavailable right now.", 2200);
+      case "learn-skill": return say("Skills are unavailable right now.", 2200);
       case "player-walk": if (ST.inspectPlayer) { const q = ST.inspectPlayer; ST.modal = null; ST.inspectPlayer = null; paint(); world.pathTo(q.x, q.z); } return;
       case "player-close": ST.modal = null; ST.inspectPlayer = null; paint(); return;
       case "trade-tab": if (!ST.serviceAccess) return directServiceHint("market"); ST.tradeTab = readStr(el, "tab", "market"); if (ST.tradeTab === "bank") loadBankStatus(); paint(); return;
-      case "post-offer": return say("Player escrow trading was removed from this release.", 2200);
-      case "cancel-offer": return say("Player escrow trading was removed from this release.", 2200);
-      case "accept-offer": return say("Player escrow trading was removed from this release.", 2200);
+      case "post-offer": return say("Player escrow trading is unavailable right now.", 2200);
+      case "cancel-offer": return say("Player escrow trading is unavailable right now.", 2200);
+      case "accept-offer": return say("Player escrow trading is unavailable right now.", 2200);
       case "withdraw-safe": return say("Use the Bank building or Capital Bank for withdrawals.", 2200);
-      case "redeem-main": return say("Old redeem flow was removed. Use the Bank building instead.", 2200);
+      case "redeem-main": return say("Use the Bank building for token services.", 2200);
       case "inspect-close": return closeInspectPanel();
       case "inspect-rename": return customizeInspect({ nm: (document.getElementById("sc-rename") || {}).value || "" });
       case "inspect-wonder-view": { ST.wonderViewUid = ST.inspect; ST.wonderViewError = ""; ST.modal = "wonder-view"; ST.panel = null; paint(true); mountWonderViewerSoon(); return; }
@@ -4121,7 +4138,7 @@ export default function mount() {
                 </div>
                 <div className="tiny">HP {b.hp || 220}{isAdminKeep ? " · event target" : ` · ${padNameForDef(b)} · ${isWonder ? Math.round(wonderBuildMsClient(currentWonderSize(), currentWonderMode()) / 1000) : Math.round(normalBuildMsClient(b) / 1000)}s construction`}</div>
                 {isWonder ? <div className="space-req wonder-quick-plan">
-                  <div className="recipe-req"><b>World Wonder:</b> one prompt → real AI plan → visible foundation → construction progress. No modal.</div>
+                  <div className="recipe-req"><b>World Wonder:</b> one prompt → real AI plan → visible construction → completion progress.</div>
                   <input className="wonder-prompt-line" maxlength="180" placeholder="Describe the landmark: school, dish, observatory, market..." value={ST.wonderPrompt || ""} data-input="wonder-prompt" />
                   <div className="tiny">Auto name: <b>{currentWonderNameFallback()}</b> · Cost {WORLD_WONDER_GOLD_COST}🪙 · Plan {WONDER_AI_TIME_HINT} · Build ~{Math.round(wonderBuildMsClient(currentWonderSize(), currentWonderMode()) / 1000)}s</div>
                   <div className="row wonder-mini-controls" style={{ gap: 6, flexWrap: "wrap", marginTop: 8 }}>
@@ -4210,7 +4227,7 @@ export default function mount() {
   }
 
   function CraftModal() {
-    return <div className="modal"><h2>Removed</h2><p className="tiny">Crafting, bombs, packs, and deployables are removed from the production loop. Gather, capture tiles, build starter buildings, donate coins for reputation, raid carefully, and found World Wonders.</p><div className="row" style={{ marginTop: 12 }}><button className="btn" data-click="modal-close">Close</button></div></div>;
+    return <div className="modal"><h2>Unavailable</h2><p className="tiny">Crafting, bombs, packs, and deployables are unavailable. Gather, capture tiles, build starter buildings, donate coins for reputation, raid carefully, and found World Wonders.</p><div className="row" style={{ marginTop: 12 }}><button className="btn" data-click="modal-close">Close</button></div></div>;
   }
 
   function IntroModal() {

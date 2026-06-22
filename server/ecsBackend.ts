@@ -36,6 +36,8 @@ function key(x: number, z: number) { return `${x | 0},${z | 0}`; }
 function cheb(x: number, z: number, x2: number, z2: number) { return Math.max(Math.abs((x | 0) - (x2 | 0)), Math.abs((z | 0) - (z2 | 0))); }
 function anchorOf(x: number, z: number) { return [Math.floor((x | 0) / ANCHOR_STEP) * ANCHOR_STEP, Math.floor((z | 0) / ANCHOR_STEP) * ANCHOR_STEP] as const; }
 function safeJson(raw: any, fallback: any) { try { return typeof raw === "string" ? JSON.parse(raw || "") : raw ?? fallback; } catch { return fallback; } }
+function wonderMetaKey(uid: number) { return `wonder:recipe:${Number(uid) || 0}`; }
+function readWonderRecipe(uid: number) { return safeJson(metaGet(wonderMetaKey(uid), "{}"), {}); }
 function cleanName(name: string, fallback = "Wanderer") { return String(name || fallback).trim().slice(0, 18) || fallback; }
 function randomSecret(prefix = "") { return `${prefix}${crypto.randomUUID()}`; }
 function num(v: any, fallback = 0) { const n = Number(v); return Number.isFinite(n) ? n : fallback; }
@@ -223,7 +225,7 @@ function worldRows(p: any, q: any, world: EcsWorld) {
   return {
     rev: ecsWorldRev(), ax, az,
     tiles: tiles.map((r) => ({ x: r.x, z: r.z, owner: r.owner, ownerBody: pinfo(r.owner).body, ownerName: pinfo(r.owner).name })),
-    buildings: buildings.map((b) => ({ uid: b.id, owner: b.owner, ownerName: pinfo(b.owner).name, ownerBody: pinfo(b.owner).body, ownerFace: null, kind: b.kind, x: b.x, z: b.z, nm: b.nm, cl: b.cl, acc: b.acc, accAt: b.accAt, cdUntil: b.cdUntil, constructAt: b.accAt, constructUntil: b.cdUntil, usedAt: b.usedAt || 0, level: b.level || 1, hp: b.hp, maxHp: b.maxHp, stored: b.stored || 0, wonder: null })),
+    buildings: buildings.map((b) => ({ uid: b.id, owner: b.owner, ownerName: pinfo(b.owner).name, ownerBody: pinfo(b.owner).body, ownerFace: null, kind: b.kind, x: b.x, z: b.z, nm: b.nm, cl: b.cl, acc: b.acc, accAt: b.accAt, cdUntil: b.cdUntil, constructAt: b.accAt, constructUntil: b.cdUntil, usedAt: b.usedAt || 0, level: b.level || 1, hp: b.hp, maxHp: b.maxHp, stored: b.stored || 0, wonder: b.kind === "worldwonder" ? readWonderRecipe(Number(b.id)) : null })),
     doodads: doodads.map((d) => ({ x: d.x, z: d.z, type: d.state === "gone" ? "gone" : d.state === "rock" ? "rock" : d.state === "food" ? "food" : "tree" })),
     loot: loot.map((l) => ({ id: l.id, x: l.x, z: l.z, kind: l.kind, gid: l.gid })),
     offers: (db.offers.select().where({ open: 1 }).orderBy("id", "DESC").limit(20).all() as any[]).map((o) => ({ id: o.id, byId: o.byId, byName: o.byName, gRes: o.gRes, gAmt: o.gAmt, wRes: o.wRes, wAmt: o.wAmt })),

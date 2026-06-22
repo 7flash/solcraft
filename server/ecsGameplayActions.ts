@@ -333,7 +333,7 @@ function actionUseBuilding(p: PlayerRow, body: any) {
   if (b.kind === "warehouse") return ok({ note: "Warehouse active — storage caps are online. If it falls, excess resources rot down to your cap." });
   if (b.kind === "vault") return ok({ service: "bank", note: "Bank vault active. Deposit and Withdraw live from the building preview when banking is enabled." });
   if (b.kind === "alchemy") return ok({ service: "customizer", cost: { g: 1 }, note: "Customizer active. Changing your doll costs 1 coin from this building." });
-  if (b.kind === "market") return ok({ service: "market", note: "Market active. Player escrow is removed; clean market rates will be configured later." });
+  if (b.kind === "market") return ok({ service: "market", note: "Market active. Player escrow is unavailable; market rates will be configured later." });
   if (b.kind === "townhall") return ok({ note: "Town Hall active — settlement authority is online." });
   return ok({ cosmetic: true, note: `${def.name || "Building"} responds.` });
 }

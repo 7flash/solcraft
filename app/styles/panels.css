@@ -1,0 +1,44 @@
+.build-first-rule,
+.building-clarity-list{
+  border-radius:14px;
+  background:rgba(255,255,255,.055);
+  border:1px solid rgba(255,255,255,.10);
+  padding:10px;
+  margin:10px 0;
+}
+.building-clarity-list{display:grid;gap:6px;}
+.building-clarity-list div{
+  display:grid;
+  grid-template-columns:86px 1fr;
+  gap:8px;
+  font-size:12px;
+  line-height:1.35;
+}
+.building-clarity-list b{
+  color:var(--sc-dusk-gold);
+  text-transform:uppercase;
+  letter-spacing:.04em;
+  font-size:11px;
+}
+.production-build-choice{display:grid;gap:4px;text-align:left;}
+.production-build-choice em{font-style:normal;color:var(--sc-dusk-gold);font-size:11px;font-weight:800;}
+.exchange-widget{display:grid;gap:12px;}
+.exchange-hero,
+.exchange-balances,
+.exchange-card{
+  border:1px solid rgba(255,255,255,.12);
+  background:rgba(255,255,255,.055);
+  border-radius:18px;
+  padding:14px;
+}
+.exchange-balances{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;}
+.exchange-balance{display:grid;gap:4px;}
+.exchange-balance b{font-size:22px;}
+@media (max-width:720px){
+  .ui31-entry-fields,
+  .exchange-balances{grid-template-columns:1fr;}
+  .ui31-login-loop{grid-template-columns:repeat(2,minmax(0,1fr));}
+  .notice-rail.production-notice-rail{left:12px;right:12px;top:12px;}
+  .building-clarity-list div{grid-template-columns:1fr;}
+  .settings-panel.pause-panel{width:calc(100vw - 16px);border-radius:18px;}
+}

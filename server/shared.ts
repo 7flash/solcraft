@@ -335,12 +335,12 @@ for (const b of LIBRARY) {
     b.effect = `+${TOWNHALL_TILE_CAP_BONUS} tile capacity and +${TOWNHALL_STORAGE_BONUS} storage.`;
   }
   if (b.id === "academy") {
-    b.blurb = `Legacy research building hidden from the production surface.`;
-    b.effect = `Removed from production build.`;
+    b.blurb = `Unavailable right now.`;
+    b.effect = `Unavailable right now.`;
   }
   if (b.id === "workshop") {
     b.blurb = "Legacy workshop hidden from the production surface.";
-    b.effect = "Removed from production build.";
+    b.effect = "Unavailable right now.";
   }
   if (b.id === "alchemy") {
     b.blurb = "Brews elixirs for travel, energy, and defense.";
@@ -617,17 +617,17 @@ export const MILESTONES: { text: string; done: (s: MsState) => boolean }[] = [
   { text: "Build a Coin Mint so purse coins can be exchanged into $CRAFTS", done: (s) => s.buildIds.includes("goldmine") },
   { text: "Protect your mint with towers, warehouses, vaults, and good street spacing", done: (s) => s.buildIds.includes("watchtower") || s.buildIds.includes("vault") || s.buildIds.includes("warehouse") },
 ];
-export const FINAL_TEXT = "World of SolCrafts: claim territory, collect taxed coins, defend city infrastructure, and exchange coins into $CRAFTS.";
+export const FINAL_TEXT = "World of SolCrafts: claim territory, gather resources, build settlements, earn coins, and grow your reputation.";
 
 /* ---------- the economy loop, single source of copy ---------- */
 export const ECONOMY = {
-  intro: "World of SolCrafts is a Solana MMORPG economy: Energy, Wood, Stone, Coins, Science, Territory, Destroy tools, and $CRAFTS all connect.",
+  intro: "World of SolCrafts is a shared world economy: Energy, Wood, Stone, Food, Coins, Territory, Reputation, and Wonders all connect.",
   energy: `Energy fuels movement, gathering, claiming, sieging, and destroying. Movement costs ${ECONOMY_RULES.moveEnergy}⚡ per tile and refills quickly, while the Return Scroll is infinite with a cast delay. Everyone has a ${ECONOMY_RULES.energyCap} energy bar. Refills use a concave $CRAFTS holding curve: citizens get a real floor, committed holders get more throughput, and whales hit a hard cap.`,
   crafts: `The refill curve is absolute, not rank-griefable: ${ECONOMY_RULES.energyRegenBasePerMinute}⚡/min floor plus a capped ${ECONOMY_RULES.energyRegenBonusPerMinute}⚡/min bonus at ${ECONOMY_RULES.energyRefHold.toLocaleString()} $CRAFTS.`,
-  resources: `Wood and stone are gathered from adjacent trees and rocks. Buildings cost only resources, not energy. Destroy tools are crafted first, then deployed from the Deploy action. Crafting spends science only; defusing enemy tools costs energy.`,
+  resources: `Wood, stone, and food are gathered from the world and share one material storage pool. Starter buildings use wood; stone supports territory and later construction. Warehouses increase shared storage.`,
   gold: `Coins spawn on claimed territory. Anyone can pick them up by walking over them; when a coin is picked up on someone else's land, that land owner receives a tax fee. More claimed land means more possible spawn locations.`,
-  redeem: `At an active Coin Mint, purse coins can be exchanged at the fixed launch rate of ${GOLD_PER_CRAFTS_FIXED}🪙 = 1 $CRAFTS. The channel takes ${ECONOMY_RULES.withdrawMs / 1000}s.`,
-  land: "Claims take empty connected land and can recapture enemy tiles that are cut off from that owner’s flag. Connected enemy land still needs siege pressure before it changes hands.",
+  redeem: `Coins are soft gameplay currency. Spend them on reputation, services, and World Wonders; token withdrawals use deposited token balance at the Bank.`,
+  land: "Reputation defines how many tiles you can claim. Capture early tiles, build a House as a travel point, and expand by donating coins or founding World Wonders.",
 } as const;
 
 /* ---------- wire types (API payloads) ---------- */

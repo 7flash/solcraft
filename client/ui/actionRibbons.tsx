@@ -58,7 +58,7 @@ export function ActionRibbon(props: any) {
   </div> : null;
 
   if (adminOpen) return <div className="build-ribbon admin-ribbon">
-    <div className="build-sep"><b>{t("ribbon.adminTitle", "Admin world ops")}</b><small>{t("ribbon.adminText", "server-authoritative cleanup and event spawning")}</small></div>
+    <div className="build-sep"><b>{t("ribbon.adminTitle", "Admin world ops")}</b><small>{t("ribbon.adminText", "world cleanup and event spawning")}</small></div>
     <div className="wonder-line-row small">
       <button className={"btn" + (state.adminTool === "demolish" ? " primary" : "")} data-click="admin-tool" data-tool="demolish">{t("ribbon.adminDemolish", "Demolish clicked object")}</button>
       <button className={"btn" + (state.adminTool === "spawnKeep" ? " primary" : "")} data-click="admin-tool" data-tool="spawnKeep">{t("ribbon.adminSpawnKeep", "Spawn Keep on click")}</button>
@@ -120,7 +120,7 @@ export function ActionRibbon(props: any) {
     </button>
   </div>;
 
-  if (craftOpen || spawnOpen) return <div className="build-ribbon craft-ribbon"><div className="build-sep"><b>Removed</b><small>Crafting, bombs, packs, and deployables are disabled for this ECS release.</small></div></div>;
+  if (craftOpen || spawnOpen) return <div className="build-ribbon craft-ribbon"><div className="build-sep"><b>Unavailable</b><small>Crafting, bombs, packs, and deployables are unavailable.</small></div></div>;
 
   if (useOpen) return <div className="build-ribbon use-ribbon"><div className="build-sep"><b>{t("ribbon.useTitle", "Use")}</b><small>Use nearby buildings from their preview. Return home from travel controls.</small></div></div>;
 
