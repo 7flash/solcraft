@@ -7,6 +7,7 @@ export type ReputationReason =
   | "keepRaid"
   | "keepBreach"
   | "buildingAttack"
+  | "playerAttack"
   | "tileDestroy"
   | "worldWonder"
   | "admin";
@@ -48,6 +49,7 @@ export const DEFAULT_REPUTATION_CONFIG: ReputationConfig = {
     keepRaid: -2,
     keepBreach: -16,
     buildingAttack: -3,
+    playerAttack: -1,
     tileDestroy: -5,
     worldWonder: 35,
     admin: 0,

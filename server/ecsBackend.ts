@@ -9,6 +9,8 @@ import { reputationSummaryForWire, tileCapacityForPlayer, storageCapsForPlayer }
 import { cleanEconomyTick, cleanEconomyStatus, cleanPlayerEconomySummary } from "./cleanEconomy";
 import { dispatchEcsGameplayAction, ecsGameplayStatus, ecsGameplaySupportedActionTypes } from "./ecsGameplayActions";
 import { activeActionSurface, removedFeatureResponse } from "./removedFeatures";
+import { cleanBuildKindResponse } from "./cleanRelease";
+import { recordActivity, logError } from "./activityLog";
 
 export type EcsPlayerRow = any;
 export type WalletAuthInput = { wallet?: string; message?: string; signature?: string } | null | undefined;
@@ -287,6 +289,10 @@ export function dispatch(p: EcsPlayerRow, body: any) {
     return out;
   }
   if (type === "pickup") body = { ...body, type: "harvest" };
+  if (type === "place") {
+    const blocked = cleanBuildKindResponse(body.kind);
+    if (blocked) { logEcsAction(fresh.id, type, blocked, "ecs-clean-build"); return { ...blocked, backend: "ecs" }; }
+  }
   if (!ECS_ACTION_TYPES.has(type)) { const r = { ok: false, msg: `ECS backend does not implement action: ${type}`, reasonCode: "ECS_ACTION_NOT_IMPLEMENTED", details: { type, gameplaySupported: ecsGameplaySupportedActionTypes() } }; logEcsAction(p.id, type, r); return r; }
   const before = loadEcsWorld({ playerId: fresh.id, ax: body.x ?? fresh.x, az: body.z ?? fresh.z, radius: 96 });
   const after = cloneWorld(before);
@@ -310,9 +316,16 @@ export function runWorldTick(reason = "manual") {
   const t = now();
   if (t - ecsTickAt < 900 && reason !== "manual") return { ok: true, skipped: true, backend: "ecs", at: ecsTickAt };
   ecsTickAt = t;
-  const economy = buildingResourceTick(t);
-  if (reason === "manual") mirrorLegacyToEcsTables("tick-manual");
-  return { ok: true, backend: "ecs", at: ecsTickAt, reason, economy };
+  try {
+    const economy = buildingResourceTick(t);
+    if (reason === "manual") mirrorLegacyToEcsTables("tick-manual");
+    const out = { ok: true, backend: "ecs", at: ecsTickAt, reason, economy };
+    if (reason !== "interval" || Math.random() < 0.02) recordActivity({ route: "worldTick", action: reason, backend: "ecs" }, "worldTick", out);
+    return out;
+  } catch (e: any) {
+    logError({ route: "worldTick", action: reason, backend: "ecs" }, "ecs.worldTick.failed", e, { reasonCode: "WORLD_TICK_FAILED" });
+    return { ok: false, backend: "ecs", at: ecsTickAt, reason, msg: String(e?.message || e || "world tick failed") };
+  }
 }
 
 export function ensureWorldTickStarted() {

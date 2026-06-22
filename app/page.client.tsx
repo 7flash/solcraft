@@ -167,7 +167,7 @@ export default function mount() {
     profile: { name: "", body: BODY_COLORS[0], hat: HAT_COLORS[0], wallet: "" },
     characterProfile: loadCharacterProfile(),
     me: null, rev: 0, ax: 1e6, az: 1e6, chatId: 0, mapRev: -1,
-    players: [], offers: [], leaderboard: [], goldSources: [], map: { rev: -1, tiles: [], buildings: [], loot: [], players: [] },
+    players: [], offers: [], leaderboard: [], map: { rev: -1, tiles: [], buildings: [], loot: [], players: [] },
     visual: loadVisualSettings(), ui: loadUiSettings(),
     mode: "explore", placing: null, tool: "none", destroying: DESTROY_TOOLS[0]?.id || "popper",
     near: { i: null, g: null, r: null, m: false },
@@ -491,7 +491,7 @@ export default function mount() {
     ST.visual = saveVisualSettings({ ...ST.visual, ...change });
     setTerrainVisualPrefs(ST.visual);
     world?.applyVisualQuality?.(ST.visual);
-    loadAtlasRuntimeConfig(true).finally(() => { for (const [, c] of world.cells) c.owner = -1; world.refreshWindow?.(true); paint(true); });
+    loadAtlasRuntimeConfig(true).finally(() => { for (const [, c] of world.cells) c.owner = -1; world.refreshWindow?.(true); paint(); });
   }
   function setCameraZoom(value, toast = false) {
     const next = clampCameraZoom(value, ST.visual?.cameraZoom || 1);
@@ -500,7 +500,7 @@ export default function mount() {
     world?.refreshWindow?.(true);
     // Zoom is a continuous control; do not spam player-facing notifications.
     void toast;
-    paint(true);
+    paint();
     return next;
   }
   function stepCameraZoom(delta) {
@@ -511,7 +511,7 @@ export default function mount() {
     ST.visual = saveVisualSettings({ ...ST.visual, cameraYaw: next });
     world?.refreshCameraRotation?.();
     if (toast) say(t("toast.cameraRotated", "Camera rotated {degrees}°", { degrees: cameraYawDeg(next) }), 900);
-    paint(true);
+    paint();
     return next;
   }
   function stepCameraYaw(delta = CAMERA_ROTATION_STEP) {
@@ -523,7 +523,7 @@ export default function mount() {
     world?.refreshCameraRotation?.();
     world?.refreshWindow?.(true);
     say(t("toast.cameraReset", "Camera reset."), 900);
-    paint(true);
+    paint();
   }
   function setMapView() {
     setCameraZoom(2.05, true);
@@ -1160,9 +1160,7 @@ export default function mount() {
       camera.left = -view * a; camera.right = view * a;
       camera.top = view; camera.bottom = -view;
       camera.updateProjectionMatrix();
-      const zoom = clampCameraZoom(ST.visual?.cameraZoom, 1);
-      scene.fog.near = Math.max(24, 16 * zoom);
-      scene.fog.far = Math.max(58, 54 * zoom);
+      applyFogDistance();
     };
     function currentTileLoadRadius() {
       const aspect = W() / Math.max(1, H());
@@ -1170,6 +1168,14 @@ export default function mount() {
       // streaming/rendering the entire infinite world into Three.js.
       const needed = Math.ceil(view * Math.max(1, aspect) + 12);
       return Math.max(TILE_LOAD_R, Math.min(Math.min(TILE_LOAD_R_MAX, 44), needed));
+    }
+    function applyFogDistance(day: any = null) {
+      const zoom = clampCameraZoom(ST.visual?.cameraZoom, 1);
+      const near = day == null ? Math.max(24, 16 * zoom) : 24 + Number(day || 0) * 5;
+      const zoomFar = day == null ? Math.max(58, 54 * zoom) : Math.max(58, 56 + Number(day || 0) * 14);
+      const streamFar = Math.max(58, currentTileLoadRadius() * 0.9);
+      scene.fog.near = near;
+      scene.fog.far = Math.max(near + 18, Math.min(zoomFar, streamFar));
     }
     setFrustum();
     function desiredCameraOffset() {
@@ -1204,7 +1210,7 @@ export default function mount() {
       hemi.color.set(day < 0.28 ? 0xaec4ff : 0xffefd8);
       hemi.groundColor.set(day < 0.28 ? 0x283452 : 0x6f614f);
       scene.fog.color.set(day < 0.28 ? 0x222d4a : dusk > 0.55 ? 0x93745f : 0xb7a77a);
-      scene.fog.near = 24 + day * 5; scene.fog.far = 56 + day * 14;
+      applyFogDistance(day);
       const angle = phase * Math.PI * 2;
       sunOffset.set(Math.cos(angle) * 12, 5 + day * 11, Math.sin(angle) * 12);
       const bucket = Math.floor(day * 16 + dusk * 4);
@@ -1261,7 +1267,7 @@ export default function mount() {
       return arr;
     }
 
-    const cells = new Map(), doodadPool = new Map(), buildPool = new Map(), buildAt = new Map(), sourcePool = new Map(), npcPool = new Map();
+    const cells = new Map(), doodadPool = new Map(), buildPool = new Map(), buildAt = new Map(), npcPool = new Map();
     const lootPool = new Map(), rigPool = new Map(), tradePostPool = new Map(), exceptions = new Map(), tileOwner = new Map();
     const roadPool = new Map(), districtPool = new Map();
     const roadGeo = new THREE.PlaneGeometry(0.70, 0.70);
@@ -1551,8 +1557,11 @@ export default function mount() {
         const mesh = new THREE.Mesh(tileGeo, wantMats);
         mesh.scale.y = wantH; mesh.position.set(x, wantH / 2, z);
         mesh.castShadow = false; mesh.receiveShadow = true; mesh.userData = { x, z };
-        scene.add(mesh); cell = { mesh, owner: (t && t.owner) || 0, body: (t && t.body) || 0 }; cells.set(k, cell);
-      } else if (cell.owner !== ((t && t.owner) || 0) || cell.body !== ((t && t.body) || 0)) {
+        scene.add(mesh); cell = { mesh, owner: (t && t.owner) || 0, body: (t && t.body) || 0, cx: x, cz: z }; cells.set(k, cell);
+      } else {
+        cell.cx = x; cell.cz = z;
+      }
+      if (cell.owner !== ((t && t.owner) || 0) || cell.body !== ((t && t.body) || 0)) {
         cell.mesh.material = wantMats; cell.mesh.scale.y = wantH; cell.mesh.position.y = wantH / 2;
         cell.owner = (t && t.owner) || 0; cell.body = (t && t.body) || 0;
       }
@@ -1570,7 +1579,7 @@ export default function mount() {
         b.group.visible = cheb(b.x, b.z, px, pz) <= r + 1 && cells.has(key(b.x, b.z));
       }
       for (const l of lootPool.values()) if (l?.group) l.group.visible = cheb(l.x, l.z, px, pz) <= r + 1 && cells.has(key(l.x, l.z));
-      for (const gs of sourcePool.values()) if (gs?.group) gs.group.visible = cheb(gs.x, gs.z, px, pz) <= r + 1 && cells.has(key(gs.x, gs.z)); for (const npc of npcPool.values()) if (npc?.group) npc.group.visible = cheb(npc.x, npc.z, px, pz) <= r + 1 && cells.has(key(npc.x, npc.z));
+      for (const npc of npcPool.values()) if (npc?.group) npc.group.visible = cheb(npc.x, npc.z, px, pz) <= r + 1 && cells.has(key(npc.x, npc.z));
       updateWonderDistrictRoads();
     }
     function refreshWindow(force = false) {
@@ -1578,12 +1587,12 @@ export default function mount() {
       if (!force && Math.max(Math.abs(px - winX), Math.abs(pz - winZ)) <= TILE_WINDOW_HYSTERESIS) { syncWorldVisibility(); return; }
       winX = px; winZ = pz;
       for (const [k, c] of cells) {
-        const [cx, cz] = k.split(",").map(Number);
+        const cx = Number.isFinite(c.cx) ? c.cx : Number(String(k).split(",")[0]);
+        const cz = Number.isFinite(c.cz) ? c.cz : Number(String(k).split(",")[1]);
         if (cheb(cx, cz, px, pz) > r + 2) {
           scene.remove(c.mesh); cells.delete(k);
           const d = doodadPool.get(k); if (d) { scene.remove(d.group); doodadPool.delete(k); }
           const tp = tradePostPool.get(k); if (tp) { scene.remove(tp.group); tradePostPool.delete(k); } const npc = npcPool.get(k); if (npc) { scene.remove(npc.group); npcPool.delete(k); }
-          const gs = sourcePool.get(k); if (gs && cheb(cx, cz, px, pz) > r + 3) { scene.remove(gs.group); sourcePool.delete(k); }
           const rd = roadPool.get(k); if (rd) { scene.remove(rd); roadPool.delete(k); }
         }
       }
@@ -1601,36 +1610,7 @@ export default function mount() {
       refreshWindow(true);
     }
 
-    function ensureGoldSource(src) {
-      if (!src) return;
-      const k = key(src.x, src.z), sig = [src.state, src.owner || 0, Math.ceil(src.hp || 0), src.mineUid || 0, src.stored || 0].join("|");
-      let have = sourcePool.get(k);
-      if (have && have.sig === sig) return;
-      if (have) { scene.remove(have.group); sourcePool.delete(k); }
-      const g = new THREE.Group();
-      const color = src.state === "barb" ? 0xff705c : src.state === "mining" ? 0xffd76e : src.state === "ruined" ? 0x9fb2bd : 0x14f195;
-      const pad = new THREE.Mesh(new THREE.CylinderGeometry(0.62, 0.72, 0.08, 8), M(0x463b2e, { roughness: 1 }));
-      pad.position.y = 0.02; pad.receiveShadow = true; g.add(pad);
-      const inner = new THREE.Mesh(new THREE.CylinderGeometry(0.46, 0.5, 0.045, 24), M(src.state === "mining" ? 0x6b5121 : 0x5e6b71, { roughness: 0.95 }));
-      inner.position.y = 0.09; inner.receiveShadow = true; g.add(inner);
-      const ring = new THREE.Mesh(new THREE.RingGeometry(0.48, 0.62, 48), new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.62, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide }));
-      ring.rotation.x = -Math.PI / 2; ring.position.y = 0.14; g.add(ring);
-      const beam = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.18, 1.2, 16, 1, true), new THREE.MeshBasicMaterial({ color, transparent: true, opacity: src.state === "barb" ? 0.10 : 0.18, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide }));
-      beam.position.y = 0.72; g.add(beam);
-      if (src.state === "barb") {
-        const camp = new THREE.Mesh(new THREE.ConeGeometry(0.34, 0.52, 5), M(0x7b4a35, { roughness: 1 })); camp.position.y = 0.44; camp.castShadow = true; g.add(camp);
-        const skull = new THREE.Mesh(new THREE.SphereGeometry(0.11, 10, 8), M(0xf3ead7, { roughness: 1 })); skull.position.set(0.12, 0.74, 0.1); g.add(skull);
-        g.add(makeLabel(`Coin ${Math.ceil(src.hp || 0)}HP`, "#ffd6ce"));
-      } else if (src.state === "mining") {
-        const gem = new THREE.Mesh(new THREE.OctahedronGeometry(0.34), ME(0xffd76e, 0xffb43d, 1)); gem.position.y = 0.55; g.add(gem); spinsY.push(gem);
-        g.add(makeLabel(`${src.stored || 0}🪙 / ${src.cap || 2000}`, "#fff0b8"));
-      } else {
-        const gem = new THREE.Mesh(new THREE.OctahedronGeometry(0.25), ME(color, color, 0.7)); gem.position.y = 0.42; g.add(gem); bobbers.push(gem);
-        g.add(makeLabel(src.state === "ruined" ? "Ruined source" : "territory coin", "#ffd76e"));
-      }
-      g.position.set(src.x, 0.26, src.z); scene.add(g); sourcePool.set(k, { group: g, sig, ...src });
-    }
-    function sourceAt(x, z) { return sourcePool.get(key(x, z)) || null; }
+    // Gold source/ruin client meshes were removed: the server now returns no runtime gold sources.
     function makeRoadBuildingGroup(b) {
       const g = new THREE.Group();
       const mat = (ST.me && Number(b.owner) === Number(ST.me.id)) ? roadMatMine : roadMat;
@@ -1718,9 +1698,7 @@ export default function mount() {
         anims.push({ kind: "up", obj: l.group, t: 0, dur: 0.3, done: () => scene.remove(l.group) });
         lootPool.delete(id);
       }
-      ST.goldSources = [];
-      for (const [, gs] of [...sourcePool]) { scene.remove(gs.group); }
-      sourcePool.clear();
+      // Gold Sources/Ruins are deprecated server-side; coins now arrive as loot/pickups.
       const nextWorldRev = Number(w.rev || 0);
       const worldChanged = nextWorldRev !== lastWorldPaintRev;
       lastWorldPaintRev = nextWorldRev;
@@ -2144,7 +2122,7 @@ export default function mount() {
         }
       }
       if (decorStep) for (const c of clouds) { c.position.x += c.userData.v * visualPerf.decorStep; if (c.position.x > me.x + 30) c.position.x = me.x - 30; }
-      const camEase = visualPerf.cameraMode === "classic" ? 0.075 : visualPerf.cameraMode === "low" ? 0.12 : 1 - Math.pow(0.001, dt);
+      const camEase = visualPerf.cameraMode === "classic" ? 0.13 : visualPerf.cameraMode === "low" ? 0.16 : 1 - Math.pow(0.001, dt);
       camTarget.x += (player.position.x - camTarget.x) * camEase;
       camTarget.z += (player.position.z - camTarget.z) * camEase;
       camera.position.copy(camTarget).add(camOffset); camera.lookAt(camTarget);
@@ -2176,7 +2154,7 @@ export default function mount() {
       refreshOwnRig: () => ensureRig(true),
       applyVisualQuality,
       hasPendingMove,
-      tileOwner, buildPool, buildAt, lootPool, rigPool, tradePostPool, sourcePool, sourceAt, cells,
+      tileOwner, buildPool, buildAt, lootPool, rigPool, tradePostPool, cells,
       rotateCam: (delta = CAMERA_ROTATION_STEP) => stepCameraYaw(delta),
       refreshCameraRotation: () => {},
       refreshCameraZoom: () => setFrustum(),
@@ -2512,7 +2490,7 @@ export default function mount() {
     return N4.some(([dx, dz]) => world.tileOwner.get(key(x + dx, z + dz))?.owner === ST.me?.id);
   }
   function padRadiusForDef(def) { return def?.id === "worldwonder" ? wonderRadiusClient(currentWonderSize()) : 1; }
-  function padNameForDef(def) { return def?.id === "worldwonder" ? `${currentWonderSize()}×${currentWonderSize()} Wonder plaza` : "building foundation"; }
+  function padNameForDef(def) { return def?.id === "worldwonder" ? `${currentWonderSize()}×${currentWonderSize()} Wonder plaza` : "direct construction site"; }
   function padOffsetsForDef(def) {
     const r = padRadiusForDef(def);
     const out = [];
@@ -2633,14 +2611,15 @@ export default function mount() {
     return false; // player-owned territory is protected; expansion happens into open frontier.
   }
   function eachVisibleCell(fn) {
-    for (const [k] of world.cells) {
-      const [x, z] = k.split(",").map(Number);
-      fn(x, z);
-    }
+    for (const [, c] of world.cells) fn(c.cx, c.cz);
   }
   function updateHints() {
-    world?.refreshOwnRig?.();
     if (ST.screen !== "playing" || !ST.me || ST.modal) { world.setHintCells([]); world.hideBuildGhost(); return; }
+    const tool = ST.tool, mode = ST.mode;
+    const wantsScan = tool === "wood" || tool === "stone" || tool === "claim"
+      || tool === "spawn" || tool === "siege" || tool === "use"
+      || mode === "build" || mode === "place";
+    if (!wantsScan) { world.setHintCells([]); if (mode !== "place") world.hideBuildGhost(); return; }
     const cells = [];
     const push = (x, z, color, opacity = 0.20) => cells.push({ x, z, color, opacity });
     if (ST.tool === "wood" || ST.tool === "stone") {
@@ -3165,8 +3144,9 @@ export default function mount() {
   }
 
 
-  const FOUNDATION_CHOICES = FOUNDATION_BUILD_KINDS.map((id) => LIB_BY_ID[id]).filter(Boolean);
-  const BUILDABLES = LIBRARY.filter((b) => b.id === FOUNDATION_KIND || b.id === "worldwonder");
+  const FOUNDATION_CHOICES = [];
+  const CLEAN_BUILDABLE_IDS = new Set(["cottage", "warehouse", "lumber", "quarry", "farm", "market", "vault", "alchemy", "townhall", "worldwonder"]);
+  const BUILDABLES = LIBRARY.filter((b) => CLEAN_BUILDABLE_IDS.has(String(b.id || "")));
   const ADMIN_KEEP_BUILDING = {
     id: "admin_keep",
     name: "Admin Keep",
@@ -3187,13 +3167,16 @@ export default function mount() {
   function buildingRoleLine(b) {
     if (b.id === "cottage") return `House · expands tile capacity so your borders can grow`;
     if (b.id === "warehouse") return `Warehouse · expands storage for long frontier builds`;
-    if (b.id === "academy") return `Market · helps coin flow around your settlement`;
-    if (b.id === "workshop") return `Workshop · legacy siege workshop`;
-    if (b.id === "alchemy") return `Alchemy Shop · brews travel and defense elixirs`;
+    if (b.id === "academy") return `Removed legacy academy`;
+    if (b.id === "workshop") return `Removed legacy siege workshop`;
+    if (b.id === "alchemy") return `Customizer · change your doll from a world building for 1 coin`;
     if (b.id === "worldwonder") return `World Wonder · prompt-built coin monument and teleport point`;
-    if (b.id === GOLD_MINE_KIND) return `Coin Mint · redeem purse coins nearby · upgrades boost owned-territory coin and tax income`;
-    if (b.id === "lumber") return `Lumber Camp · replants trees · upgrades boost wood from every tree on your territory`;
-    if (b.id === "quarry") return `Quarry · spawns rocks · upgrades boost stone from every rock on your territory`;
+    if (b.id === GOLD_MINE_KIND) return `Removed coin source · use Keeps, NPCs, and bank flows`;
+    if (b.id === "vault") return `Bank · deposit and withdraw actions live from this building preview`;
+    if (b.id === "market") return `Market · future clean fixed-rate exchange, no player escrow`;
+    if (b.id === "lumber") return `Lumber Camp · spawns trees nearby; cut and gather manually`;
+    if (b.id === "quarry") return `Quarry · spawns rocks nearby; mine and gather manually`;
+    if (b.id === "farm") return `Farm · grows crops nearby; cut and gather food manually`;
     const parts = [];
     if (b.effect) parts.push(b.effect);
     if (b.storageBonus) parts.push(`+${b.storageBonus} storage`);
@@ -3246,7 +3229,7 @@ export default function mount() {
   }
   function selectWonderTool() {
     if (ST.mode === "wonder" || ST.tool === "wonder") { ST.wonderMsg = ""; closeTools(); }
-    else openWonderPlanner("Describe a World Wonder, generate the AI plan, then place its foundation.");
+    else openWonderPlanner("Describe a World Wonder, generate the AI plan, then found it in the wild.");
   }
   function selectBuilding(id) {
     const reason = buildingUnavailableReason(id);
@@ -3550,7 +3533,7 @@ export default function mount() {
           </div>
         </div> : null}
         <div className="grid">
-          {([ADMIN_KEEP_BUILDING, ...BUILDABLES]).map((b) => {
+          {((isAdminPlayer() ? [ADMIN_KEEP_BUILDING, ...BUILDABLES] : BUILDABLES)).map((b) => {
             const isWonder = b.id === "worldwonder";
             const isAdminKeep = b.id === "admin_keep";
             const locked = !isWonder && !isAdminKeep && (m?.territory || 0) < (b.unlock || 0);
@@ -3889,7 +3872,7 @@ export default function mount() {
       case "place-building": {
         const id = readStr(el, "id");
         if (id === "worldwonder") {
-          if (!ST.wonderRecipe) return openWonderPlanner("Generate the AI plan first from the inline build bar. Then place the foundation once.");
+          if (!ST.wonderRecipe) return openWonderPlanner("Generate the AI plan first, then found the Wonder in a valid wild location.");
           enterWonderPlacement();
           return;
         }
@@ -3899,17 +3882,13 @@ export default function mount() {
           if (r?.ok) { sfx.build(); world.shockwave(target.x, target.z, 0xffe2a8); ST.objectPreview = null; ST.panel = null; closeTools(); pollSoon(); paint(true); say(r.note || "Construction started.", 1800); }
         });
       }
-      case "foundation-build":
+      case "foundation-build": return say("Foundations were removed. Select Hammer, click an empty owned tile, then choose a building from the right panel.", 2600);
       case "build-tile-choice": {
         const kind = readStr(el, "id");
         const target = ST.objectPreview || {};
-        if (target.kind === "buildTile") {
-          return act("place", { kind, x: target.x, z: target.z }).then((r) => {
-            if (r?.ok) { sfx.build(); world.shockwave(target.x, target.z, 0xffe2a8); ST.objectPreview = null; ST.panel = null; closeTools(); pollSoon(); paint(true); say(r.note || `${foundationChoiceLabel(kind)} construction started.`, 1800); }
-          });
-        }
-        return act("completeFoundation", { uid: ST.inspect, kind }).then((r) => {
-          if (r?.ok) { sfx.build(); pollSoon(); paint(true); say(`${foundationChoiceLabel(kind)} construction started.`, 1800); }
+        if (target.kind !== "buildTile") { sfx.err(); return say("Select an empty owned tile with the Hammer first.", 2200); }
+        return act("place", { kind, x: target.x, z: target.z }).then((r) => {
+          if (r?.ok) { sfx.build(); world.shockwave(target.x, target.z, 0xffe2a8); ST.objectPreview = null; ST.panel = null; closeTools(); pollSoon(); paint(true); say(r.note || "Construction started.", 1800); }
         });
       }
       case "unequip": return act("unequip", { slot: readStr(el, "slot") }).then((r) => r && r.ok && sfx.equip());
@@ -4071,13 +4050,13 @@ export default function mount() {
     if (kind === "camera-rotation") return setCameraYaw(Number(input.value) * Math.PI / 180);
     if (kind === "wonder-name") {
       setWonderName(input.value || "");
-      paint(true);
+      paint(true, ["bottom", "modal", "utility"]);
       return;
     }
     if (kind === "wonder-prompt") {
       ST.wonderPrompt = cleanWonderPromptClient(input.value);
       invalidateWonderPlan(ST.wonderPrompt ? `Prompt set. Click a valid map tile to generate and found it. ${wonderFactsLine()}.` : "");
-      paint(true);
+      paint(true, ["bottom", "modal", "utility"]);
       return;
     }
     if (kind === "char-color") return setCharacterPalette(input.getAttribute("data-key"), input.value);
@@ -4091,10 +4070,10 @@ export default function mount() {
     if (kind === "motion-feel") return setVisual({ motion: input.value });
     if (kind === "camera-zoom") return setCameraZoom(Number(input.value), true);
     if (kind === "camera-rotation") return setCameraYaw(Number(input.value) * Math.PI / 180, true);
-    if (kind === "wonder-name-select") { setWonderName(input.value || ""); return paint(true); }
-    if (kind === "wonder-footprint-select") { setWonderFootprint(input.value); return paint(true); }
-    if (kind === "wonder-mode-select") { setWonderMode(input.value); return paint(true); }
-    if (kind === "wonder-palette-select") { setWonderPalette(input.value); return paint(true); }
+    if (kind === "wonder-name-select") { setWonderName(input.value || ""); return paint(true, ["bottom", "modal", "utility"]); }
+    if (kind === "wonder-footprint-select") { setWonderFootprint(input.value); return paint(true, ["bottom", "modal", "utility"]); }
+    if (kind === "wonder-mode-select") { setWonderMode(input.value); return paint(true, ["bottom", "modal", "utility"]); }
+    if (kind === "wonder-palette-select") { setWonderPalette(input.value); return paint(true, ["bottom", "modal", "utility"]); }
     if (kind === "char-show-back") return setCharacterFlag("showBack", !!input.checked);
   }
   function onDelegatedHudKeyDown(ev) {
@@ -4798,7 +4777,7 @@ export default function mount() {
     if (ST.screen !== "playing" || !m) return "x";
     /* energy/hp deliberately EXCLUDED — the ticker mutates them in place */
     return [m.name, m.level, m.territory, m.built, m.maxE, m.msIndex, JSON.stringify(m.factions || {}), JSON.stringify(m.inv), JSON.stringify(m.equip),
-      (m.pack || []).filter(Boolean).length, ST.mode, ST.placing, ST.tool, ST.destroying, ST.channel && ST.channel.kind, ST.near.i && ST.near.i.label, ST.goldSources && ST.goldSources.map(g=>g.id+g.state+(g.stored||0)).join(",")].join("|");
+      (m.pack || []).filter(Boolean).length, ST.mode, ST.placing, ST.tool, ST.destroying, ST.channel && ST.channel.kind, ST.near.i && ST.near.i.label].join("|");
   }
   function actionsSig() { return ST.screen !== "playing" ? "x" : [ST.uiMuted ? 1 : 0, ST.musicMuted ? 1 : 0, ST.panel || "", ST.ui?.uiScale || 1, ST.visual?.cameraZoom || 1, ST.walkthrough?.active ? 1 : 0, ST.walkthrough?.step || ""].join("|"); }
   function utilitySig() {
@@ -4822,7 +4801,7 @@ export default function mount() {
     return [ST.modal, ST.tradeTab, ST.inspect, ST.wonderViewUid || "", ST.inspectPlayer && ST.inspectPlayer.id,
       JSON.stringify(m && m.inv), m && m.maxE, m && m.wallet, m && m.skillPts, JSON.stringify(m && m.skills),
       JSON.stringify(m && m.equip), JSON.stringify(m && m.pack), m && m.territory,
-      ST.near.m ? 1 : 0, ST.offers.length, ST.faceImage ? 1 : 0, ST.wonderPrompt || "", ST.wonderName || "", ST.wonderFootprint || 9, ST.wonderMode || "", ST.wonderPaletteId || "", ST.wonderBusy ? 1 : 0, ST.wonderPlacing ? 1 : 0, ST.wonderRecipe?.name || "", ST.wonderMsg || "", ST.wonderViewError || "", m && m.tokenBalance, ST.bank && JSON.stringify(ST.bank), m && m.msIndex, ST.inspectDraft && JSON.stringify(ST.inspectDraft), ST.goldSources && ST.goldSources.map(g=>g.id+g.state+(g.stored||0)).join(","), b && [b.level, Math.ceil(b.hp), b.maxHp, b.nm, b.cl, b.constructUntil || 0, Math.floor((constructionStateForBuilding(b)?.progress || 1) * 20)].join(":")].join("|");
+      ST.near.m ? 1 : 0, ST.offers.length, ST.faceImage ? 1 : 0, ST.wonderPrompt || "", ST.wonderName || "", ST.wonderFootprint || 9, ST.wonderMode || "", ST.wonderPaletteId || "", ST.wonderBusy ? 1 : 0, ST.wonderPlacing ? 1 : 0, ST.wonderRecipe?.name || "", ST.wonderMsg || "", ST.wonderViewError || "", m && m.tokenBalance, ST.bank && JSON.stringify(ST.bank), m && m.msIndex, ST.inspectDraft && JSON.stringify(ST.inspectDraft), b && [b.level, Math.ceil(b.hp), b.maxHp, b.nm, b.cl, b.constructUntil || 0, Math.floor((constructionStateForBuilding(b)?.progress || 1) * 20)].join(":")].join("|");
   }
   function menuSig() { return ST.screen !== "menu" ? "x" : [ST.auth ? 1 : 0, ST.joining ? 1 : 0, ST.profile.body, ST.profile.hat, ST.profile.wallet, ST.loginMsg || "", JSON.stringify(ST.loginGate || {}), ST.ui?.menuScale || 1, phantomProvider() ? 1 : 0].join("|"); }
   function guideSig() {
@@ -4836,7 +4815,7 @@ export default function mount() {
     if (root.dataset.toolCursor !== cursor) root.dataset.toolCursor = cursor;
   }
 
-  function paint(force = false) {
+  function paint(force = false, only = null) {
     syncToolCursor();
     const paintStart = performance.now();
     let changed = 0;
@@ -4847,12 +4826,14 @@ export default function mount() {
     vignetteEl.style.display = ST.screen === "playing" ? "block" : "none";
     if (ST.screen !== "playing" || ST.modal) hideCtx();
     let utilityRendered = false;
+    const forceSet = only ? new Set(Array.isArray(only) ? only : [only]) : null;
     for (let i = 0; i < regions.length; i++) {
       const r = regions[i];
+      const forced = force && (!forceSet || forceSet.has(r.name));
       const sigStart = performance.now();
       const s = sigFns[i]();
       perf.record(`ui.sig.${r.name}`, performance.now() - sigStart);
-      if (!force && s === r.sig) continue;
+      if (!forced && s === r.sig) continue;
       r.sig = s;
       const regionStart = performance.now();
       render(r.view(), r.root);
@@ -4864,8 +4845,8 @@ export default function mount() {
     }
     if (ST.screen === "playing" && (ST.mode === "build" || ST.mode === "place")) syncBuildScrollSoon();
     mountWonderViewerSoon();
-    if (force || utilityRendered) syncMiniPreviewPanels(utilityRoot);
-    perf.record("ui.paint", performance.now() - paintStart, { force, changed });
+    if ((force && (!forceSet || forceSet.has("utility"))) || utilityRendered) syncMiniPreviewPanels(utilityRoot);
+    perf.record("ui.paint", performance.now() - paintStart, { force, only, changed });
   }
 
   /* ---------- imperative energy/bin ticker: NO vdom ---------- */

@@ -109,18 +109,11 @@ export function ActionRibbon(props: any) {
     </div>;
   }
 
-  if (buildOpen) return <div className="build-ribbon">
-    <div id="sc-build-strip" className="build-strip" data-build-strip="1">
-      {(buildables || []).filter((b) => b.id !== "worldwonder").map((b) => {
-        const choice = buildChoiceState(b, m, liveEnergy, state.placing, WORLD_WONDER_GOLD_COST);
-        const missingLine = choice.needsWonderGold ? `Need ${WORLD_WONDER_GOLD_COST - (m?.inv?.g || 0)}🪙 more` : missingCostLine(b.cost, m);
-        const lockLine = choice.locked ? `Unlocks at ${b.unlock} claimed tiles. You have ${m?.territory || 0}.` : "";
-        return <button className={"build-tile" + (choice.active ? " on" : "") + (choice.disabled ? " locked" : "")} aria-disabled={choice.disabled} aria-label={`${b.name} — ${buildingStatsLine(b)}`} data-tip-title={`${b.glyph} ${b.name}`} data-tip-body={`${b.blurb || t("ribbon.decoration", "Decoration")} · ${buildingStatsLine(b)} · ${padRequirementLine(b)}${lockLine ? ` · ${lockLine}` : ""}${missingLine ? ` · ${missingLine}` : ""}`} data-click="select-building" data-id={b.id}>
-          <span className="bg">{b.glyph}</span><span className="bn">{b.name}</span><span className="bc">{b.id === "worldwonder" ? `${WORLD_WONDER_GOLD_COST}🪙 · AI Wonder` : choice.locked ? `${b.unlock} tiles` : choice.missing.length ? missingLine : `${costStr(b.cost) || t("ribbon.free", "Free")} · ${b.hp || 220}HP`}</span><span className="bc">{b.id === "worldwonder" ? `${t("ribbon.planner", "Planner")} · ${currentWonderSize()}×${currentWonderSize()} · ${Math.round(wonderBuildMsClient(currentWonderSize(), currentWonderMode()) / 1000)}s` : `${buildingRoleLine(b)} · ${Math.round(normalBuildMsClient(b) / 1000)}s ${t("ribbon.buildSuffix", "build")}`}</span>
-        </button>;
-      })}
-    </div>
-    <div className="build-scroll-track"><i id="sc-build-scroll-thumb" /></div>
+  if (buildOpen) return <div className="build-ribbon ui26-build-flow-ribbon">
+    <div className="build-sep"><b>{t("ribbon.buildFlowTitle", "Hammer selected")}</b><small>{t("ribbon.buildFlowText", "Click an empty owned tile. The right-side build panel opens there.")}</small></div>
+    <button className="build-tile on" disabled aria-label={t("ribbon.buildFlowAria", "Choose an owned empty tile to build") }>
+      <span className="bg">▦</span><span className="bn">{t("ribbon.buildFlowTile", "Owned empty tile")}</span><span className="bc">{t("ribbon.buildFlowDirect", "Direct construction · no foundations")}</span>
+    </button>
   </div>;
 
   if (craftOpen || spawnOpen) return <div className="build-ribbon craft-ribbon"><div className="build-sep"><b>Removed</b><small>Crafting, bombs, packs, and deployables are disabled for this ECS release.</small></div></div>;

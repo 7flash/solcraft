@@ -86,3 +86,42 @@
   border-color:rgba(255,215,110,.30)!important;
   color:#ffe8a6!important;
 }
+
+/* Stage 26: clean hammer -> tile -> right-panel build flow */
+.ui26-clean-build-panel {
+  display: grid;
+  gap: 10px;
+  max-height: min(62vh, 620px);
+  overflow: auto;
+  padding-right: 4px;
+}
+.ui26-build-flow-note {
+  border: 1px solid rgba(255,255,255,.14);
+  border-radius: 16px;
+  padding: 10px 12px;
+  background: rgba(20,241,149,.08);
+}
+.ui26-build-flow-note b,
+.ui26-build-flow-note small { display: block; }
+.ui26-build-flow-note small { color: rgba(255,255,255,.68); margin-top: 3px; line-height: 1.35; }
+.ui26-build-choice b {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.ui26-build-choice b em {
+  margin-left: auto;
+  font-style: normal;
+  font-size: 10px;
+  color: rgba(255,255,255,.58);
+  border: 1px solid rgba(255,255,255,.12);
+  border-radius: 999px;
+  padding: 2px 7px;
+}
+.ui26-build-flow-ribbon {
+  align-items: center;
+  justify-content: center;
+}
+.ui26-build-flow-ribbon .build-tile {
+  min-width: 230px;
+}

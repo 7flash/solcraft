@@ -26,6 +26,7 @@ const DIRECT_ACTIONS = new Set([
   "donateKeep",
   "raid",
   "attack",
+  "fight",
   "home",
   "homeStart",
   "homeFinish",
@@ -139,21 +140,14 @@ function actionUseBuilding(p: PlayerRow, body: any) {
   if (isUnderConstruction(b)) return err(`${b.nm || def.name || "Building"} is still under construction — ${Math.ceil((Number(b.cdUntil || 0) - now()) / 1000)}s left.`, "UNDER_CONSTRUCTION");
   markUsed(b);
   if (Number(b.owner || 0) !== Number(p.id)) return ok({ cosmetic: true, usedAt: b.usedAt, note: `${def.name || "Building"} responds, but only its owner can operate it.` });
-  const prod = def.prod || def.produces || {};
-  const first = Object.entries(prod).find(([, v]) => Number(v || 0) > 0) as [string, any] | undefined;
-  if (first) {
-    const elapsed = Math.max(0, now() - Number(b.accAt || now())) / 1000;
-    const amount = Math.floor(Number(b.acc || 0) + elapsed * Number(first[1] || 0) * Math.max(1, Number(b.level || 1)));
-    if (amount > 0) {
-      gain(p, { [first[0]]: amount });
-      b.acc = 0; b.accAt = now();
-      refreshPlayer(p); refreshBuilding(b); bump("use-producer");
-      return ok({ note: `Collected +${amount} ${String((RES_NAMES as any)[first[0]] || first[0])} from ${b.nm || def.name}.`, inv: p.inv });
-    }
-  }
-  if (b.kind === "warehouse") return ok({ note: "Warehouse active — storage is online." });
-  if (b.kind === "granary") return ok({ note: "Granary active — food storage is online." });
-  if (b.kind === "townhall") return ok({ note: "Town Hall active — territory authority is online." });
+  if (b.kind === "lumber") return ok({ note: "Lumber Camp is active — it spawns trees nearby. Cut and gather them manually." });
+  if (b.kind === "quarry") return ok({ note: "Quarry is active — it exposes rocks nearby. Mine and gather them manually." });
+  if (b.kind === "farm") return ok({ note: "Farm is active — it grows crops nearby. Cut and gather crops for food." });
+  if (b.kind === "warehouse") return ok({ note: "Warehouse active — storage caps are online. If it falls, excess resources rot down to your cap." });
+  if (b.kind === "vault") return ok({ service: "bank", note: "Bank vault active. Deposit and Withdraw live from the building preview when banking is enabled." });
+  if (b.kind === "alchemy") return ok({ service: "customizer", cost: { g: 1 }, note: "Customizer active. Changing your doll costs 1 coin from this building." });
+  if (b.kind === "market") return ok({ service: "market", note: "Market active. Player escrow is removed; clean market rates will be configured later." });
+  if (b.kind === "townhall") return ok({ note: "Town Hall active — settlement authority is online." });
   return ok({ cosmetic: true, note: `${def.name || "Building"} responds.` });
 }
 
@@ -263,6 +257,29 @@ function actionRaidKeep(p: PlayerRow, body: any) {
   return ok({ note, player: { hp: p.hp, energy: p.energy }, building: b.hp > 0 ? { uid: b.id, hp: b.hp, maxHp: b.maxHp } : null, inv: p.inv, reputation: reputationSummaryForWire(Number(p.id)) });
 }
 
+function actionFightPlayer(p: PlayerRow, body: any) {
+  const targetId = int(body.target || body.uid || body.id || body.playerId || 0);
+  if (!targetId || targetId === Number(p.id)) return err("Choose another player to attack.", "BAD_TARGET");
+  const target = getPlayer(targetId) as PlayerRow | null;
+  if (!target) return err("That player is no longer nearby.", "PLAYER_NOT_FOUND");
+  if (!playerNear(p, target.x, target.z, 1)) return err("Stand beside that player first.", "TOO_FAR");
+  if (Number(p.hp || MAX_HP) <= 1) return err("You are too hurt to fight.", "LOW_HEALTH");
+  p.hp = Math.max(1, Number(p.hp || MAX_HP) - 1);
+  target.hp = Math.max(1, Number(target.hp || MAX_HP) - 1);
+  spendEnergy(p, 1);
+  const rep = adjustReputation(Number(p.id), reputationDeltaFor("playerAttack"), "playerAttack");
+  refreshPlayer(p);
+  refreshPlayer(target);
+  bump("fight-player");
+  mirrorLegacyToEcsTables("fight-player");
+  return ok({
+    note: `You sparred with ${target.name || "another settler"}. Both players lost 1♥. ${reputationDeltaText(rep)}`,
+    player: { hp: p.hp, energy: p.energy },
+    target: { id: target.id, hp: target.hp },
+    reputation: reputationSummaryForWire(Number(p.id)),
+  });
+}
+
 function actionHomeStart(p: PlayerRow) {
   if (int(p.x) === int(p.spawnX) && int(p.z) === int(p.spawnZ)) return err("Already at your flag.", "ALREADY_HOME");
   if (TELEPORT_COST > 0 && Number(p.energy ?? BASE_MAX) < TELEPORT_COST) return err(`Need ${TELEPORT_COST}⚡ to return to your flag.`, "NO_TELEPORT_ENERGY");
@@ -330,6 +347,7 @@ export function dispatchEcsGameplayAction(playerLike: PlayerRow, body: any): Ecs
     if (type === "donateNpc") return { handled: true, result: actionDonateNpc(p, body) };
     if (type === "attackNpc") return { handled: true, result: actionAttackNpc(p, body) };
     if (type === "donateKeep") return { handled: true, result: actionDonateKeep(p, body) };
+    if (type === "fight") return { handled: true, result: actionFightPlayer(p, body) };
     if (type === "raid" || type === "attack") return { handled: true, result: actionRaidKeep(p, body) };
     if (type === "home" || type === "homeStart") return { handled: true, result: actionHomeStart(p) };
     if (type === "homeFinish") return { handled: true, result: actionHomeFinish(p) };

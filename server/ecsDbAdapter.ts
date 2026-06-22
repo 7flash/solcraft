@@ -5,6 +5,7 @@ import { insertLoot, deleteLoot, invalidateLootStore } from "./lootStore";
 import { getPlayer, refreshPlayer } from "./playerStore";
 import { ECONOMY_RULES, LIBRARY, START_INV, BASE_MAX, tokenMaxEnergy, tokenRegenPerMin, biomeAt, naturalDoodad, RES_KEYS } from "./shared";
 import { cleanHarvestRules } from "./cleanEconomy";
+import { isCleanBuildKind } from "./cleanRelease";
 import { createWorld, addPlayer, setTile, addBuilding, addDoodad, addLoot, type BuildingC, type EcsWorld, type GameRules, type LootC, type ResourceBag } from "./ecs/index";
 import { key as ecsKey } from "./ecs/math";
 
@@ -46,7 +47,7 @@ export function setEcsWorldRev(v: number) { metaSet(META_ECS_WORLD_REV, String(M
 export function ecsRulesFromShared(): GameRules {
   const buildings: GameRules["buildings"] = {};
   for (const b of LIBRARY as any[]) {
-    if (!b?.id) continue;
+    if (!b?.id || !isCleanBuildKind(b.id)) continue;
     buildings[String(b.id)] = {
       kind: String(b.id),
       label: String(b.name || b.label || b.id),

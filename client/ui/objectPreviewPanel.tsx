@@ -1,19 +1,8 @@
 // @ts-nocheck
 /** @jsxImportSource tradjs/client */
-import { t, tArray } from "../i18n";
+import { t } from "../i18n";
 import { objectPreviewActionLabel, objectPreviewDescription, objectPreviewGlyph, objectPreviewPrimaryAction, objectPreviewShouldShowPrimary, objectPreviewSummaryTitle, objectPreviewTitle } from "./objectPreviewPanelModel";
-
-const FALLBACK_BUILD_CHOICES = [
-  { id: "cottage", name: "House", icon: "🏠", text: "Expands your settlement and supports future services." },
-  { id: "lumber", name: "Lumber Camp", icon: "🪵", text: "Spawns renewable trees nearby. You still need to cut and gather them." },
-  { id: "quarry", name: "Mine", icon: "⛏", text: "Spawns renewable rocks nearby. You still need to mine and gather them." },
-  { id: "farm", name: "Farm", icon: "🌾", text: "Spawns crops nearby; cut and gather them for food." },
-  { id: "market", name: "Market", icon: "🪙", text: "Turns settlement activity into coins." },
-];
-
-function buildChoices() {
-  return tArray("objectPreview.buildChoices", FALLBACK_BUILD_CHOICES);
-}
+import { cleanBuildChoices, cleanBuildRoleLabel } from "./cleanBuildCatalog";
 
 export function ObjectPreviewPanelView({ preview }: any) {
   const p = preview || null;
@@ -41,9 +30,13 @@ export function ObjectPreviewPanelView({ preview }: any) {
       {p.maxHp ? <span><b>{Math.max(0, Math.floor(Number(p.hp || 0)))}/{Math.floor(Number(p.maxHp || 0))}</b><em>{t("objectPreview.keepHpLabel", "HP when shared")}</em></span> : null}
       {p.coins ? <span><b>{Math.floor(Number(p.coins || 0))}🪙</b><em>{t("objectPreview.keepCoinsLabel", "reported inside")}</em></span> : null}
     </div> : null}
-    {p.kind === "buildTile" ? <div className="ui44-build-choices" aria-label={t("objectPreview.aria.chooseBuilding", "Choose building for selected tile")}>
-      {buildChoices().map(({ id, name, icon, text }) => <button className="ui44-build-choice" data-click="build-tile-choice" data-id={id}>
-        <b><span>{icon}</span>{name}</b>
+    {p.kind === "buildTile" ? <div className="ui44-build-choices ui26-clean-build-panel" aria-label={t("objectPreview.aria.chooseBuilding", "Choose building for selected tile")}>
+      <div className="ui26-build-flow-note">
+        <b>{t("build.flow.title", "Build here")}</b>
+        <small>{t("build.flow.text", "Construction starts immediately. Foundations, bombs, crafting, and escrow systems are removed from this release.")}</small>
+      </div>
+      {cleanBuildChoices().map(({ id, name, icon, text, role }) => <button className="ui44-build-choice ui26-build-choice" data-click="build-tile-choice" data-id={id}>
+        <b><span>{icon}</span>{name}<em>{cleanBuildRoleLabel(role)}</em></b>
         <small>{text}</small>
       </button>)}
     </div> : null}

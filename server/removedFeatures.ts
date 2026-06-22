@@ -1,3 +1,4 @@
+import { cleanActionSurface } from "./cleanRelease";
 export const REMOVED_FEATURES: Record<string, { feature: string; replacement: string; msg: string }> = {
   makeBomb: { feature: "bombs", replacement: "attack / raid", msg: "Bombs were removed for the clean ECS release. Use the Sword to attack Keeps and structures." },
   spawnBomb: { feature: "bombs", replacement: "attack / raid", msg: "Bomb deployment was removed. Combat is now direct attacks and Keep raids." },
@@ -39,13 +40,5 @@ export function removedFeatureResponse(type: any) {
 }
 
 export function activeActionSurface() {
-  return [
-    "move", "movePath", "claim",
-    "harvestStart", "harvestFinish", "harvestCancel", "pickup",
-    "place", "upgrade", "repair", "demolish", "customize", "use",
-    "talkNpc", "attackNpc", "donateNpc", "donateKeep", "raid", "attack",
-    "home", "homeStart", "homeFinish", "homeCancel",
-    "wonderStart", "wonderFinish", "wonderCancel", "placeWonder",
-    "profileAppearance", "profileFace", "setupProfile", "wallet", "chat",
-  ].sort();
+  return cleanActionSurface();
 }
