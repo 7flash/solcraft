@@ -15,6 +15,7 @@ export type PlayerHudInput = {
   visiblePlayers?: number;
   activePlayers?: number;
   gameplayHint?: string;
+  wondersBuilt?: number;
 };
 
 export function capRatio(value: any, cap: any): number {
@@ -22,11 +23,6 @@ export function capRatio(value: any, cap: any): number {
   if (!Number.isFinite(c) || c <= 0) return 0;
   const n = Number(value || 0);
   return Math.max(0, Math.min(1, n / c));
-}
-
-export function playerInitial(name: any): string {
-  const s = String(name || "?").trim();
-  return (s.slice(0, 1) || "?").toUpperCase();
 }
 
 export function pct(value: any, max: any): number {
@@ -43,11 +39,17 @@ export function splitGameplayHint(hint: any): { lead: string; rest: string } {
   const parts = text.split(" — ");
   return { lead: parts[0] || text, rest: parts.length > 1 ? parts.slice(1).join(" — ") : "" };
 }
+
 export function storageUsed(inv: any = {}) {
   return Math.max(0, Math.floor(Number(inv.w || 0) + Number(inv.s || 0) + Number(inv.f || 0) + Number(inv.p || 0)));
 }
 export function storageLimit(cap: any = {}) {
   return Math.max(0, Math.floor(Number(cap.w || 0) + Number(cap.s || 0) + Number(cap.f || 0) + Number(cap.p || 0)));
+}
+
+export function reputationScore(m: any): number {
+  const r = m?.reputation || {};
+  return Math.floor(Number(r.score ?? r.value ?? r.reputation ?? 0) || 0);
 }
 
 export function limitAdviceRows(m: any): LimitAdviceRow[] {
@@ -57,56 +59,36 @@ export function limitAdviceRows(m: any): LimitAdviceRow[] {
   const caps = m.storageCap || {};
   const tileCap = Number(m.tileCap || 0);
   const tileRatio = capRatio(m.territory || 0, tileCap);
-  if (m.economy?.overextended || Number(m.economy?.reputationShortfall || 0) > 0) {
-    rows.push({
-      key: "overextended",
-      glyph: "⚠",
-      cls: "bad",
-      title: `Overextended by ${Number(m.economy?.reputationShortfall || 0)} tiles`,
-      short: "Reputation too low",
-      body: "Your buildings stop regenerating while you own more land than your reputation supports.",
-    });
-  } else if (tileCap && (tileRatio >= 0.80 || tileCap - Number(m.territory || 0) <= 8)) {
+  if (tileCap && (tileRatio >= 0.80 || tileCap - Number(m.territory || 0) <= 8)) {
     rows.push({
       key: "tiles",
       glyph: "◇",
       cls: tileRatio >= 0.96 ? "bad" : "warn",
-      title: `Tile limit ${m.territory || 0}/${tileCap}`,
-      short: tileRatio >= 0.96 ? "Tile limit full" : "Near tile limit",
-      body: `Your level and reputation control your land limit${Number(m.reputation?.tileBonus || 0) ? `; reputation adds +${Number(m.reputation?.tileBonus || 0)} tiles.` : "."}`,
+      title: `Tile allowance ${m.territory || 0}/${tileCap}`,
+      short: tileRatio >= 0.96 ? "Tile allowance full" : "Near tile allowance",
+      body: "Donate coins to NPCs and Keeps, build Wonders, and avoid destructive actions to increase reputation and tile allowance.",
     });
   }
 
   const resourceRows: Array<[string, string, string, string]> = [
-    ["w", "Wood", "🪵", "Storage is limited. Build settlement infrastructure before gathering too much wood."],
-    ["s", "Stone", "🪨", "Storage is limited. Stone fuels capture and construction."],
-    ["f", "Food", "🌾", "Food restores health after raids and dangerous fights."],
-    ["g", "Coins", "🪙", "Coins come from pickups, markets, and Keep raids."],
+    ["w", "Wood", "🪵", "Build Warehouses to expand storage before gathering too much wood."],
+    ["s", "Stone", "🪨", "Stone is used for claiming and building. Warehouses expand storage."],
+    ["f", "Food", "🌾", "Food is consumed by automatic health recovery after raids and fights."],
   ];
-
   for (const [key, name, glyph, body] of resourceRows) {
     const cap = Number(caps[key] || 0);
     const have = Number(inv[key] || 0);
     const ratio = capRatio(have, cap);
-    if (cap && (ratio >= 0.85 || cap - have <= 12)) {
-      rows.push({
-        key,
-        glyph,
-        cls: ratio >= 0.96 ? "bad" : "warn",
-        title: `${name} cap ${have}/${cap}`,
-        short: ratio >= 0.96 ? `${name} storage full` : `${name} near cap`,
-        body,
-      });
-    }
+    if (cap && (ratio >= 0.85 || cap - have <= 12)) rows.push({
+      key,
+      glyph,
+      cls: ratio >= 0.96 ? "bad" : "warn",
+      title: `${name} storage ${have}/${cap}`,
+      short: ratio >= 0.96 ? `${name} full` : `${name} near cap`,
+      body,
+    });
   }
-
   return rows.slice(0, 4);
-}
-
-export function limitAdviceSummary(m: any): string {
-  const rows = limitAdviceRows(m);
-  if (!rows.length) return "Ready. Capture open land, build producers, and help the world grow.";
-  return rows.map((r) => `${r.title}: ${r.body}`).join(" ");
 }
 
 export function playerHudViewModel(input: PlayerHudInput) {
@@ -115,31 +97,19 @@ export function playerHudViewModel(input: PlayerHudInput) {
   const xpNeeded = Math.max(1, Number(input.xpNeeded || 1));
   const eNow = Math.max(0, Number(input.liveEnergy ?? m.e ?? 0));
   const hpNow = Math.max(0, Math.ceil(Number(m.hp || 0)));
-  const visiblePlayers = Math.max(0, Number(input.visiblePlayers || 0));
-  const activePlayers = Math.max(visiblePlayers, Number(input.activePlayers || visiblePlayers));
   const hint = splitGameplayHint(input.gameplayHint);
   const usedStorage = storageUsed(m.inv || {});
   const maxStorage = storageLimit(m.storageCap || {});
-
-  const reputation = m.reputation || {};
-
   return {
-    initial: playerInitial(m.name),
-    level: Number(m.level || 1),
     name: String(m.name || "Settler"),
     gold: Math.floor(Number(m.inv?.g || 0)),
-    science: Math.floor(Number(m.inv?.sc || 0)),
-    scienceCap: Number(m.scienceCap || 0),
     territory: Number(m.territory || 0),
-    tileCap: m.tileCap || "?",
-    reputation: Math.floor(Number(reputation.value || 0)),
-    reputationTitle: String(reputation.title || "Neutral"),
-    reputationTileBonus: Math.floor(Number(reputation.tileBonus || 0)),
-    built: Number(m.built || 0),
+    tileCap: Number(m.tileCap || 0),
+    reputation: reputationScore(m),
     storageUsed: usedStorage,
-    storageLimit: maxStorage || "?",
-    visiblePlayers,
-    activePlayers,
+    storageLimit: maxStorage,
+    storageFree: Math.max(0, maxStorage - usedStorage),
+    wondersBuilt: Math.max(0, Number(input.wondersBuilt ?? m.wondersBuilt ?? 0) || 0),
     energyNow: Math.floor(eNow),
     energyRaw: eNow,
     maxEnergy: Math.max(1, Number(m.maxE || 1)),
@@ -151,7 +121,6 @@ export function playerHudViewModel(input: PlayerHudInput) {
     xpNeeded,
     xpPct: pct(m.xp || 0, xpNeeded),
     limitRows: limitAdviceRows(m),
-    limitSummary: limitAdviceSummary(m),
     hintLead: hint.lead,
     hintRest: hint.rest,
     spectator: !!m.spectator,

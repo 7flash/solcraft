@@ -11,6 +11,7 @@ import { dispatchEcsGameplayAction, ecsGameplayStatus, ecsGameplaySupportedActio
 import { activeActionSurface, removedFeatureResponse } from "./removedFeatures";
 import { cleanBuildKindResponse } from "./cleanRelease";
 import { recordActivity, logError } from "./activityLog";
+import { applyReferralCodeForNewProfile } from "./referralProgram";
 
 export type EcsPlayerRow = any;
 export type WalletAuthInput = { wallet?: string; message?: string; signature?: string } | null | undefined;
@@ -275,11 +276,16 @@ export function dispatch(p: EcsPlayerRow, body: any) {
     row.name = cleanName(String(body.name || row.name));
     row.body = Number(body.body) || row.body;
     row.hat = Number(body.hat) || row.hat;
-    row.profileDone = 1;
     repairProfileSpawn(row);
     if (body.appearance !== undefined) row.appearance = JSON.stringify(body.appearance).slice(0, 12000);
+    const referral = applyReferralCodeForNewProfile(row, body.referralCode, { requestId: String(body.rid || "") });
+    if (referral && !referral.ok) return { ...referral, backend: "ecs" };
+    if (referral?.ok && Number(referral.rewardAmount || 0) > 0) {
+      row.inv = { ...(row.inv || {}), g: Math.max(0, Number(row.inv?.g || 0) + Number(referral.rewardAmount || 0)) };
+    }
+    row.profileDone = 1;
     refreshPlayer(row);
-    return { ok: true, backend: "ecs" };
+    return { ok: true, backend: "ecs", referral: referral || null, note: referral?.note || "Character ready." };
   }
   if (type === "profileAppearance") {
     const row = getPlayer(p.id) as any;
@@ -304,7 +310,6 @@ export function dispatch(p: EcsPlayerRow, body: any) {
     logEcsAction(fresh.id, type, out, "ecs-gameplay");
     return out;
   }
-  if (type === "pickup") body = { ...body, type: "harvest" };
   if (type === "place") {
     const blocked = cleanBuildKindResponse(body.kind);
     if (blocked) { logEcsAction(fresh.id, type, blocked, "ecs-clean-build"); return { ...blocked, backend: "ecs" }; }

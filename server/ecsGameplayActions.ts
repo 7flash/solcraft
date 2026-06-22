@@ -20,6 +20,7 @@ const DIRECT_ACTIONS = new Set([
   "harvestStart",
   "harvestFinish",
   "harvestCancel",
+  "pickup",
   "repair",
   "customize",
   "customizerAccess",
@@ -197,6 +198,53 @@ function keepChatCard(b: any) {
   return `[[sc:keep|uid=${uid}|x=${x}|z=${z}|label=${encodeURIComponent(`Keep ${x},${z}`)}|hp=${hp}|maxHp=${maxHp}|coins=${coins}]]`;
 }
 function addSystemChat(msg: string) { try { db.chat.insert({ name: "", msg, sys: 1 }); } catch {} }
+
+
+function actionPickupLoot(p: PlayerRow, body: any) {
+  const id = int(body.id || body.uid || 0);
+  const x = int(body.x ?? p.x), z = int(body.z ?? p.z);
+  let l: any = null;
+  if (id) {
+    try { l = (db.loot as any).get ? (db.loot as any).get(id) : null; } catch {}
+    if (!l) {
+      try { l = (db.loot.select().where({ id }).first() as any) || null; } catch {}
+    }
+  }
+  if (!l) {
+    try { l = (db.loot.select().where({ x, z }).first() as any) || null; } catch {}
+  }
+  if (!l) return err("That pickup was already collected.", "LOOT_GONE");
+  if (!playerNear(p, l.x, l.z, 0)) return err("Stand on the pickup to collect it.", "TOO_FAR");
+  try { (db.loot as any).delete?.(Number(l.id)); } catch {
+    try { db.query("delete from loot where id = ?").run(Number(l.id)); } catch {}
+  }
+  let note = "Picked up.";
+  const kind = String(l.kind || "");
+  if (kind === "wood") {
+    const amount = Math.max(1, Math.floor(Number(l.gid || 5) || 5));
+    gain(p, { w: amount });
+    note = `Picked up +${amount} wood 🪵.`;
+  } else if (kind === "stone") {
+    const amount = Math.max(1, Math.floor(Number(l.gid || 4) || 4));
+    gain(p, { s: amount });
+    note = `Picked up +${amount} stone 🪨.`;
+  } else if (kind === "food") {
+    const amount = Math.max(1, Math.floor(Number(l.gid || 3) || 3));
+    gain(p, { f: amount });
+    note = `Picked up +${amount} food 🌾.`;
+  } else if (kind === "gold" || kind === "coin" || kind === "coins") {
+    const amount = Math.max(1, Math.floor(Number(l.gid || 3) || 3));
+    gain(p, { g: amount });
+    note = `Picked up +${amount} coins 🪙.`;
+  } else {
+    const amount = Math.max(1, Math.floor(Number(l.gid || 1) || 1));
+    gain(p, { g: amount });
+    note = `Picked up +${amount} coins 🪙.`;
+  }
+  addXp(p, 1);
+  refreshPlayer(p); bump("pickup"); mirrorLegacyToEcsTables("pickup");
+  return ok({ note, lootGone: Number(l.id || 0), inv: p.inv, xp: p.xp, level: p.level });
+}
 
 function actionCustomize(p: PlayerRow, body: any) {
   const b = getBuilding(int(body.uid));
@@ -457,6 +505,7 @@ export function dispatchEcsGameplayAction(playerLike: PlayerRow, body: any): Ecs
     if (type === "harvestStart") return { handled: true, result: actionHarvestStart(p, body) };
     if (type === "harvestFinish") return { handled: true, result: actionHarvestFinish(p, body) };
     if (type === "harvestCancel") return { handled: true, result: actionHarvestCancel(p) };
+    if (type === "pickup") return { handled: true, result: actionPickupLoot(p, body) };
     if (type === "customize") return { handled: true, result: actionCustomize(p, body) };
     if (type === "customizerAccess") return { handled: true, result: actionCustomizerAccess(p, body) };
     if (type === "repair") return { handled: true, result: actionRepair(p, body) };

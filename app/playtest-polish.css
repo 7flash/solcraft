@@ -34,3 +34,64 @@
 .settings-tabs,.sc-settings-tabs{display:flex;flex-wrap:wrap;gap:6px;margin:8px 0 12px}.settings-tabs a,.sc-settings-tabs a,.settings-tabs button,.sc-settings-tabs button{border:1px solid rgba(215,223,207,.2);border-radius:999px;background:rgba(215,223,207,.08);color:inherit;padding:7px 10px;text-decoration:none;font-weight:800;font-size:12px}
 .profile-referral-input,.sc-referral-quick input{border-radius:10px;border:1px solid rgba(215,223,207,.22);background:rgba(7,4,17,.32);color:inherit;padding:8px 10px;min-width:0;width:100%;box-sizing:border-box}.profile-referral-input{margin-top:8px}.sc-referral-quick{display:grid;gap:8px}.sc-referral-quick-row{display:grid;grid-template-columns:1fr 120px auto;gap:8px}.service-action-disabled,.service-action-disabled[disabled]{opacity:.62;filter:grayscale(.25);cursor:not-allowed}.service-action-disabled small{display:block;font-size:10px;opacity:.76;margin-top:2px}.service-preview-card small{display:block;opacity:.75;margin-top:2px}
 @media (max-width:560px){.sc-referral-quick-row{grid-template-columns:1fr}.sc-time-chip,.sc-coord-chip,.sc-hover-cell-chip{font-size:10px}.action-bar button,.ui2-toolbelt-bar button,.bottom-bar button,.toolbelt button{--sc-tool-size:42px}}
+
+/* Stage 85 direct source polish: live RC HUD, storage clarity, single-row tools, readable time controls. */
+.ui85-hud,
+.ui31-hud.ui85-hud {
+  left: max(10px, env(safe-area-inset-left)) !important;
+  top: max(10px, env(safe-area-inset-top)) !important;
+  width: min(390px, calc(100vw - 20px)) !important;
+  max-width: min(390px, calc(100vw - 20px)) !important;
+  padding: 10px !important;
+  display: grid !important;
+  gap: 8px !important;
+}
+.ui85-hud .ui31-avatar,
+.ui85-hud .ui31-avatar-ring { display: none !important; }
+.ui85-hud-head { margin: 0 !important; min-height: 0 !important; }
+.ui85-hud-title h1 { font-size: 14px !important; line-height: 1.05 !important; margin: 0 !important; max-width: 160px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ui85-hud-title p { display:flex !important; flex-wrap:wrap !important; gap: 6px !important; margin: 3px 0 0 !important; font-size: 11px !important; opacity: .9 !important; }
+.ui85-vitals { display:grid !important; grid-template-columns:1fr 1fr !important; gap: 6px !important; }
+.ui85-vitals .ui31-meter { min-width:0 !important; padding:7px !important; }
+.ui85-vitals .ui31-meter-head { font-size: 10px !important; gap:4px !important; }
+.ui85-storage-row,
+.ui85-money-row {
+  display:flex !important; align-items:center !important; justify-content:space-between !important; gap:8px !important;
+  padding:7px 9px !important; border-radius:12px !important; border:1px solid rgba(215,223,207,.16) !important;
+  background:rgba(7,4,17,.36) !important; font-size:12px !important;
+}
+.ui85-storage-row em,
+.ui85-money-row em { opacity:.78; font-style:normal; font-size:11px; }
+.ui85-resources { display:grid !important; grid-template-columns:repeat(3,minmax(0,1fr)) !important; gap:6px !important; }
+.ui85-resources .ui31-resource { min-width:0 !important; padding:7px 6px !important; display:grid !important; grid-template-columns:auto 1fr !important; column-gap:4px !important; align-items:center !important; }
+.ui85-resources .ui31-resource b { font-size:13px !important; }
+.ui85-resources .ui31-resource em { grid-column:1 / -1; font-style:normal; font-size:9.5px; opacity:.72; white-space:nowrap; }
+.sc-time-chip { top: calc(max(10px, env(safe-area-inset-top)) + 172px) !important; right: auto !important; left: max(10px, env(safe-area-inset-left)) !important; z-index: 92 !important; }
+.sc-coord-chip { left: max(10px, env(safe-area-inset-left)) !important; bottom: calc(84px + env(safe-area-inset-bottom)) !important; }
+.sc-hover-cell-chip { left: max(10px, env(safe-area-inset-left)) !important; bottom: calc(112px + env(safe-area-inset-bottom)) !important; }
+.sc-time-controls { padding:8px; border:1px solid rgba(215,223,207,.14); border-radius:12px; background:rgba(215,223,207,.05); }
+.sc-time-controls > div:first-child { display:flex; justify-content:space-between; gap:10px; font-size:12px; }
+.sc-time-controls .settings-actions { display:flex; flex-wrap:wrap; gap:6px; margin-top:6px; }
+:root { --sc-tool-size: clamp(40px, 6.2vw, 52px); --sc-tool-gap: 5px; --sc-cursor-scale: .48; }
+.ui2-action-layer.ui2-toolbelt-layer,
+.action-stack.ui2-toolbelt-stack,
+.ui2-toolbelt-stack { left:50% !important; right:auto !important; transform:translateX(-50%) !important; width:min(560px, calc(100vw - 132px)) !important; max-width:min(560px, calc(100vw - 132px)) !important; }
+.action-bar.ui2-toolbelt-bar,
+.ui2-toolbelt-bar,
+.action-bar { display:flex !important; flex-flow: row nowrap !important; align-items:center !important; justify-content:center !important; gap: var(--sc-tool-gap) !important; overflow-x:auto !important; overflow-y:hidden !important; max-width:100% !important; white-space:nowrap !important; }
+.ui2-toolbelt-slot,
+.action-bar button,
+.ui2-toolbelt-bar button { flex: 0 0 var(--sc-tool-size) !important; width:var(--sc-tool-size) !important; min-width:var(--sc-tool-size) !important; height:var(--sc-tool-size) !important; min-height:var(--sc-tool-size) !important; max-height:var(--sc-tool-size) !important; padding:2px !important; overflow:hidden !important; }
+.ui2-toolbelt-slot svg,
+.ui2-toolbelt-slot img,
+.ui2-toolbelt-slot .icon,
+.action-bar button svg,
+.action-bar button img { width:100% !important; height:100% !important; object-fit:contain !important; display:block !important; margin:auto !important; }
+.chat { left:max(10px, env(safe-area-inset-left)) !important; bottom:calc(10px + env(safe-area-inset-bottom)) !important; max-width:min(340px, 31vw) !important; z-index:64 !important; }
+.channel { bottom: calc(78px + env(safe-area-inset-bottom, 0px)) !important; }
+.cursor-tool,.tool-cursor,.sc-cursor,.ui-cursor,[data-cursor-tool],.world-cursor,.tool-preview-cursor { transform:scale(var(--sc-cursor-scale)) !important; cursor:pointer !important; }
+@media (max-width: 760px) {
+  .ui85-hud, .ui31-hud.ui85-hud { width:min(340px, calc(100vw - 20px)) !important; }
+  .ui2-action-layer.ui2-toolbelt-layer,.action-stack.ui2-toolbelt-stack,.ui2-toolbelt-stack { width:calc(100vw - 18px) !important; max-width:calc(100vw - 18px) !important; }
+  .chat { max-width:min(320px, calc(100vw - 22px)) !important; }
+}

@@ -175,12 +175,33 @@ function spawnHarvestPulse(world: any, ch: any, progress: number) {
   } catch {}
 }
 
+
+function loadTimeControls() {
+  try {
+    const raw = JSON.parse(localStorage.getItem("solcraft:time.v1") || "{}");
+    return {
+      auto: raw.auto === true,
+      hour: Number.isFinite(Number(raw.hour)) ? Math.max(0, Math.min(23, Math.floor(Number(raw.hour)))) : 12,
+    };
+  } catch { return { auto: false, hour: 12 }; }
+}
+function saveTimeControls(next: any) {
+  const out = { auto: next?.auto === true, hour: Math.max(0, Math.min(23, Math.floor(Number(next?.hour ?? 12)))) };
+  try { localStorage.setItem("solcraft:time.v1", JSON.stringify(out)); } catch {}
+  return out;
+}
+function currentWorldHour(ST: any, t = Date.now()) {
+  const controls = ST?.timeControls || loadTimeControls();
+  if (controls.auto === false) return Math.max(0, Math.min(23, Math.floor(Number(controls.hour ?? 12))));
+  const dayMs = 20 * 60 * 1000;
+  return Math.floor((((t % dayMs) + dayMs) % dayMs) / dayMs * 24);
+}
+
 function renderWorldStatusChips(ST: any) {
   try {
     if (!ST || ST.screen !== "playing" || !ST.me) return null;
     const t = Number(ST.now || Date.now());
-    const dayMs = 20 * 60 * 1000;
-    const hour = Math.floor((((t % dayMs) + dayMs) % dayMs) / dayMs * 24);
+    const hour = currentWorldHour(ST, t);
     const label = hour < 5 ? "Night" : hour < 8 ? "Dawn" : hour < 18 ? "Day" : hour < 21 ? "Dusk" : "Night";
     const hx = Number.isFinite(Number(ST.hoverCellX)) ? Math.trunc(Number(ST.hoverCellX)) : Math.trunc(Number(ST.me.x || 0));
     const hz = Number.isFinite(Number(ST.hoverCellZ)) ? Math.trunc(Number(ST.hoverCellZ)) : Math.trunc(Number(ST.me.z || 0));
@@ -213,7 +234,7 @@ export default function mount() {
     characterProfile: loadCharacterProfile(),
     me: null, rev: 0, ax: 1e6, az: 1e6, chatId: 0, mapRev: -1,
     players: [], offers: [], leaderboard: [], map: { rev: -1, tiles: [], buildings: [], loot: [], players: [] },
-    visual: loadVisualSettings(), ui: loadUiSettings(),
+    visual: loadVisualSettings(), ui: loadUiSettings(), timeControls: loadTimeControls(),
     mode: "explore", placing: null, tool: "none", destroying: DESTROY_TOOLS[0]?.id || "popper",
     near: { i: null, g: null, r: null, m: false },
     modal: null, panel: null, tradeTab: "market", inspect: null, objectPreview: null, capitalService: null, serviceAccess: "", hoverIntent: "walk",
@@ -538,6 +559,13 @@ export default function mount() {
     world?.applyVisualQuality?.(ST.visual);
     loadAtlasRuntimeConfig(true).finally(() => { for (const [, c] of world.cells) c.owner = -1; world.refreshWindow?.(true); paint(); });
   }
+  function setTimeControls(change) {
+    ST.timeControls = saveTimeControls({ ...(ST.timeControls || loadTimeControls()), ...change });
+    world?.refreshEnvironment?.();
+    paint(true);
+  }
+  function toggleTimeAuto() { setTimeControls({ auto: !(ST.timeControls?.auto !== false) }); }
+  function setFixedWorldHour(hour) { setTimeControls({ auto: false, hour }); }
   function setCameraZoom(value, toast = false) {
     const next = clampCameraZoom(value, ST.visual?.cameraZoom || 1);
     ST.visual = saveVisualSettings({ ...ST.visual, cameraZoom: next });
@@ -996,6 +1024,31 @@ export default function mount() {
   }
 
 
+  async function referralRequest(body = {}) {
+    if (!ST.auth) return { ok: false, msg: "Connect first." };
+    return await fetch("/api/referrals", {
+      method: "POST",
+      headers: { "content-type": "application/json", "x-solcraft-player": String(ST.auth.pid || 0), authorization: `Bearer ${ST.auth.secret || ""}` },
+      body: JSON.stringify({ pid: ST.auth.pid, secret: ST.auth.secret, ...body }),
+    }).then((r) => r.json()).catch((e) => ({ ok: false, msg: String(e?.message || e || "Referral request failed") }));
+  }
+  async function createReferralFromSettings() {
+    const root = document.querySelector(".sc-referral-quick");
+    const code = String((root?.querySelector?.('[name="refCode"]') as HTMLInputElement | null)?.value || "").trim();
+    const rewardAmount = Number((root?.querySelector?.('[name="refReward"]') as HTMLInputElement | null)?.value || 500);
+    const r = await referralRequest({ action: "create", code, rewardAmount, maxUses: 25 });
+    if (r?.ok) { sfx.coin?.(); say(r.note || `Referral code ${r.code?.code || code} created.`, 3200); }
+    else { sfx.err(); say(r?.msg || "Could not create referral code.", 2600); }
+  }
+  async function showReferralStatus() {
+    const r = await referralRequest({ action: "status" });
+    if (!r?.ok) { sfx.err(); say(r?.msg || "Could not load referrals.", 2200); return; }
+    const active = Number(r.stats?.activeCodes || 0);
+    const referred = Array.isArray(r.referred) ? r.referred.length : 0;
+    const latest = Array.isArray(r.codes) && r.codes[0]?.code ? ` Latest: ${r.codes[0].code}` : "";
+    say(`Referral codes: ${active}. Referred players: ${referred}.${latest}`, 3600);
+  }
+
   function cleanWonderPromptClient(value) {
     return String(value || "").replace(/s+/g, " ").trim().slice(0, 180);
   }
@@ -1244,9 +1297,11 @@ export default function mount() {
     const sunOffset = new THREE.Vector3(8, 14, 5);
     function updateEnvironment(t) {
       // Lightweight day/night cycle: color/intensity changes only, no expensive shaders.
-      const phase = (t / 220) % 1;
+      // For production playtest the cycle can be frozen from Settings so terrain readability stays stable.
+      const hour = currentWorldHour(ST, Date.now());
+      const phase = Math.max(0, Math.min(23, hour)) / 24;
       const wave = Math.sin(phase * Math.PI * 2 - Math.PI * 0.5);
-      const day = Math.max(0.16, 0.5 + 0.5 * wave);
+      const day = ST.timeControls?.auto === false ? 0.82 : Math.max(0.42, 0.5 + 0.5 * wave);
       const dusk = 1 - Math.abs(day - 0.5) * 2;
       sun.intensity = 0.35 + day * 1.05;
       hemi.intensity = 0.48 + day * 0.68;
@@ -1737,7 +1792,7 @@ export default function mount() {
         ring.rotation.x = -Math.PI / 2; ring.position.y = -0.1; g.add(ring);
         g.position.set(l.x, 0.52, l.z); g.scale.setScalar(0.01); scene.add(g);
         anims.push({ kind: "in", obj: g, t: 0, dur: 0.35 });
-        lootPool.set(l.id, { group: g, x: l.x, z: l.z });
+        lootPool.set(l.id, { id: l.id, group: g, x: l.x, z: l.z, kind: l.kind, gid: l.gid });
       }
       for (const [id, l] of [...lootPool]) {
         if (lootSeen.has(id)) continue;
@@ -1924,6 +1979,7 @@ export default function mount() {
           if (r.inv) ST.me.inv = { ...(ST.me.inv || {}), ...r.inv };
           if (typeof r.xp === "number") ST.me.xp = r.xp;
         }
+        tryPickupAt(confirmedMove.x, confirmedMove.z);
         if (r.partial) {
           if (r.stoppedMsg) say(r.stoppedMsg, 1600);
           stopOptimisticMovement(confirmedMove.x, confirmedMove.z);
@@ -2204,6 +2260,7 @@ export default function mount() {
       rotateCam: (delta = CAMERA_ROTATION_STEP) => stepCameraYaw(delta),
       refreshCameraRotation: () => {},
       refreshCameraZoom: () => setFrustum(),
+      refreshEnvironment: () => updateEnvironment(clock?.elapsedTime || 0),
       zoom: (delta = 0) => setCameraZoom((ST.visual?.cameraZoom || 1) + Number(delta || 0), false),
       walkQueueClear: () => { walkQueue.length = 0; pendingWalk = null; },
       dispose: () => { renderer.setAnimationLoop(null); window.removeEventListener("resize", onResize); renderer.dispose(); worldEl.removeChild(renderer.domElement); },
@@ -2266,7 +2323,7 @@ export default function mount() {
       if (b && LIB_BY_ID[b.kind]?.use?.k === "trade") ST.near.m = true;
     }
   }
-  const nearT = setInterval(() => { if (ST.screen !== "playing") return; perf.measure("ui.near", () => { refreshNear(); updateHints(); paint(); }); }, 450);
+  const nearT = setInterval(() => { if (ST.screen !== "playing") return; perf.measure("ui.near", () => { refreshNear(); updateHints(); tryPickupAt(); paint(); }); }, 450);
 
   function useBuildingClient(uid) {
     if (uid == null) return;
@@ -2389,7 +2446,7 @@ export default function mount() {
   const channelT = setInterval(() => {
     if (!ST.channel) return;
     const ch = ST.channel;
-    const moved = (ch.kind === "home" || ch.kind === "wonder" || ch.kind === "redeem")
+    const moved = (ch.kind === "home" || ch.kind === "wonder" || ch.kind === "redeem" || ch.kind === "combat")
       ? (!ST.me || world.me.x !== ch.x || world.me.z !== ch.z)
       : (!ST.me || cheb(world.me.x, world.me.z, ch.x, ch.z) > 1);
     if (moved) { cancelChop(); return; }
@@ -2403,7 +2460,9 @@ export default function mount() {
       const { x, z, kind } = ch;
       ST.channel = null;
       channelEl.classList.remove("on");
-      if (kind === "home") {
+      if (kind === "combat") {
+        try { ch.run?.(); } catch {}
+      } else if (kind === "home") {
         act("homeFinish", {}).then((r) => {
           if (r && r.ok && Number.isFinite(r.x) && Number.isFinite(r.z)) {
             world.hardSnapMe(r.x, r.z);
@@ -2517,6 +2576,27 @@ export default function mount() {
   function claimTile(x = world.me.x, z = world.me.z) {
     act("claim", { x, z }).then((r) => { if (r && r.ok) { sfx.claim(); world.shockwave(x, z); completeWalkthroughAction("claim"); pollSoon(); } updateHints(); paint(); });
   }
+  let pickupBusy = false;
+  let lastPickupAt = 0;
+  function localLootAt(x = world?.me?.x, z = world?.me?.z) {
+    if (!world?.lootPool) return null;
+    for (const l of world.lootPool.values()) {
+      if (Math.trunc(Number(l.x)) === Math.trunc(Number(x)) && Math.trunc(Number(l.z)) === Math.trunc(Number(z))) return l;
+    }
+    return null;
+  }
+  function tryPickupAt(x = world?.me?.x, z = world?.me?.z) {
+    if (pickupBusy || ST.spectator || !ST.auth) return;
+    const l = localLootAt(x, z);
+    if (!l) return;
+    const now = performance.now();
+    if (now - lastPickupAt < 180) return;
+    lastPickupAt = now;
+    pickupBusy = true;
+    act("pickup", { id: l.id, x: l.x, z: l.z }).then((r) => {
+      if (r?.ok) { sfx.coin?.(); pollSoon(); }
+    }).finally(() => { pickupBusy = false; });
+  }
   function selectCaptureTool() {
     if (ST.tool === "claim") { closeTools(); say(t("toast.capturePacked", "Capture flag tucked away."), 1100); paint(); return; }
     ST.tool = "claim"; ST.mode = "explore"; ST.placing = null; ST.modal = null; ST.panel = null;
@@ -2526,8 +2606,16 @@ export default function mount() {
   }
   function doClaim() { return selectCaptureTool(); }
   function doHome() { ST.tool = "home"; updateHints(); paint(); startHomeCast(); }
-  function doFight() { if (!ST.near.g) return; act("fight", { target: ST.near.g.id }).then((r) => { if (r && r.ok) sfx.hit(); }); }
-  function doRaid(uid) { const target = uid != null ? uid : (ST.near.r && ST.near.r.uid); if (target == null) return; act("raid", { uid: target }).then((r) => { if (r && r.ok) sfx.raid(); }); }
+  function startCombatAction(label, ms, run) {
+    if (ST.channel) return;
+    const x = world.me.x, z = world.me.z;
+    const total = Math.max(350, Number(ms || 650));
+    ST.channel = { x, z, until: performance.now() + total, ms: total, kind: "combat", nextFx: 0, run };
+    showChannel(label || "Attacking…");
+    paint(true);
+  }
+  function doFight() { if (!ST.near.g) return; const target = ST.near.g.id; startCombatAction("Attacking settler…", 520, () => act("fight", { target }).then((r) => { if (r && r.ok) sfx.hit(); })); }
+  function doRaid(uid) { const target = uid != null ? uid : (ST.near.r && ST.near.r.uid); if (target == null) return; startCombatAction("Raiding Keep…", 760, () => act("raid", { uid: target }).then((r) => { if (r && r.ok) sfx.raid(); })); }
   function doDonateKeep(uid, amount = 10) { const target = uid != null ? uid : (ST.near.r && ST.near.r.uid); if (target == null) return; act("donateKeep", { uid: target, amount }).then((r) => { if (r && r.ok) { sfx.coin(); pollSoon(); paint(true); } }); }
   function doUseOrDestroy() { if (ST.near.i) return doInteract(); if (ST.near.r) return doRaid(ST.near.r.uid); }
 
@@ -3172,7 +3260,8 @@ export default function mount() {
     if (ST.screen !== "playing" || !m) return <div />;
     const visiblePlayers = Array.isArray(ST.players) ? ST.players.length : 0;
     const activePlayers = Array.isArray(ST.map?.players) ? ST.map.players.length : visiblePlayers;
-    const hint = ST.channel ? (ST.channel.kind === "home" ? "Returning to flag" : ST.channel.kind === "redeem" ? "Withdrawing coins" : ST.channel.kind === "tree" ? "Chopping wood" : "Mining stone") : "";
+    const hint = ST.channel ? (ST.channel.kind === "home" ? "Returning to flag" : ST.channel.kind === "redeem" ? "Withdrawing coins" : ST.channel.kind === "combat" ? "Attacking" : ST.channel.kind === "tree" ? "Chopping wood" : "Mining stone") : "";
+    const wondersBuilt = (ST.map?.buildings || []).filter((b) => b && b.kind === "worldwonder" && Number(b.owner || 0) === Number(m.id || 0)).length;
     return <><PlayerHudView
       player={m}
       panel={ST.panel}
@@ -3182,6 +3271,7 @@ export default function mount() {
       visiblePlayers={visiblePlayers}
       activePlayers={activePlayers}
       gameplayHint={hint}
+      wondersBuilt={wondersBuilt}
       Icon={UiIcon}
     />
       {renderWorldStatusChips(ST)}
@@ -4026,6 +4116,11 @@ export default function mount() {
       case "camera-rotate-right": return stepCameraYaw(CAMERA_ROTATION_STEP);
       case "camera-rotation-set": return setCameraYaw(readNum(el, "value", Math.PI / 4) * Math.PI / 180, true);
       case "visual-comfort": return setVisual({ warmth: 0.66, texture: 0.18, quality: "balanced", motion: "smooth" });
+      case "time-auto-toggle": return toggleTimeAuto();
+      case "time-set-noon": return setFixedWorldHour(12);
+      case "time-set-dusk": return setFixedWorldHour(18);
+      case "referral-create": return createReferralFromSettings();
+      case "referral-status": return showReferralStatus();
       case "wonder-preview": return prepareWonderRecipe();
       case "wonder-open-planner": return openWonderPlanner("Type the Wonder prompt here, then click the map where it should be founded.");
       case "wonder-plan-place": return enterWonderPlacement();
@@ -4068,7 +4163,7 @@ export default function mount() {
         if (action === "walk" || action === "walk-near") { ST.panel = null; ST.objectPreview = null; world.pathToNear ? world.pathToNear(p.x, p.z) : world.pathTo(p.x, p.z); paint(true); return; }
         if (action === "talk-npc") { if (cheb(p.x, p.z, world.me.x, world.me.z) <= 1) say(npcTalkLine(p), 4200); else { say(t("toast.walkCloserToTalk", "Walk closer to talk."), 1400); world.pathToNear(p.x, p.z); } return; }
         if (action === "donate-npc") { if (cheb(p.x, p.z, world.me.x, world.me.z) <= 1) act("donateNpc", { x: p.x, z: p.z }).then((r) => { if (r?.ok) { sfx.coin(); pollSoon(); paint(true); } }); else world.pathToNear(p.x, p.z); return; }
-        if (action === "attack-npc") { if (cheb(p.x, p.z, world.me.x, world.me.z) <= 1) act("attackNpc", { x: p.x, z: p.z }).then((r) => { if (r?.ok) { sfx.hit(); ST.objectPreview = null; if (ST.panel === "object") ST.panel = null; pollSoon(); paint(true); } }); else world.pathToNear(p.x, p.z); return; }
+        if (action === "attack-npc") { if (cheb(p.x, p.z, world.me.x, world.me.z) <= 1) startCombatAction("Attacking wanderer…", 560, () => act("attackNpc", { x: p.x, z: p.z }).then((r) => { if (r?.ok) { sfx.hit(); ST.objectPreview = null; if (ST.panel === "object") ST.panel = null; pollSoon(); paint(true); } })); else world.pathToNear(p.x, p.z); return; }
         if (action === "donate-keep") return doDonateKeep(p.uid || p.id, 10);
         if (action === "raid-keep") return doRaid(p.uid || p.id);
         return;
@@ -4087,7 +4182,7 @@ export default function mount() {
           return;
         }
         if (action === "attack-npc") {
-          if (cheb(p.x, p.z, world.me.x, world.me.z) <= 1) act("attackNpc", { x: p.x, z: p.z }).then((r) => { if (r?.ok) { sfx.hit(); ST.objectPreview = null; if (ST.panel === "object") ST.panel = null; pollSoon(); paint(true); } });
+          if (cheb(p.x, p.z, world.me.x, world.me.z) <= 1) startCombatAction("Attacking wanderer…", 560, () => act("attackNpc", { x: p.x, z: p.z }).then((r) => { if (r?.ok) { sfx.hit(); ST.objectPreview = null; if (ST.panel === "object") ST.panel = null; pollSoon(); paint(true); } }));
           else world.pathToNear(p.x, p.z);
           return;
         }
@@ -4711,6 +4806,7 @@ export default function mount() {
       cameraZoomMin={CAMERA_ZOOM_MIN}
       cameraZoomMax={CAMERA_ZOOM_MAX}
       UiIcon={UiIcon}
+      timeControls={ST.timeControls}
     />;
   }
 

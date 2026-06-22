@@ -36,10 +36,13 @@ export function SettingsPanelView(props: any) {
     cameraZoomMin,
     cameraZoomMax,
     UiIcon,
+    timeControls,
   } = props;
   const Icon = UiIcon || (() => <span />);
   const uiPct = uiScalePct(ui?.uiScale || 1);
   const zoom = visual?.cameraZoom || 1;
+  const timeAuto = timeControls?.auto !== false;
+  const fixedHour = Number(timeControls?.hour ?? 12);
   return <div className="settings-layer pause-layer">
     <button className="settings-scrim" data-click="panel-close" aria-label="Resume game" />
     <section className="settings-panel pause-panel" data-stop-pointerdown="1" role="dialog" aria-modal="true" aria-label="Pause menu">
@@ -77,6 +80,15 @@ export function SettingsPanelView(props: any) {
               <option value="classic">Classic hop</option>
               <option value="low">Low-power</option>
             </select></label>
+            <div className="settings-subcard sc-time-controls">
+              <div><b>Time of day</b><span>{timeAuto ? "Auto cycle" : `Fixed ${String(fixedHour).padStart(2, "0")}:00`}</span></div>
+              <p className="settings-note">Freeze time while we tune house lights and torches. Noon gives the clearest terrain read.</p>
+              <div className="settings-actions">
+                <button className="btn" data-click="time-auto-toggle">{timeAuto ? "Freeze time" : "Enable auto time"}</button>
+                <button className="btn" data-click="time-set-noon">Set noon</button>
+                <button className="btn" data-click="time-set-dusk">Set dusk</button>
+              </div>
+            </div>
             <button className="btn" data-click="visual-comfort">Comfort preset</button>
             <button className="btn" data-click="reload-art">Reload art</button>
           </div>
