@@ -549,12 +549,6 @@
     "noCraftedItems": "No crafted items",
     "craftElixirsFirst": "Craft elixirs first"
   },
-  "factions": {
-    "empire": "Reputation",
-    "bandits": "Reputation",
-    "standing": "Reputation",
-    "tileBonus": "Reputation adds {bonus} trusted frontier tiles."
-  },
   "resources": {
     "wood": "wood",
     "stone": "stone",
@@ -562,7 +556,7 @@
     "supplies": "supplies"
   },
   "reputation": {
-    "standing": "Reputation",
+    "title": "Reputation",
     "tileBonus": "Reputation adds {bonus} trusted frontier tiles."
   }
 }

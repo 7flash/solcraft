@@ -242,7 +242,7 @@ function terrainFallbackDraw(kind: string, tint?: number) {
         const n = fbm(x, y, kind.length * 19);
         const t = Math.max(0, Math.min(1, 0.32 + n * 0.52 + (x + y) / (w + h) * 0.10));
         const c = a.clone().lerp(b, t);
-        const shade = 0.94 + (n - 0.5) * detail * 0.20;
+        const shade = 1.08 + (n - 0.5) * detail * 0.12;
         const i = (y * w + x) * 4;
         img.data[i] = Math.max(0, Math.min(255, Math.round(c.r * 255 * shade)));
         img.data[i + 1] = Math.max(0, Math.min(255, Math.round(c.g * 255 * shade)));
@@ -251,7 +251,7 @@ function terrainFallbackDraw(kind: string, tint?: number) {
       }
     }
     ctx.putImageData(img, 0, 0);
-    ctx.globalAlpha = 0.025 + detail * 0.055;
+    ctx.globalAlpha = 0.015 + detail * 0.030;
     ctx.fillStyle = p.speck;
     for (let i = 0; i < 34; i++) {
       const x = hash2(i, kind.length, 5) * w, y = hash2(i, kind.length, 9) * h;
@@ -305,7 +305,7 @@ export function terrainMaterial(kind = "sand", color?: number, opts: any = {}) {
   const cached = matCache.get(key) as THREE.MeshStandardMaterial | undefined;
   if (cached) return cached;
   const mat = new THREE.MeshStandardMaterial({
-    color: k === "claimed" && color != null ? color : duskNumber(k === "water" ? "slate" : "bone"),
+    color: k === "claimed" && color != null ? color : duskNumber(k === "water" ? "slateLight" : "bone"),
     map: terrainTexture(k, Number(opts?.repeat || 1) || 1, tint),
     roughness: k === "water" ? 0.68 : 0.94,
     metalness: 0,
@@ -318,7 +318,7 @@ export function terrainMaterial(kind = "sand", color?: number, opts: any = {}) {
 export function terrainMats(kind = "sand", ownerColor?: number) {
   const k = kind === "claimed" ? "claimed" : (TERRAIN_SLOT[kind] ? kind : "sand");
   const tint = k === "claimed" ? (ownerColor ?? 0x14f195) : undefined;
-  const sideColor = k === "claimed" ? (ownerColor ?? 0x14f195) : (k === "water" ? 0x236b83 : k === "rocky" ? 0x77756e : 0x7f9f69);
+  const sideColor = k === "claimed" ? (ownerColor ?? 0x985d23) : (k === "water" ? 0x5d6a7e : k === "rocky" ? 0x82979e : 0x8c8565);
   const key = `terrainSides:${runtimeSig}:${k}:${tint ?? "none"}`;
   const cached = matCache.get(key) as THREE.Material[] | undefined;
   if (cached) return cached;

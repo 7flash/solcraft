@@ -54,7 +54,7 @@ export function ObjectPreviewPanelView({ preview }: any) {
       </button>)}
     </div> : null}
     <div className="inspect-actions ui45-object-actions">
-      {hasCoords(p) ? <button className="btn" data-click="inspect-share">Share location</button> : null}
+      {hasCoords(p) ? <button className="btn" data-click="object-preview-share">Share location</button> : null}
       {p.kind === "npc" ? <>
         <button className="btn" data-click="object-preview-action" data-object-action="walk-near">Walk near</button>
         <button className="btn primary" data-click="object-preview-action" data-object-action="talk-npc">Talk</button>
@@ -67,9 +67,9 @@ export function ObjectPreviewPanelView({ preview }: any) {
         <button className="btn danger" data-click="object-preview-action" data-object-action="raid-keep">Raid</button>
       </> : null}
       {service ? <>
-        <button className="btn primary" disabled aria-disabled="true" title="Bank interface is being wired into the capital service preview.">Open service</button>
-        <button className="btn" disabled aria-disabled="true" title="Coming soon: service-specific actions from this preview.">Service actions</button>
-        <button className="btn" disabled aria-disabled="true" title="Coming soon: details, upgrades, and admin service info.">Details</button>
+        <button className="btn primary service-action-disabled" disabled aria-disabled="true" title="Bank interface is being wired into the capital service preview.">Open service</button>
+        <button className="btn service-action-disabled" disabled aria-disabled="true" title="Coming soon: service-specific actions from this preview.">Service actions</button>
+        <button className="btn service-action-disabled" disabled aria-disabled="true" title="Coming soon: details, upgrades, and admin service info.">Details</button>
       </> : null}
       {showPrimary && !service ? <button className="btn primary" data-click="object-preview-primary" data-object-action={primary}>{objectPreviewActionLabel(primary)}</button> : null}
       {p.kind === "tile" || p.kind === "shared" ? <button className="btn primary" data-click="object-preview-action" data-object-action="walk">Walk here</button> : null}

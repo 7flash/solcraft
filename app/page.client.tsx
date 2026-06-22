@@ -143,6 +143,51 @@ function wonderBuildMsClient(size, mode) { size = normalizeWonderFootprintClient
 
 
 
+
+function shouldSuppressNotice(value: any) {
+  const msg = String(value || "");
+  return /(?:tool selected|selected —|packed away|cursor:|Capture selected|Sword selected|highlighted|Move mode|tutorial restarted|tutorial reset|Guide and rewards are moving)/i.test(msg);
+}
+
+function focusChatInputSoon() {
+  setTimeout(() => {
+    try { (document.querySelector('[data-chat-input="1"]') as HTMLInputElement | null)?.focus?.(); } catch {}
+  }, 0);
+}
+
+function referralCodeFromIntro() {
+  try {
+    const input = document.querySelector('[data-referral-code-input="1"]') as HTMLInputElement | null;
+    const value = String(input?.value || localStorage.getItem('solcraft.referralCode') || '').trim();
+    if (value) localStorage.setItem('solcraft.referralCode', value);
+    return value;
+  } catch { return ''; }
+}
+
+function spawnHarvestPulse(world: any, ch: any, progress: number) {
+  try {
+    if (!ch || !(ch.kind === "tree" || ch.kind === "rock" || ch.kind === "food")) return;
+    const now = performance.now();
+    if (Number(ch.nextFx || 0) > now) return;
+    ch.nextFx = now + 240;
+    const color = ch.kind === "tree" ? 0x2f952f : ch.kind === "food" ? 0xceb443 : 0x82979e;
+    world?.burst?.(ch.x, 0.34 + progress * 0.22, ch.z, color, 3, 0.14 + progress * 0.14);
+  } catch {}
+}
+
+function renderWorldStatusChips(ST: any) {
+  try {
+    if (!ST || ST.screen !== "playing" || !ST.me) return null;
+    const t = Number(ST.now || Date.now());
+    const dayMs = 20 * 60 * 1000;
+    const hour = Math.floor((((t % dayMs) + dayMs) % dayMs) / dayMs * 24);
+    const label = hour < 5 ? "Night" : hour < 8 ? "Dawn" : hour < 18 ? "Day" : hour < 21 ? "Dusk" : "Night";
+    const hx = Number.isFinite(Number(ST.hoverCellX)) ? Math.trunc(Number(ST.hoverCellX)) : Math.trunc(Number(ST.me.x || 0));
+    const hz = Number.isFinite(Number(ST.hoverCellZ)) ? Math.trunc(Number(ST.hoverCellZ)) : Math.trunc(Number(ST.me.z || 0));
+    return <><div className="sc-time-chip">{label} · {String(hour).padStart(2, "0")}:00</div><div className="sc-coord-chip">You {Math.trunc(Number(ST.me.x || 0))}, {Math.trunc(Number(ST.me.z || 0))}</div><div className="sc-hover-cell-chip">Cell {hx}, {hz}</div></>;
+  } catch { return null; }
+}
+
 export default function mount() {
   const root = document.getElementById("solcraft-root");
   if (!root) return;
@@ -185,7 +230,7 @@ export default function mount() {
     bank: null, bankBusy: false, bankMsg: "",
     walkthrough: null, // { active, step: "char" | "quests" }
     wonderPrompt: "", wonderName: "", wonderFootprint: 9, wonderMode: "district", wonderPaletteId: "solar", wonderRecipe: null, wonderBusy: false, wonderPlacing: false, wonderMsg: "", wonderLastPlaceAt: 0, wonderLastPlaceKey: "",
-    adminTool: "demolish", adminMsg: "",
+    adminTool: "demolish", adminMsg: "", hoverCellX: 0, hoverCellZ: 0,
   };
   function currentWonderSize() { return normalizeWonderFootprintClient(ST.wonderFootprint || ST.wonderRecipe?.footprint || 9); }
   function currentWonderMode() { return ["single", "district"].includes(String(ST.wonderMode || ST.wonderRecipe?.mode)) ? String(ST.wonderMode || ST.wonderRecipe?.mode) : "district"; }
@@ -552,6 +597,7 @@ export default function mount() {
     }, 4800);
   }
   const say = (msg, ms = 2400) => {
+    if (shouldSuppressNotice(msg)) return;
     const text = String(msg || "").trim();
     if (!text) return;
     // Keep only the stackable notification rail. The legacy single toast caused
@@ -2247,14 +2293,16 @@ export default function mount() {
     if (fill) fill.style.width = "0%";
   }
   function startChop(x, z) {
-    if (ST.channel) return; // already busy
+    if (ST.channel) return;
     const d = world.doodadVisible(x, z);
     if (!d) return;
     act("harvestStart", { x, z }).then((r) => {
-      if (!r || !r.ok) return;
+      if (!r || !r.ok) { if (r?.msg) say(r.msg, 1200); return; }
       sfx.chop();
-      ST.channel = { x, z, until: performance.now() + r.ms, ms: r.ms, kind: r.kind || d };
+      const ms = Math.max(450, Number(r.ms || (d === "food" ? 900 : 1450)) || 1200);
+      ST.channel = { x, z, until: performance.now() + ms, ms, kind: r.kind || d, nextFx: 0 };
       showChannel(ST.channel.kind === "tree" ? "Chopping…" : ST.channel.kind === "food" ? "Harvesting…" : "Mining…");
+      paint(true);
     });
   }
   function startHomeCast() {
@@ -2346,9 +2394,11 @@ export default function mount() {
       : (!ST.me || cheb(world.me.x, world.me.z, ch.x, ch.z) > 1);
     if (moved) { cancelChop(); return; }
     const now = performance.now();
-    const k = Math.min(1, 1 - (ch.until - now) / ch.ms);
+    const totalMs = Math.max(1, Number(ch.ms || 1200));
+    const k = Math.min(1, 1 - (ch.until - now) / totalMs);
     const fill = document.getElementById("sc-ch-fill");
     if (fill) fill.style.width = `${(k * 100).toFixed(0)}%`;
+    spawnHarvestPulse(world, ch, k);
     if (now >= ch.until) {
       const { x, z, kind } = ch;
       ST.channel = null;
@@ -2759,6 +2809,7 @@ export default function mount() {
   function onPointerMove(ev) {
     if (ST.screen !== "playing") return;
     const c = world.cellFromEvent(ev);
+    if (c) { ST.hoverCellX = c.x; ST.hoverCellZ = c.z; }
     if (!c) { ST.hoverIntent = "walk"; syncToolCursor(); world.hoverMarker.visible = false; world.hideBuildGhost(); hideTip(); return; }
     ST.hoverIntent = hoverIntentForCell(c);
     syncToolCursor();
@@ -2933,7 +2984,7 @@ export default function mount() {
     else if (k === "e" || k === "t") doUseTool();
     else if (k === "i") togglePanel("bank");
     else if (k === "r") doUseTool();
-    else if (ev.key === "Enter") { ST.chatOpen = true; paint(true); setTimeout(() => chatInput.focus(), 0); }
+    else if (ev.key === "Enter") { ST.chatOpen = true; paint(true); focusChatInputSoon(); }
     else if (k === "j") openQuests();
     else if (k === "o") openOptions();
     else if (k === "k") togglePanel("skills");
@@ -3122,7 +3173,7 @@ export default function mount() {
     const visiblePlayers = Array.isArray(ST.players) ? ST.players.length : 0;
     const activePlayers = Array.isArray(ST.map?.players) ? ST.map.players.length : visiblePlayers;
     const hint = ST.channel ? (ST.channel.kind === "home" ? "Returning to flag" : ST.channel.kind === "redeem" ? "Withdrawing coins" : ST.channel.kind === "tree" ? "Chopping wood" : "Mining stone") : "";
-    return <PlayerHudView
+    return <><PlayerHudView
       player={m}
       panel={ST.panel}
       liveEnergy={liveE()}
@@ -3132,7 +3183,9 @@ export default function mount() {
       activePlayers={activePlayers}
       gameplayHint={hint}
       Icon={UiIcon}
-    />;
+    />
+      {renderWorldStatusChips(ST)}
+    </>;
   }
 
   function TopActions() {
@@ -4001,6 +4054,25 @@ export default function mount() {
       case "capital-service-action": return useCapitalService(readStr(el, "service", ""));
       case "object-preview-close": ST.objectPreview = null; if (ST.panel === "object") ST.panel = null; paint(true); return;
       case "object-preview-walk-near": if (ST.objectPreview) { const p = ST.objectPreview; ST.panel = null; ST.objectPreview = null; world.pathToNear(p.x, p.z); paint(true); } return;
+      case "object-preview-share": {
+        const p = ST.objectPreview;
+        if (!p || !Number.isFinite(Number(p.x)) || !Number.isFinite(Number(p.z))) return;
+        act("chat", { msg: formatLocationChatCard(p.x, p.z, p.title || p.name || "Shared location") });
+        say(t("toast.sharedLocation", "Shared your location."), 900);
+        return;
+      }
+      case "object-preview-action": {
+        const p = ST.objectPreview;
+        const action = readStr(el, "objectAction", "");
+        if (!p) return;
+        if (action === "walk" || action === "walk-near") { ST.panel = null; ST.objectPreview = null; world.pathToNear ? world.pathToNear(p.x, p.z) : world.pathTo(p.x, p.z); paint(true); return; }
+        if (action === "talk-npc") { if (cheb(p.x, p.z, world.me.x, world.me.z) <= 1) say(npcTalkLine(p), 4200); else { say(t("toast.walkCloserToTalk", "Walk closer to talk."), 1400); world.pathToNear(p.x, p.z); } return; }
+        if (action === "donate-npc") { if (cheb(p.x, p.z, world.me.x, world.me.z) <= 1) act("donateNpc", { x: p.x, z: p.z }).then((r) => { if (r?.ok) { sfx.coin(); pollSoon(); paint(true); } }); else world.pathToNear(p.x, p.z); return; }
+        if (action === "attack-npc") { if (cheb(p.x, p.z, world.me.x, world.me.z) <= 1) act("attackNpc", { x: p.x, z: p.z }).then((r) => { if (r?.ok) { sfx.hit(); ST.objectPreview = null; if (ST.panel === "object") ST.panel = null; pollSoon(); paint(true); } }); else world.pathToNear(p.x, p.z); return; }
+        if (action === "donate-keep") return doDonateKeep(p.uid || p.id, 10);
+        if (action === "raid-keep") return doRaid(p.uid || p.id);
+        return;
+      }
       case "object-preview-primary": {
         const p = ST.objectPreview;
         const action = readStr(el, "objectAction", "");
@@ -4360,7 +4432,7 @@ export default function mount() {
     ST.profile.name = name;
     const randomHue = Math.floor(Math.random() * 360);
     const randomBody = new THREE.Color().setHSL(randomHue / 360, 0.62, 0.58).getHex();
-    act("setupProfile", { name, body: randomBody, hat: ST.profile.hat, appearance: ST.characterProfile }).then((r) => {
+    act("setupProfile", { name, referralCode: referralCodeFromIntro(), body: randomBody, hat: ST.profile.hat, appearance: ST.characterProfile }).then((r) => {
       if (r && r.ok) {
         ST.needsProfile = false;
         if (ST.me) { ST.me.name = name; ST.me.body = randomBody; ST.me.profileDone = true; }
@@ -4380,6 +4452,7 @@ export default function mount() {
       <h2>Choose your settler name</h2>
       <p className="tiny">You will start with a random look. Edit your character live from the nearby panel after entering.</p>
       <div className="field"><label>Settler name</label><input id="sc-intro-name" maxLength={18} placeholder="Wanderer" defaultValue={ST.profile.name || (m?.name === "Wanderer" ? "" : m?.name || "")} data-keydown="intro-submit" /></div>
+      <div className="field"><label>Referral code</label><input data-referral-code-input="1" className="profile-referral-input" maxLength={32} placeholder="Optional sponsor code" defaultValue={localStorage.getItem("solcraft.referralCode") || ""} onInput={(e:any)=>{ try{ localStorage.setItem("solcraft.referralCode", String(e.currentTarget.value||"")); }catch{} }} /></div>
       <div className="row" style={{ marginTop: 12 }}><button className="btn primary" style={{ width: "100%" }} data-click="intro-submit">Enter the frontier</button></div>
     </div>;
   }

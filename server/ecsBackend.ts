@@ -4,7 +4,7 @@ import { checkWalletLoginGate } from "./login-gate";
 import { verifyWalletAuth } from "./wallet-auth";
 import { dispatchEcs, ecsContext, type EcsAction, type EcsWorld } from "./ecs/index";
 import { loadEcsWorld, persistEcsWorldDelta, ecsRulesFromShared, ecsWorldRev, bumpEcsWorldRev, mirrorLegacyToEcsTables, ecsMigrationStatus } from "./ecsDbAdapter";
-import { ECONOMY_RULES, START_INV, PACK_SIZE, BASE_MAX, MAX_HP, SPAWN_HALF, biomeAt } from "./shared";
+import { ECONOMY_RULES, PACK_SIZE, BASE_MAX, MAX_HP, RES_KEYS, biomeAt } from "./shared";
 import { reputationSummaryForWire, tileCapacityForPlayer, storageCapsForPlayer } from "./reputationRules";
 import { cleanEconomyTick, cleanEconomyStatus, cleanPlayerEconomySummary } from "./cleanEconomy";
 import { dispatchEcsGameplayAction, ecsGameplayStatus, ecsGameplaySupportedActionTypes } from "./ecsGameplayActions";
@@ -37,15 +37,29 @@ function safeJson(raw: any, fallback: any) { try { return typeof raw === "string
 function cleanName(name: string, fallback = "Wanderer") { return String(name || fallback).trim().slice(0, 18) || fallback; }
 function randomSecret(prefix = "") { return `${prefix}${crypto.randomUUID()}`; }
 function num(v: any, fallback = 0) { const n = Number(v); return Number.isFinite(n) ? n : fallback; }
-const ECS_RESOURCE_KEYS = ["w", "p", "s", "f", "g", "sh", "sc"] as const;
-const ECS_RESOURCE_KEY_SET = new Set<string>(ECS_RESOURCE_KEYS as readonly string[]);
-
 function isSpectator(p: any) { return String(p?.secret || "").startsWith("spectator:"); }
 function pinfo(id: number) { const p = getPlayer(id) as any; return { name: p?.name || "Neutral", body: p?.body || 0x808080, hat: p?.hat || 0x111111 }; }
 function bodyPalette(seed: number) { const colors = [0x6a5ae0, 0x14f195, 0xffc857, 0xff5c7a, 0x7dcfe8, 0x9945ff]; return { body: colors[Math.abs(seed) % colors.length], hat: colors[(Math.abs(seed) + 2) % colors.length] }; }
-function spawnOrigin(idx: number) { const ring = Math.floor(Math.sqrt(idx)); const side = Math.max(1, ring * 2 + 1); const step = 9; const x = ((idx % side) - ring) * step; const z = (Math.floor(idx / side) - ring) * step; return [x, z] as const; }
+function spawnOrigin(idx: number) {
+  const n = Math.max(0, Math.trunc(Number(idx) || 0));
+  const ring = Math.floor(n / 8) + 1;
+  const slot = n % 8;
+  const radius = 22 + ring * 8;
+  const dirs = [[1,0],[1,1],[0,1],[-1,1],[-1,0],[-1,-1],[0,-1],[1,-1]] as const;
+  const [dx, dz] = dirs[slot];
+  return [dx * radius + (ring % 3) * 2, dz * radius - (ring % 2) * 2] as const;
+}
+function repairProfileSpawn(row: any) {
+  if (!row) return;
+  const x = Math.trunc(Number(row.x || 0));
+  const z = Math.trunc(Number(row.z || 0));
+  const sx = Math.trunc(Number(row.spawnX || 0));
+  const sz = Math.trunc(Number(row.spawnZ || 0));
+  if (Math.max(Math.abs(x), Math.abs(z)) <= 8 && Math.max(Math.abs(sx), Math.abs(sz)) > 8) { row.x = sx; row.z = sz; }
+  row.inv = { w: 0, p: 0, s: 0, f: 0, g: Number(row.inv?.g || 0), sh: 0, sc: 0 };
+}
 function spectatorSpawnPoint(idx: number) { return [Math.cos(idx) * 6 | 0, Math.sin(idx) * 6 | 0] as const; }
-function maxResourceBag(inv: any) { const out: any = {}; for (const k of ECS_RESOURCE_KEYS) out[k] = Math.max(0, Number(inv?.[k] || 0)); return out; }
+function maxResourceBag(inv: any) { const out: any = {}; for (const k of RES_KEYS) out[k] = Math.max(0, Number(inv?.[k] || 0)); return out; }
 function tileCapacityFor(p: any) { return tileCapacityForPlayer(p); }
 function resourceCaps(p: any) { return storageCapsForPlayer(p); }
 function ownedTileCount(id: number) { return Number(db.tiles.select().where({ owner: id }).count() || 0); }
@@ -146,16 +160,14 @@ export async function join(name: string, body: number, hat: number, walletAuth: 
     tokenBalance: 0,
     vault: 0,
     strongbox: 0,
-    inv: { ...START_INV },
+    inv: { w: 0, p: 0, s: 0, f: 0, g: 0, sh: 0, sc: 0 },
     pack: Array(PACK_SIZE).fill(null),
     equip: { hat: null, cape: null, armor: null, hand: null, boots: null },
     xp: 0, level: 1, skillPts: 0, skills: {},
     treesChopped: 0, planksMade: 0, gearCrafted: 0, tradesDone: 0, equippedOnce: 0, msIndex: 0,
     lastSeen: now(), profileDone: hasName ? 1 : 0,
   }) as any;
-  for (let x = ox - SPAWN_HALF; x <= ox + SPAWN_HALF; x++) for (let z = oz - SPAWN_HALF; z <= oz + SPAWN_HALF; z++) {
-    if (!db.tiles.select().where({ x, z }).first()) db.tiles.insert({ x, z, owner: p.id });
-  }
+  // Fresh clean release: no automatic preclaimed base. First claim can be any free non-capital tile.
   syncEcsPlayerEntity(p);
   bumpEcsWorldRev();
   mirrorLegacyToEcsTables("join-new");
@@ -264,6 +276,7 @@ export function dispatch(p: EcsPlayerRow, body: any) {
     row.body = Number(body.body) || row.body;
     row.hat = Number(body.hat) || row.hat;
     row.profileDone = 1;
+    repairProfileSpawn(row);
     if (body.appearance !== undefined) row.appearance = JSON.stringify(body.appearance).slice(0, 12000);
     refreshPlayer(row);
     return { ok: true, backend: "ecs" };
@@ -299,7 +312,7 @@ export function dispatch(p: EcsPlayerRow, body: any) {
   if (!ECS_ACTION_TYPES.has(type)) { const r = { ok: false, msg: `ECS backend does not implement action: ${type}`, reasonCode: "ECS_ACTION_NOT_IMPLEMENTED", details: { type, gameplaySupported: ecsGameplaySupportedActionTypes() } }; logEcsAction(p.id, type, r); return r; }
   const before = loadEcsWorld({ playerId: fresh.id, ax: body.x ?? fresh.x, az: body.z ?? fresh.z, radius: 96 });
   const after = cloneWorld(before);
-  const action: EcsAction = type === "harvestStart" || type === "harvestFinish" ? { ...body, type: "harvest" } : body;
+  const action: EcsAction = body;
   const result = dispatchEcs(after, fresh.id, action, ecsContext(now(), ecsRulesFromShared()));
   if (!result.ok) { logEcsAction(fresh.id, type, result); return result; }
   persistEcsWorldDelta(before, after, fresh.id);

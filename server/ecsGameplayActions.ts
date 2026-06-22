@@ -1,11 +1,11 @@
 import { db, metaGet, metaSet } from "./db";
 import { getPlayer, refreshPlayer } from "./playerStore";
 import { deleteBuilding, getBuilding, refreshBuilding } from "./buildingStore";
-import { insertLoot } from "./lootStore";
+import { insertLoot, lootAt } from "./lootStore";
 import { adjustReputation, reputationDeltaFor, reputationDeltaText, reputationSummaryForWire } from "./reputationRules";
 import { removedFeatureResponse } from "./removedFeatures";
 import { bumpEcsWorldRev, mirrorLegacyToEcsTables } from "./ecsDbAdapter";
-import { BASE_MAX, GOLD_MINE_KIND, LIBRARY, MAX_HP, RAID_COST, RES_KEYS, RES_NAMES, TELEPORT_COST, TELEPORT_MS, XP, biomeAt, cheb, proceduralNpcAt } from "./shared";
+import { BASE_MAX, ECONOMY_RULES, GOLD_MINE_KIND, LIBRARY, MAX_HP, RAID_COST, RES_KEYS, RES_NAMES, TELEPORT_COST, TELEPORT_MS, XP, biomeAt, cheb, harvestMs, naturalDoodad, proceduralNpcAt } from "./shared";
 
 export type EcsGameplayResult = { handled: boolean; result?: any };
 
@@ -16,6 +16,9 @@ type ResBag = Record<string, number>;
 const SWORD_COST = Math.max(1, Number(process.env.SOLCRAFT_SWORD_ENERGY_COST || 4) || 4);
 const RESOURCE_KEYS = new Set<string>(RES_KEYS as any);
 const DIRECT_ACTIONS = new Set([
+  "claim",
+  "harvestStart",
+  "harvestFinish",
   "harvestCancel",
   "repair",
   "customize",
@@ -38,7 +41,7 @@ const DIRECT_ACTIONS = new Set([
   "wallet",
 ]);
 
-const channels = new Map<number, { type: "home" | "wonder"; x: number; z: number; until: number; uid?: number; tx?: number; tz?: number }>();
+const channels = new Map<number, { type: "home" | "wonder" | "harvest"; x: number; z: number; until: number; uid?: number; tx?: number; tz?: number; kind?: "tree" | "rock" | "food" }>();
 
 function now() { return Date.now(); }
 function ok(extra: Record<string, any> = {}) { return { ok: true, ...extra, backend: "ecs" }; }
@@ -104,6 +107,97 @@ function completionChannel(p: PlayerRow, kind: "home" | "wonder") {
   return ch;
 }
 
+
+function doodadAt(x: number, z: number): "tree" | "rock" | "food" | "" {
+  const row = (db.doodads.select().where({ x, z }).first() as any) || null;
+  const state = String(row?.state || "");
+  if (state === "gone") return "";
+  if (state === "tree" || state === "rock" || state === "food") return state as any;
+  const nat = String(naturalDoodad(x, z) || "");
+  return nat === "tree" || nat === "rock" || nat === "food" ? nat as any : "";
+}
+function markDoodadGone(x: number, z: number) {
+  const row = (db.doodads.select().where({ x, z }).first() as any) || null;
+  if (row) row.state = "gone";
+  else db.doodads.insert({ x, z, state: "gone" });
+}
+function dropHarvestLoot(x: number, z: number, kind: "wood" | "stone", amount: number) {
+  const spots = [[0,0],[1,0],[-1,0],[0,1],[0,-1],[1,1],[1,-1],[-1,1],[-1,-1]] as const;
+  let left = Math.max(1, Math.floor(Number(amount || 1)));
+  let dropped = 0;
+  for (const [dx, dz] of spots) {
+    if (left <= 0) break;
+    const lx = x + dx, lz = z + dz;
+    if (lootAt(lx, lz)) continue;
+    const n = Math.min(left, kind === "wood" ? 5 : 4);
+    insertLoot({ x: lx, z: lz, kind, gid: String(n) });
+    left -= n; dropped += n;
+  }
+  return dropped;
+}
+function capitalReserved(x: number, z: number) { return Math.max(Math.abs(x), Math.abs(z)) <= 6; }
+function actionClaimAnyFreeTile(p: PlayerRow, body: any) {
+  const x = int(body.x), z = int(body.z);
+  if (capitalReserved(x, z)) return err("The capital plaza is public land. Claim outside the service ring.", "CAPITAL_RESERVED");
+  const existing = (db.tiles.select().where({ x, z }).first() as any) || null;
+  if (existing && Number(existing.owner || 0) === Number(p.id)) return ok({ note: `Already yours: ${x},${z}.` });
+  if (existing && Number(existing.owner || 0)) return err("That tile is already claimed.", "TILE_TAKEN");
+  if (existing) existing.owner = Number(p.id); else db.tiles.insert({ x, z, owner: Number(p.id) });
+  addXp(p, 4); refreshPlayer(p); bump("claim-any-free"); mirrorLegacyToEcsTables("claim-any-free");
+  return ok({ note: `Claimed ${x},${z}.`, x, z });
+}
+function actionHarvestStart(p: PlayerRow, body: any) {
+  const x = int(body.x), z = int(body.z);
+  if (!playerNear(p, x, z)) return err("Walk next to it first.", "TOO_FAR");
+  const kind = doodadAt(x, z);
+  if (!kind) return err("Nothing to harvest there.", "NO_HARVEST_TARGET");
+  const cost = kind === "food" ? 0 : kind === "tree" ? Math.max(0, Number((ECONOMY_RULES as any).chopEnergy || 1)) : Math.max(0, Number((ECONOMY_RULES as any).mineEnergy || 1));
+  if (cost > 0 && Number(p.energy ?? BASE_MAX) < cost) return err("Rest a moment before harvesting.", "NO_HARVEST_ENERGY");
+  if (cost > 0) spendEnergy(p, cost);
+  const ms = kind === "food" ? 900 : Math.max(650, Math.floor(Number(harvestMs((p.skills || {}) as any, kind as any)) || 1300));
+  channels.set(Number(p.id), { type: "harvest", x, z, until: now() + ms, kind } as any);
+  refreshPlayer(p);
+  return ok({ ms, kind, note: kind === "tree" ? "Chopping…" : kind === "rock" ? "Mining…" : "Harvesting…" });
+}
+function actionHarvestFinish(p: PlayerRow, body: any) {
+  const x = int(body.x), z = int(body.z);
+  const ch = channels.get(Number(p.id)) as any;
+  if (!ch || ch.type !== "harvest" || int(ch.x) !== x || int(ch.z) !== z) return err("Not harvesting that.", "NO_HARVEST_CHANNEL");
+  if (now() < Number(ch.until || 0) - 200) return err("Still working…", "HARVEST_PENDING");
+  channels.delete(Number(p.id));
+  if (!playerNear(p, x, z)) return err("Moved away.", "HARVEST_MOVED");
+  const kind = doodadAt(x, z) || ch.kind;
+  if (!kind) return err("Already gone.", "HARVEST_GONE");
+  markDoodadGone(x, z);
+  let note = "Harvested.";
+  if (kind === "tree") {
+    const amount = Math.max(2, Math.floor(Number((ECONOMY_RULES as any).treeWood || 5)));
+    const dropped = dropHarvestLoot(x, z, "wood", amount);
+    p.treesChopped = Math.max(0, Number(p.treesChopped || 0)) + 1;
+    addXp(p, (XP as any).chop || 8);
+    note = `Chopped tree: ${dropped} wood 🪵 dropped nearby.`;
+  } else if (kind === "rock") {
+    const amount = Math.max(2, Math.floor(Number((ECONOMY_RULES as any).rockStone || 4)));
+    const dropped = dropHarvestLoot(x, z, "stone", amount);
+    addXp(p, (XP as any).mine || 8);
+    note = `Mined rock: ${dropped} stone ⛏ dropped nearby.`;
+  } else {
+    const amount = 3;
+    gain(p, { f: amount });
+    addXp(p, 4);
+    note = `Harvested crops: +${amount} food 🌾.`;
+  }
+  refreshPlayer(p); bump("harvest-channel"); mirrorLegacyToEcsTables("harvest-channel");
+  return ok({ note, inv: p.inv, kind, x, z });
+}
+function actionHarvestCancel(p: PlayerRow) { channels.delete(Number(p.id)); return ok(); }
+function keepChatCard(b: any) {
+  const uid = int(b?.id || b?.uid || 0); const x = int(b?.x), z = int(b?.z);
+  const hp = Math.max(0, Math.floor(Number(b?.hp || 0))); const maxHp = Math.max(0, Math.floor(Number(b?.maxHp || 0))); const coins = Math.max(0, Math.floor(Number(b?.stored || b?.coins || 0)));
+  return `[[sc:keep|uid=${uid}|x=${x}|z=${z}|label=${encodeURIComponent(`Keep ${x},${z}`)}|hp=${hp}|maxHp=${maxHp}|coins=${coins}]]`;
+}
+function addSystemChat(msg: string) { try { db.chat.insert({ name: "", msg, sys: 1 }); } catch {} }
+
 function actionCustomize(p: PlayerRow, body: any) {
   const b = getBuilding(int(body.uid));
   if (!b || Number(b.owner || 0) !== Number(p.id)) return err("Not your building.", "NOT_OWNER");
@@ -152,13 +246,13 @@ function actionRepair(p: PlayerRow, body: any) {
 
 function actionUseBuilding(p: PlayerRow, body: any) {
   const b = getBuilding(int(body.uid));
-  if (!b) return err("Gone.", "BUILDING_NOT_FOUND");
+  if (!b) return err("That target is no longer there.", "BUILDING_NOT_FOUND");
   if (!playerNear(p, b.x, b.z)) return err("Walk next to it first.", "TOO_FAR");
   const def = libById(String(b.kind || ""));
   if (!def) return err("Unknown building.", "UNKNOWN_BUILDING");
   if (isUnderConstruction(b)) return err(`${b.nm || def.name || "Building"} is still under construction — ${Math.ceil((Number(b.cdUntil || 0) - now()) / 1000)}s left.`, "UNDER_CONSTRUCTION");
   markUsed(b);
-  if (Number(b.owner || 0) !== Number(p.id)) return ok({ cosmetic: true, usedAt: b.usedAt, note: `${def.name || "Building"} responds, but only its owner can operate it.` });
+  if (Number(b.owner || 0) && Number(b.owner || 0) !== Number(p.id)) return ok({ cosmetic: true, usedAt: b.usedAt, note: `${def.name || "Building"} responds, but only its owner can operate it.` });
   if (b.kind === "lumber") return ok({ note: "Lumber Camp is active — it spawns trees nearby. Cut and gather them manually." });
   if (b.kind === "quarry") return ok({ note: "Quarry is active — it exposes rocks nearby. Mine and gather them manually." });
   if (b.kind === "farm") return ok({ note: "Farm is active — it grows crops nearby. Cut and gather crops for food." });
@@ -248,7 +342,7 @@ function actionDonateKeep(p: PlayerRow, body: any) {
 function actionRaidKeep(p: PlayerRow, body: any) {
   const uid = int(body.uid || body.target || 0);
   const b = getBuilding(uid);
-  if (!b) return err("Gone.", "BUILDING_NOT_FOUND");
+  if (!b) return err("That target is no longer there.", "BUILDING_NOT_FOUND");
   if (!playerNear(p, b.x, b.z)) return err("Stand beside it to attack it.", "TOO_FAR");
   if (Number(p.energy ?? BASE_MAX) < RAID_COST) return err(`Need ${RAID_COST}⚡ to attack.`, "NO_RAID_ENERGY");
   spendEnergy(p, RAID_COST);
@@ -273,6 +367,7 @@ function actionRaidKeep(p: PlayerRow, body: any) {
     refreshBuilding(b);
   }
   refreshPlayer(p); bump("raid"); mirrorLegacyToEcsTables("raid");
+  try { if (isKeep) addSystemChat(keepChatCard(b)); } catch {}
   return ok({ note, player: { hp: p.hp, energy: p.energy }, building: b.hp > 0 ? { uid: b.id, hp: b.hp, maxHp: b.maxHp } : null, inv: p.inv, reputation: reputationSummaryForWire(Number(p.id)) });
 }
 
@@ -358,7 +453,10 @@ export function dispatchEcsGameplayAction(playerLike: PlayerRow, body: any): Ecs
   const p = getPlayer(playerLike?.id) as PlayerRow || playerLike;
   if (!p) return { handled: true, result: err("Unknown player", "PLAYER_NOT_FOUND") };
   try {
-    if (type === "harvestCancel") return { handled: true, result: ok() };
+    if (type === "claim") return { handled: true, result: actionClaimAnyFreeTile(p, body) };
+    if (type === "harvestStart") return { handled: true, result: actionHarvestStart(p, body) };
+    if (type === "harvestFinish") return { handled: true, result: actionHarvestFinish(p, body) };
+    if (type === "harvestCancel") return { handled: true, result: actionHarvestCancel(p) };
     if (type === "customize") return { handled: true, result: actionCustomize(p, body) };
     if (type === "customizerAccess") return { handled: true, result: actionCustomizerAccess(p, body) };
     if (type === "repair") return { handled: true, result: actionRepair(p, body) };

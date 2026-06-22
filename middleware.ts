@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 
 function adminEnabled(req: NextRequest) {
-  if (process.env.SOLCRAFT_ENABLE_ADMIN === '1' || process.env.NEXT_PUBLIC_SOLCRAFT_ENABLE_ADMIN === '1') return true;
+  if (process.env.SOLCRAFT_ENABLE_ADMIN === '1') return true;
   if (process.env.NODE_ENV !== 'production') return true;
   const host = (req.headers.get('host') || '').toLowerCase();
   if (host.startsWith('localhost') || host.startsWith('127.0.0.1') || host.startsWith('[::1]') || host.endsWith('.local')) return true;

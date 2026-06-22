@@ -41,16 +41,18 @@ export const DUSK_INDUSTRIAL_NUMBER = Object.fromEntries(
 ) as Record<DuskColorName, number>;
 
 export const DUSK_TERRAIN_HEX: Record<string, string> = {
-  sand: DUSK_INDUSTRIAL_HEX.warmBrown,
-  grass: DUSK_INDUSTRIAL_HEX.brownBlack,
-  forest: DUSK_INDUSTRIAL_HEX.darkUmber,
-  water: DUSK_INDUSTRIAL_HEX.slate,
-  rock: DUSK_INDUSTRIAL_HEX.slateLight,
-  stone: DUSK_INDUSTRIAL_HEX.slateLight,
-  road: DUSK_INDUSTRIAL_HEX.rustDark,
+  // Stage82: keep the exact Dusk Industrial palette, but choose the lighter members for terrain.
+  // The world was reading as night even at daytime because grass/neutral used near-black browns.
+  sand: DUSK_INDUSTRIAL_HEX.oliveStone,
+  grass: DUSK_INDUSTRIAL_HEX.oliveStone,
+  forest: DUSK_INDUSTRIAL_HEX.warmBrown,
+  water: DUSK_INDUSTRIAL_HEX.slateLight,
+  rock: DUSK_INDUSTRIAL_HEX.blueGray,
+  stone: DUSK_INDUSTRIAL_HEX.blueGray,
+  road: DUSK_INDUSTRIAL_HEX.copper,
   snow: DUSK_INDUSTRIAL_HEX.bone,
-  claimed: DUSK_INDUSTRIAL_HEX.deepOxblood,
-  neutral: DUSK_INDUSTRIAL_HEX.brownBlack,
+  claimed: DUSK_INDUSTRIAL_HEX.copper,
+  neutral: DUSK_INDUSTRIAL_HEX.oliveStone,
 };
 
 export const DUSK_BUILDING_HEX: Record<string, { wall: string; roof: string; trim: string; shadow: string }> = {
