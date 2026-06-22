@@ -53,6 +53,29 @@ function writeInv(playerId: number, inv: Record<string, any>) {
   try { rawRun("update players set inv = ?, updatedAt = ? where id = ?", body, now(), playerId); }
   catch { rawRun("update players set inv = ? where id = ?", body, playerId); }
 }
+function writeAppearanceGift(playerId: number, gift: any) {
+  const sets: string[] = [];
+  const args: any[] = [];
+  if (gift?.appearance && typeof gift.appearance === "object") { sets.push("appearance = ?"); args.push(JSON.stringify(gift.appearance).slice(0, 12000)); }
+  if (Number.isFinite(Number(gift?.body)) && Number(gift.body) > 0) { sets.push("body = ?"); args.push(Number(gift.body)); }
+  if (Number.isFinite(Number(gift?.hat)) && Number(gift.hat) > 0) { sets.push("hat = ?"); args.push(Number(gift.hat)); }
+  if (!sets.length) return;
+  try { rawRun(`update players set ${sets.join(", ")}, updatedAt = ? where id = ?`, ...args, now(), playerId); }
+  catch { rawRun(`update players set ${sets.join(", ")} where id = ?`, ...args, playerId); }
+}
+function inviteGiftFromCode(row: any) {
+  const gift = safeJson<any>(row?.giftJson, {});
+  const storedAppearance = safeJson<any>(row?.assignedAppearanceJson, null);
+  const source = gift?.invite || gift?.adminInvite || gift?.character || (gift?.kind === "adminInvite" || gift?.kind === "uniqueCharacter" ? gift : null);
+  const characterDesignId = String(row?.characterDesignId || source?.characterDesignId || gift?.characterDesignId || "").trim();
+  const appearance = source?.appearance || source?.characterProfile || storedAppearance || null;
+  const body = Number(source?.body || gift?.body || 0) || 0;
+  const hat = Number(source?.hat || gift?.hat || 0) || 0;
+  const accessorySet = source?.accessorySet || gift?.accessorySet || null;
+  const atlas = source?.atlas || gift?.atlas || null;
+  if (!characterDesignId && !appearance && !body && !hat && !accessorySet && !atlas) return null;
+  return { characterDesignId, appearance, body, hat, accessorySet, atlas };
+}
 function playerRow(playerId: any) {
   const id = Math.trunc(Number(playerId || 0));
   if (!id) return null;
@@ -124,6 +147,10 @@ export function ensureReferralSchema() {
   tryExec("alter table referralCodes add column disabledByAdmin integer not null default 0");
   tryExec("alter table referralCodes add column adminNote text");
   tryExec("alter table referralCodes add column totalRewardPaid integer not null default 0");
+  tryExec("alter table referralCodes add column characterDesignId text");
+  tryExec("alter table referralCodes add column assignedAppearanceJson text");
+  tryExec("alter table referralCodes add column claimedByPlayerId integer");
+  tryExec("alter table referralCodes add column claimedAt integer");
   tryExec("alter table referralClaims add column ipHash text");
   tryExec("alter table referralClaims add column userAgent text");
   tryExec("alter table referralClaims add column requestId text");
@@ -235,21 +262,45 @@ export function deactivateReferralCode(owner: any, codeRaw: any): ReferralResult
 
 export function applyReferralCodeForNewProfile(p: any, rawCode: any, claimContext: ReferralClaimContext = {}): ReferralResult | null {
   const code = normalizeReferralCode(rawCode);
-  if (!code) return rawCode ? err("Referral code is not valid. Use letters, numbers, _ or -.", "REFERRAL_CODE_INVALID") : null;
+  if (!code) return rawCode ? err("Invite code is not valid. Use letters, numbers, _ or -.", "REFERRAL_CODE_INVALID") : null;
   ensureReferralSchema();
   const refereeId = Math.trunc(Number(p?.id || 0));
   if (!refereeId) return err("auth", "AUTH");
   const referee = playerRow(refereeId);
   if (!referee) return err("Player not found.", "PLAYER_NOT_FOUND");
-  if (Number(referee.profileDone || 0)) return err("Referral codes can only be used while creating your character.", "REFERRAL_ONLY_ON_CREATE");
-  if (rawGet("select id from referralClaims where refereePlayerId = ?", refereeId)) return err("This character already used a referral code.", "REFERRAL_ALREADY_USED");
+  if (Number(referee.profileDone || 0)) return err("Invite codes can only be used while creating your character.", "REFERRAL_ONLY_ON_CREATE");
+  if (rawGet("select id from referralClaims where refereePlayerId = ?", refereeId)) return err("This character already used an invite code.", "REFERRAL_ALREADY_USED");
 
   const row = rawGet("select * from referralCodes where code = ?", code);
-  if (!row || !Number(row.active || 0) || Number(row.disabledByAdmin || 0)) return err("Referral code was not found or is paused.", "REFERRAL_CODE_NOT_FOUND");
-  if (row.expiresAt && Number(row.expiresAt) < now()) return err("Referral code expired.", "REFERRAL_CODE_EXPIRED");
-  if (Number(row.ownerPlayerId || 0) === refereeId) return err("You cannot use your own referral code.", "REFERRAL_SELF");
-  if (Number(row.maxUses || 0) > 0 && Number(row.uses || 0) >= Number(row.maxUses || 0)) return err("Referral code has no gifts left.", "REFERRAL_CODE_USED_UP");
-  if (String(row.rewardKind || "coins") !== "coins") return err("Referral reward type is not supported yet.", "REFERRAL_REWARD_UNSUPPORTED");
+  if (!row || !Number(row.active || 0) || Number(row.disabledByAdmin || 0)) return err("Invite code was not found or is paused.", "REFERRAL_CODE_NOT_FOUND");
+  if (row.expiresAt && Number(row.expiresAt) < now()) return err("Invite code expired.", "REFERRAL_CODE_EXPIRED");
+  if (Number(row.maxUses || 0) > 0 && Number(row.uses || 0) >= Number(row.maxUses || 0)) return err("This invite code has already been used.", "REFERRAL_CODE_USED_UP");
+
+  const inviteGift = inviteGiftFromCode(row);
+  if (inviteGift) {
+    return referralMeasure.measure({
+      start: () => `claim invite code=${code} uid=${refereeId} design=${inviteGift.characterDesignId || "atlas"}`,
+      end: (r: any) => ({ ok: !!r?.ok, uid: refereeId, code, invite: true, reason: r?.reasonCode || null }),
+      budget: 80,
+      maxResultLength: 120,
+    }, () => tx(() => {
+      const freshRow = rawGet("select * from referralCodes where code = ?", code);
+      if (!freshRow || !Number(freshRow.active || 0) || Number(freshRow.disabledByAdmin || 0)) return err("Invite code was not found or is paused.", "REFERRAL_CODE_NOT_FOUND");
+      if (Number(freshRow.maxUses || 0) > 0 && Number(freshRow.uses || 0) >= Number(freshRow.maxUses || 0)) return err("This invite code has already been used.", "REFERRAL_CODE_USED_UP");
+      if (rawGet("select id from referralClaims where refereePlayerId = ?", refereeId)) return err("This character already used an invite code.", "REFERRAL_ALREADY_USED");
+      writeAppearanceGift(refereeId, inviteGift);
+      rawRun("update referralCodes set uses = uses + 1, claimedByPlayerId = ?, claimedAt = ?, updatedAt = ? where id = ?", refereeId, now(), now(), Number(freshRow.id));
+      const message = inviteGift.characterDesignId
+        ? `Invite code ${code} unlocked character design ${inviteGift.characterDesignId}.`
+        : `Invite code ${code} unlocked a unique character design.`;
+      rawRun(`insert into referralClaims (code, codeId, referrerPlayerId, refereePlayerId, rewardKind, rewardAmount, status, message, createdAt, ipHash, userAgent, requestId, extraJson)
+        values (?, ?, ?, ?, 'invite', 0, 'paid', ?, ?, ?, ?, ?, ?)`, code, Number(freshRow.id), Number(freshRow.ownerPlayerId || 0), refereeId, message, now(), hashIp(claimContext.ip) || null, cleanUa(claimContext.userAgent) || null, String(claimContext.requestId || "").slice(0, 80) || null, JSON.stringify({ source: "profile-create", invite: inviteGift }));
+      return ok({ code, rewardKind: "invite", rewardAmount: 0, invite: true, characterDesignId: inviteGift.characterDesignId, appearance: inviteGift.appearance || null, body: inviteGift.body || 0, hat: inviteGift.hat || 0, accessorySet: inviteGift.accessorySet || null, atlas: inviteGift.atlas || null, note: message, toast: message });
+    }));
+  }
+
+  if (Number(row.ownerPlayerId || 0) === refereeId) return err("You cannot use your own invite code.", "REFERRAL_SELF");
+  if (String(row.rewardKind || "coins") !== "coins") return err("Invite reward type is not supported yet.", "REFERRAL_REWARD_UNSUPPORTED");
 
   const referrer = playerRow(row.ownerPlayerId);
   const sponsorErr = validateSponsor(referrer);
@@ -259,7 +310,7 @@ export function applyReferralCodeForNewProfile(p: any, rawCode: any, claimContex
   if (dailySponsoredBy(Number(referrer.id)) + amount > MAX_DAILY_SPONSORED) return err("Referral sponsor has reached today's gift limit.", "REFERRAL_DAILY_LIMIT", { maxDailySponsored: MAX_DAILY_SPONSORED });
   if (coinsOf(referrer) < amount) return err(`Referral code is not funded right now. ${playerName(referrer)} needs ${amount}🪙 available.`, "REFERRAL_NOT_FUNDED", { code, rewardAmount: amount });
   const ipHash = hashIp(claimContext.ip);
-  if (sameIpBlocked(ipHash, refereeId)) return err("Too many referral claims came from this network recently. Try later or use a different code.", "REFERRAL_IP_LIMIT");
+  if (sameIpBlocked(ipHash, refereeId)) return err("Too many invite claims came from this network recently. Try later or use a different code.", "REFERRAL_IP_LIMIT");
 
   return referralMeasure.measure({
     start: () => `claim referral code=${code} uid=${refereeId} ref=${Number(referrer.id)}`,
@@ -271,15 +322,15 @@ export function applyReferralCodeForNewProfile(p: any, rawCode: any, claimContex
     const freshReferee = playerRow(refereeId);
     const freshSponsorErr = validateSponsor(freshReferrer);
     if (freshSponsorErr) return freshSponsorErr;
-    if (rawGet("select id from referralClaims where refereePlayerId = ?", refereeId)) return err("This character already used a referral code.", "REFERRAL_ALREADY_USED");
+    if (rawGet("select id from referralClaims where refereePlayerId = ?", refereeId)) return err("This character already used an invite code.", "REFERRAL_ALREADY_USED");
     if (dailySponsoredBy(Number(freshReferrer.id)) + amount > MAX_DAILY_SPONSORED) return err("Referral sponsor has reached today's gift limit.", "REFERRAL_DAILY_LIMIT", { maxDailySponsored: MAX_DAILY_SPONSORED });
     if (coinsOf(freshReferrer) < amount) return err("Referral sponsor no longer has enough coins.", "REFERRAL_NOT_FUNDED", { code, rewardAmount: amount });
     const sponsorInv = parseInv(freshReferrer); sponsorInv.g = Math.max(0, Math.floor(Number(sponsorInv.g || 0)) - amount);
     const refereeInv = parseInv(freshReferee); refereeInv.g = Math.max(0, Math.floor(Number(refereeInv.g || 0)) + amount);
     writeInv(Number(freshReferrer.id), sponsorInv);
     writeInv(Number(freshReferee.id), refereeInv);
-    rawRun("update referralCodes set uses = uses + 1, totalRewardPaid = coalesce(totalRewardPaid,0) + ?, updatedAt = ? where id = ?", amount, now(), Number(row.id));
-    const message = `${playerName(freshReferrer)} gifted you ${amount}🪙 through referral code ${code}.`;
+    rawRun("update referralCodes set uses = uses + 1, totalRewardPaid = coalesce(totalRewardPaid,0) + ?, claimedByPlayerId = case when maxUses = 1 then ? else claimedByPlayerId end, claimedAt = case when maxUses = 1 then ? else claimedAt end, updatedAt = ? where id = ?", amount, refereeId, now(), now(), Number(row.id));
+    const message = `${playerName(freshReferrer)} gifted you ${amount}🪙 through invite code ${code}.`;
     rawRun(`insert into referralClaims (code, codeId, referrerPlayerId, refereePlayerId, rewardKind, rewardAmount, status, message, createdAt, ipHash, userAgent, requestId, extraJson)
       values (?, ?, ?, ?, 'coins', ?, 'paid', ?, ?, ?, ?, ?, ?)`, code, Number(row.id), Number(freshReferrer.id), refereeId, amount, message, now(), ipHash || null, cleanUa(claimContext.userAgent) || null, String(claimContext.requestId || "").slice(0, 80) || null, JSON.stringify({ source: "profile-create" }));
     return ok({ code, referrerId: Number(freshReferrer.id), referrerName: playerName(freshReferrer), rewardKind: "coins", rewardAmount: amount, note: message, toast: message });

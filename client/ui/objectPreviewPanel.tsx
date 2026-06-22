@@ -1,14 +1,15 @@
 // @ts-nocheck
 /** @jsxImportSource tradjs/client */
 import { objectPreviewActionLabel, objectPreviewDescription, objectPreviewGlyph, objectPreviewPrimaryAction, objectPreviewShouldShowPrimary, objectPreviewTitle } from "./objectPreviewPanelModel";
+import { BUILDING_POLISH, costLine } from "./productionPolish";
 
 const BUILD_CHOICES = [
-  ["cottage", "House", "🏠", "Expands your settlement and supports future services."],
-  ["lumber", "Lumber Camp", "🪵", "Spawns renewable trees nearby. You still need to cut and gather them."],
-  ["quarry", "Mine", "⛏", "Spawns renewable rocks nearby. You still need to mine and gather them."],
-  ["farm", "Farm", "🌾", "Spawns crops nearby; cut and gather them for food."],
-  ["warehouse", "Warehouse", "▣", "Raises storage so resources do not rot as quickly."],
-];
+  ["cottage", "House", "🏠", { w: 6, s: 2 }],
+  ["lumber", "Lumber Camp", "🪵", { w: 12, s: 4 }],
+  ["quarry", "Mine", "⛏", { w: 10, s: 8 }],
+  ["farm", "Farm", "🌾", { w: 10, f: 2 }],
+  ["warehouse", "Warehouse", "▣", { w: 14, s: 8 }],
+] as const;
 
 function hasCoords(p: any) {
   return p && Number.isFinite(Number(p.x)) && Number.isFinite(Number(p.z));
@@ -29,7 +30,7 @@ export function ObjectPreviewPanelView({ preview }: any) {
   const showPrimary = objectPreviewShouldShowPrimary(p);
   const service = isServicePreview(p);
   return <div className="utility-pop object-preview-pop" data-stop-pointerdown="1" data-service-preview={service ? "1" : "0"} data-kind={String(p.kind || "")}> 
-    <button className="utility-close" data-click="object-preview-close">×</button>
+    <button className="utility-close" data-click="object-preview-close" aria-label="Close preview">×</button>
     <div className="mini3d-preview object-preview-stage" data-mini3d-preview="1" data-preview-kind={p.kind} aria-label={`${title} 3D preview`}><span>{glyph}</span></div>
     {service ? <div className="owner-card ui45-preview-summary service-preview-card"><b>{glyph} {title}</b><small>Capital service building · interactions coming online</small></div> : null}
     <div className="inspect-head">
@@ -43,15 +44,20 @@ export function ObjectPreviewPanelView({ preview }: any) {
         <div className="tiny">{desc}</div>
       </div>
     </div>
+    {p.kind === "buildTile" ? <div className="build-first-rule"><b>Build rule:</b> capture 3 tiles first, then place buildings on empty captured tiles. Reputation controls your tile limit.</div> : null}
     {p.kind === "keep" && (p.maxHp || p.coins) ? <div className="ui35-rally-strip" aria-label="Shared keep rally details">
       {p.maxHp ? <span><b>{Math.max(0, Math.floor(Number(p.hp || 0)))}/{Math.floor(Number(p.maxHp || 0))}</b><em>HP when shared</em></span> : null}
       {p.coins ? <span><b>{Math.floor(Number(p.coins || 0))}🪙</b><em>reported inside</em></span> : null}
     </div> : null}
     {p.kind === "buildTile" ? <div className="ui44-build-choices" aria-label="Choose building for selected tile">
-      {BUILD_CHOICES.map(([id, name, icon, text]) => <button className="ui44-build-choice" data-click="build-tile-choice" data-id={id}>
-        <b><span>{icon}</span>{name}</b>
-        <small>{text}</small>
-      </button>)}
+      {BUILD_CHOICES.map(([id, name, icon, cost]) => {
+        const info = BUILDING_POLISH[id] || {};
+        return <button className="ui44-build-choice production-build-choice" data-click="build-tile-choice" data-id={id} data-tip-title={`${icon} ${name}`} data-tip-body={`${info.purpose || "City infrastructure"} Cost: ${costLine(cost)}. Requires: ${info.requires || "captured tile"}.`}>
+          <b><span>{icon}</span>{name}</b>
+          <small>{info.purpose || "City infrastructure."}</small>
+          <em>Cost: {costLine(cost)}</em>
+        </button>;
+      })}
     </div> : null}
     <div className="inspect-actions ui45-object-actions">
       {hasCoords(p) ? <button className="btn" data-click="object-preview-share">Share location</button> : null}

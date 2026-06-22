@@ -45,18 +45,23 @@ export function SettingsPanelView(props: any) {
   const fixedHour = Number(timeControls?.hour ?? 12);
   return <div className="settings-layer pause-layer">
     <button className="settings-scrim" data-click="panel-close" aria-label="Resume game" />
-    <section className="settings-panel pause-panel" data-stop-pointerdown="1" role="dialog" aria-modal="true" aria-label="Pause menu">
+    <section className="settings-panel pause-panel" data-stop-pointerdown="1" role="dialog" aria-modal="true" aria-label="Settings menu">
       <button className="settings-close" data-click="panel-close" aria-label="Resume game">×</button>
       <div className="settings-top pause-top">
         <div>
           <p className="settings-kicker">Paused</p>
           <h3>Settings</h3>
-          <p>Audio, visuals, guide, and session controls live here. Press Esc again to close.</p>
+          <p>Clean production settings: gameplay, audio, video, controls, account, and invite-code tools. Press Esc again to close.</p>
         </div>
         <button className="btn primary" data-click="panel-close">Resume</button>
       </div>
-      <div className="sc-settings-tabs"><a href="#settings-audio">Audio</a><a href="#settings-visuals">Visuals</a><a href="#settings-referrals">Referrals</a><a href="#settings-controls">Controls</a></div>
+      <div className="sc-settings-tabs"><a href="#settings-gameplay">Gameplay</a><a href="#settings-audio">Audio</a><a href="#settings-visuals">Video</a><a href="#settings-referrals">Invite codes</a><a href="#settings-controls">Controls</a></div>
       <div className="settings-grid pause-grid">
+        <div className="settings-card wide" id="settings-gameplay">
+          <div className="settings-card-head"><b>Gameplay clarity</b><span>Production polish</span></div>
+          <p className="settings-note">First-time players should capture 3 tiles, gather visible resources, then place a House. Building cards now show purpose, cost, requirements, and missing resources.</p>
+          <div className="settings-actions"><button className="btn" data-click="tutorial-restart">Restart tutorial</button><button className="btn" data-click="toggle-panel" data-panel="quests">Open Guide</button></div>
+        </div>
         <div className="settings-card wide">
           <div id="settings-audio" className="settings-card-head"><b>Audio</b><span>{soundStatus(!!musicMuted, !!uiMuted)}</span></div>
           <p className="settings-note">Browsers often require a click before music can start. Use Start music after entering the world.</p>
@@ -108,18 +113,18 @@ export function SettingsPanelView(props: any) {
         </div>
 
         <div className="settings-card wide sc-referral-quick" id="settings-referrals">
-          <div className="settings-card-head"><b>Referrals</b><span>Sponsor-funded invites</span></div>
-          <p className="settings-note">Create a referral code and allocate a coin reward. New players enter the code while choosing their character name; the reward is paid from your in-game coin balance when they join.</p>
+          <div className="settings-card-head"><b>Invite codes</b><span>Optional at character creation</span></div>
+          <p className="settings-note">Player-facing copy now says “Invite code optional.” Admin one-use invite codes can also assign a unique doll design from the atlas; sponsor-funded referral rewards still work here.</p>
           <div className="sc-referral-quick-row">
-            <input name="refCode" placeholder="Code, e.g. IGOR-START" />
+            <input name="refCode" placeholder="Invite code, e.g. SOL-ALPHA-001" />
             <input name="refReward" type="number" min="1" step="1" value="500" aria-label="Coin reward" />
-            <button className="btn primary" data-click="referral-create">Create code</button>
+            <button className="btn primary" data-click="referral-create">Create sponsor code</button>
           </div>
           <button className="btn" data-click="referral-status">Refresh referral status</button>
         </div>
         <div className="settings-card wide">
           <div id="settings-controls" className="settings-card-head"><b>Controls</b><span>Toolbelt</span></div>
-          <p className="settings-note">Use 1–6 for axe, pickaxe, hammer, shovel, capture, and sword. Esc opens this menu.</p>
+          <p className="settings-note">Use 1–6 for axe, pickaxe, hammer, shovel, capture, and sword. Esc closes the top panel first, then opens this clean menu.</p>
           <div className="settings-actions">
             <button className="btn" data-click="tutorial-restart">Restart basics</button>
           </div>

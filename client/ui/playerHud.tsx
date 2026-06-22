@@ -24,7 +24,7 @@ export function PlayerHudView(props: any) {
   return <aside className="scv-hud player-hud" aria-label="Player status">
     <header className="player-hud__header">
       <b className="player-hud__name" title={vm.name}>{vm.name}</b>
-      <span className="player-hud__territory" title="Tile allowance is raised by reputation. Donate coins to NPCs and Keeps to grow it.">Tiles {vm.territory}/{vm.tileCap || "?"} · Rep {vm.reputation}</span>
+      <span className="player-hud__territory" title={vm.captureLimitText}>Tiles {vm.territory}/{vm.tileCap || "?"} · {vm.tileFree} left · Rep {vm.reputation}</span>
     </header>
 
     <section className="player-hud__bars">
@@ -32,12 +32,12 @@ export function PlayerHudView(props: any) {
       <StatusBar icon="♥" label="Health" now={vm.hpNow} max={vm.maxHp} pct={vm.hpPct} id="sc-hp-now" tip="Food is needed to regenerate health automatically after combat." />
     </section>
 
-    <section className="player-hud__row player-hud__storage" title="Build Warehouses to increase storage." data-tip-title="Storage" data-tip-body="Wood, stone, and food share storage pressure. Build Warehouses to increase available storage.">
-      <b>Storage</b><span>{vm.storageUsed}/{vm.storageLimit || "?"}</span><em>{vm.storageFree} free</em>
+    <section className="player-hud__row player-hud__storage" title="Build Warehouses to increase storage." data-tip-title="Storage" data-tip-body={vm.storageText + ". Wood, stone, planks, and food share this cap. Coins are separate."}>
+      <b>Shared storage</b><span>{vm.storageUsed}/{vm.storageLimit || "?"}</span><em>{vm.storageFree} free</em>
     </section>
 
     <section className="player-hud__resources" aria-label="Resources">
-      <ResourcePill icon="🪵" label="Wood" value={vm.wood} cap={vm.woodCap} tip="Wood is used for buildings. Build Warehouses to expand storage." />
+      <ResourcePill icon="🪵" label="Wood" value={vm.wood} cap={vm.woodCap} tip="Wood increases by chopping and gathering trees. It shares material storage with stone, planks, and food." />
       <ResourcePill icon="🪨" label="Stone" value={vm.stone} cap={vm.stoneCap} tip="Stone is used for claiming and building. Build Warehouses to expand storage." />
       <ResourcePill icon="🌾" label="Food" value={vm.food} cap={vm.foodCap} tip="Food is used to regenerate health automatically after fights and raids." />
     </section>

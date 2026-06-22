@@ -42,7 +42,7 @@ export async function POST(req: Request) {
         maxResultLength: 120,
       }, async () => {
         if (body.spectator) return joinSpectator(String(body.name || "Spectator").slice(0, 24), body.appearance);
-        return await join(String(body.name || "").slice(0, 24), Number(body.body) || 0x6a5ae0, Number(body.hat) || 0x14f195, body.walletAuth, body.appearance);
+        return await join(String(body.name || "").slice(0, 24), Number(body.body) || 0x6a5ae0, Number(body.hat) || 0x14f195, body.walletAuth, body.appearance, body.referralCode || body.inviteCode);
       });
       if (!result) {
         reasonCode = "JOIN_FAILED";

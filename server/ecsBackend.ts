@@ -38,6 +38,12 @@ function safeJson(raw: any, fallback: any) { try { return typeof raw === "string
 function cleanName(name: string, fallback = "Wanderer") { return String(name || fallback).trim().slice(0, 18) || fallback; }
 function randomSecret(prefix = "") { return `${prefix}${crypto.randomUUID()}`; }
 function num(v: any, fallback = 0) { const n = Number(v); return Number.isFinite(n) ? n : fallback; }
+function applyInviteCharacterGift(row: any, referral: any) {
+  if (!row || !referral?.ok) return;
+  if (referral.appearance && typeof referral.appearance === "object") row.appearance = JSON.stringify(referral.appearance).slice(0, 12000);
+  if (Number.isFinite(Number(referral.body)) && Number(referral.body) > 0) row.body = Number(referral.body);
+  if (Number.isFinite(Number(referral.hat)) && Number(referral.hat) > 0) row.hat = Number(referral.hat);
+}
 function isSpectator(p: any) { return String(p?.secret || "").startsWith("spectator:"); }
 function pinfo(id: number) { const p = getPlayer(id) as any; return { name: p?.name || "Neutral", body: p?.body || 0x808080, hat: p?.hat || 0x111111 }; }
 function bodyPalette(seed: number) { const colors = [0x6a5ae0, 0x14f195, 0xffc857, 0xff5c7a, 0x7dcfe8, 0x9945ff]; return { body: colors[Math.abs(seed) % colors.length], hat: colors[(Math.abs(seed) + 2) % colors.length] }; }
@@ -124,7 +130,7 @@ export function auth(pid: number, secret: string): EcsPlayerRow | null {
   return p;
 }
 
-export async function join(name: string, body: number, hat: number, walletAuth: WalletAuthInput, appearance?: any) {
+export async function join(name: string, body: number, hat: number, walletAuth: WalletAuthInput, appearance?: any, referralCode?: any) {
   const { wallet, loginGate } = await verifyWalletLogin(walletAuth);
   const existing = playerByWallet(wallet) as any;
   const secret = randomSecret();
@@ -135,8 +141,12 @@ export async function join(name: string, body: number, hat: number, walletAuth: 
       existing.name = cleanName(name);
       existing.body = Number(body) || existing.body;
       existing.hat = Number(hat) || existing.hat;
-      existing.profileDone = 1;
       if (appearance !== undefined) existing.appearance = JSON.stringify(appearance).slice(0, 12000);
+      const referral = applyReferralCodeForNewProfile(existing, referralCode, { requestId: "join-existing" });
+      if (referral && !referral.ok) throw Object.assign(new Error(referral.msg || "Invite code could not be used."), { reasonCode: referral.reasonCode });
+      if (referral?.ok && Number(referral.rewardAmount || 0) > 0) existing.inv = { ...(existing.inv || {}), g: Math.max(0, Number(existing.inv?.g || 0) + Number(referral.rewardAmount || 0)) };
+      applyInviteCharacterGift(existing, referral);
+      existing.profileDone = 1;
     }
     refreshPlayer(existing);
     syncEcsPlayerEntity(existing);
@@ -166,8 +176,16 @@ export async function join(name: string, body: number, hat: number, walletAuth: 
     equip: { hat: null, cape: null, armor: null, hand: null, boots: null },
     xp: 0, level: 1, skillPts: 0, skills: {},
     treesChopped: 0, planksMade: 0, gearCrafted: 0, tradesDone: 0, equippedOnce: 0, msIndex: 0,
-    lastSeen: now(), profileDone: hasName ? 1 : 0,
+    lastSeen: now(), profileDone: 0,
   }) as any;
+  if (hasName) {
+    const referral = applyReferralCodeForNewProfile(p, referralCode, { requestId: "join-new" });
+    if (referral && !referral.ok) throw Object.assign(new Error(referral.msg || "Invite code could not be used."), { reasonCode: referral.reasonCode });
+    if (referral?.ok && Number(referral.rewardAmount || 0) > 0) p.inv = { ...(p.inv || {}), g: Math.max(0, Number(p.inv?.g || 0) + Number(referral.rewardAmount || 0)) };
+    applyInviteCharacterGift(p, referral);
+    p.profileDone = 1;
+    refreshPlayer(p);
+  }
   // Fresh clean release: no automatic preclaimed base. First claim can be any free non-capital tile.
   syncEcsPlayerEntity(p);
   bumpEcsWorldRev();
@@ -283,6 +301,7 @@ export function dispatch(p: EcsPlayerRow, body: any) {
     if (referral?.ok && Number(referral.rewardAmount || 0) > 0) {
       row.inv = { ...(row.inv || {}), g: Math.max(0, Number(row.inv?.g || 0) + Number(referral.rewardAmount || 0)) };
     }
+    applyInviteCharacterGift(row, referral);
     row.profileDone = 1;
     refreshPlayer(row);
     return { ok: true, backend: "ecs", referral: referral || null, note: referral?.note || "Character ready." };

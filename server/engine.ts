@@ -46,6 +46,7 @@ import { buildingAt, buildingCacheStats, deleteBuilding, getBuilding, hydrateBui
 import { claimTileAt, deleteTile, hydrateTileStore, insertTile, insertTiles, tileAt, tileCacheStats } from "./tileStore";
 import { deleteLoot, getLoot, hydrateLootStore, insertLoot, lootAt, lootCacheStats } from "./lootStore";
 import { allPlayers, getPlayer, hydratePlayerStore, insertPlayer, playerByWallet, playerCacheStats, touchPlayerSeen } from "./playerStore";
+import { applyReferralCodeForNewProfile } from "./referralProgram";
 
 type Player = ReturnType<typeof db.players.get> & Record<string, any>;
 type Building = Record<string, any>;
@@ -279,6 +280,12 @@ function saveAppearance(p: Player, raw: any) {
   liveTouch(p);
   bump();
   return app;
+}
+function applyInviteCharacterGiftLegacy(p: Player, referral: any) {
+  if (!p || !referral?.ok) return;
+  if (referral.appearance && typeof referral.appearance === "object") saveAppearance(p, referral.appearance);
+  if (Number.isFinite(Number(referral.body)) && Number(referral.body) > 0) p.body = Number(referral.body);
+  if (Number.isFinite(Number(referral.hat)) && Number(referral.hat) > 0) p.hat = Number(referral.hat);
 }
 function stateChangedRetry(e: any) {
   const msg = String(e?.message || e || "");
@@ -1545,7 +1552,7 @@ function nearBuilding(p: Player, kind: string): boolean {
 
 /*   starter plots so neighbours are a short walk away.
    ============================================================ */
-export async function join(name: string, body: number, hat: number, walletAuth: WalletAuthInput, appearance?: any) {
+export async function join(name: string, body: number, hat: number, walletAuth: WalletAuthInput, appearance?: any, referralCode?: any) {
   const wallet = verifyWalletAuth(walletAuth);
   const loginGate = await assertWalletPassesLoginGate(wallet);
   return measureSync(`join wallet`, () => {
@@ -1563,6 +1570,10 @@ export async function join(name: string, body: number, hat: number, walletAuth: 
         existing.body = body;
         existing.hat = hat;
         if (appearance !== undefined) saveAppearance(existing, appearance);
+        const referral = applyReferralCodeForNewProfile(existing, referralCode, { requestId: "legacy-join-existing" });
+        if (referral && !referral.ok) throw Object.assign(new Error(referral.msg || "Invite code could not be used."), { reasonCode: referral.reasonCode });
+        if (referral?.ok && Number(referral.rewardAmount || 0) > 0) existing.inv = { ...(existing.inv || {}), g: Math.max(0, Number(existing.inv?.g || 0) + Number(referral.rewardAmount || 0)) };
+        applyInviteCharacterGiftLegacy(existing, referral);
         (existing as any).profileDone = 1;
       }
       liveTouch(existing);
@@ -1585,10 +1596,17 @@ export async function join(name: string, body: number, hat: number, walletAuth: 
       pack: Array(PACK_SIZE).fill(null),
       equip: { hat: null, cape: null, armor: null, hand: null, boots: null },
       xp: 0, level: 1, skillPts: 0, skills: {},
-      profileDone: hasName ? 1 : 0,
+      profileDone: 0,
       appearance: normalizeAppearance(appearance) ? JSON.stringify(normalizeAppearance(appearance)).slice(0, 12000) : null,
       lastSeen: now(),
     }) as Player;
+    if (hasName) {
+      const referral = applyReferralCodeForNewProfile(p, referralCode, { requestId: "legacy-join-new" });
+      if (referral && !referral.ok) throw Object.assign(new Error(referral.msg || "Invite code could not be used."), { reasonCode: referral.reasonCode });
+      if (referral?.ok && Number(referral.rewardAmount || 0) > 0) p.inv = { ...(p.inv || {}), g: Math.max(0, Number(p.inv?.g || 0) + Number(referral.rewardAmount || 0)) };
+      applyInviteCharacterGiftLegacy(p, referral);
+      (p as any).profileDone = 1;
+    }
     /* starter plot: exactly 3x3 claimed around spawn */
     const rows: any[] = [];
     for (let x = ox - SPAWN_HALF; x <= ox + SPAWN_HALF; x++)
@@ -1625,7 +1643,7 @@ export function joinSpectator(name = "Spectator", appearance?: any) {
   return { id: p.id, secret, wallet: "", existing: false, needsProfile: false, spectator: true };
 }
 
-export function setupProfile(p: Player, name: string, body: number, hat: number, appearance?: any) {
+export function setupProfile(p: Player, name: string, body: number, hat: number, appearance?: any, referralCode?: any) {
   const cleanName = String(name || "").trim().slice(0, 18);
   if (!cleanName) return err("Name your settler first.");
   const wasProfileDone = !!(p as any).profileDone;
@@ -1634,6 +1652,10 @@ export function setupProfile(p: Player, name: string, body: number, hat: number,
   p.body = Number(body) || p.body;
   p.hat = Number(hat) || p.hat;
   if (appearance !== undefined) saveAppearance(p, appearance);
+  const referral = applyReferralCodeForNewProfile(p, referralCode, { requestId: "legacy-setup-profile" });
+  if (referral && !referral.ok) return { ...referral };
+  if (referral?.ok && Number(referral.rewardAmount || 0) > 0) p.inv = { ...(p.inv || {}), g: Math.max(0, Number(p.inv?.g || 0) + Number(referral.rewardAmount || 0)) };
+  applyInviteCharacterGiftLegacy(p, referral);
   (p as any).profileDone = 1;
   liveTouch(p);
   if (!wasProfileDone || !oldName || oldName === "Wanderer") sysChat(`${p.name} settled a new hold on the frontier`);
@@ -3616,7 +3638,7 @@ function dispatchInner(p: Player, body: any) {
     case "customize": return customize(p, body.uid | 0, body.nm, body.cl);
     case "profileFace": return setProfileFace(p, body.faceImage == null ? null : String(body.faceImage));
     case "profileAppearance": return setProfileAppearance(p, body.appearance);
-    case "setupProfile": return setupProfile(p, String(body.name || ""), Number(body.body) || p.body, Number(body.hat) || p.hat, body.appearance);
+    case "setupProfile": return setupProfile(p, String(body.name || ""), Number(body.body) || p.body, Number(body.hat) || p.hat, body.appearance, body.referralCode || body.inviteCode);
     case "upgrade": return upgrade(p, body.uid | 0);
     case "repair": return repair(p, body.uid | 0);
     case "harvestStart": return harvestStart(p, body.x | 0, body.z | 0);

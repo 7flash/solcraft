@@ -1,3 +1,5 @@
+import { captureLimitLine } from "./productionPolish";
+
 export type PlayerHudInput = {
   player?: any;
   liveEnergy?: number;
@@ -20,8 +22,10 @@ export function storageUsed(inv: any = {}) {
   return Math.max(0, Math.floor(Number(inv.w || 0) + Number(inv.s || 0) + Number(inv.f || 0) + Number(inv.p || 0)));
 }
 export function storageLimit(cap: any = {}) {
+  const explicit = Number(cap.total ?? cap.shared ?? 0);
+  if (Number.isFinite(explicit) && explicit > 0) return Math.max(0, Math.floor(explicit));
   const sum = Number(cap.w || 0) + Number(cap.s || 0) + Number(cap.f || 0) + Number(cap.p || 0);
-  return Math.max(0, Math.floor(sum || Number(cap.total || 0) || 0));
+  return Math.max(0, Math.floor(sum || 0));
 }
 export function reputationScore(m: any): number {
   const r = m?.reputation || {};
@@ -44,15 +48,19 @@ export function playerHudViewModel(input: PlayerHudInput) {
   const tileCap = Math.max(0, Number(m.tileCap || 0));
   const territory = Math.max(0, Number(m.territory || 0));
   const rep = reputationScore(m);
+  const tileFree = Math.max(0, tileCap - territory);
   return {
     name: String(m.name || "Settler").slice(0, 18),
     gold: Math.floor(Number(m.inv?.g || 0)),
     territory,
     tileCap,
+    tileFree,
     reputation: rep,
+    captureLimitText: captureLimitLine({ ...m, territory, tileCap, reputation: { ...(m.reputation || {}), score: rep } }),
     storageUsed: usedStorage,
     storageLimit: maxStorage,
     storageFree: Math.max(0, maxStorage - usedStorage),
+    storageText: maxStorage ? `${usedStorage}/${maxStorage} shared materials · ${Math.max(0, maxStorage - usedStorage)} free` : `${usedStorage} materials · storage cap loading`,
     wondersBuilt: Math.max(0, Number(input.wondersBuilt ?? m.wondersBuilt ?? 0) || 0),
     energyNow: Math.floor(eNow),
     maxEnergy: Math.max(1, Number(m.maxE || 1)),

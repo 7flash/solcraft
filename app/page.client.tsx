@@ -86,6 +86,9 @@ import {
   BUILDING_COLOR_PRESETS, CHARACTER_COLOR_KEYS, CHARACTER_COLOR_PRESETS,
   buildingPresetById, characterPresetActive, characterPresetById, presetHexToNumber,
 } from "../client/ui/appearancePresets";
+import {
+  buildingBestNearLine, buildingProductionLine, buildingPurposeLine, buildingRequirementLine, captureLimitLine, costLine as polishCostLine, firstStepsGuideRows, missingCostLineDetailed,
+} from "../client/ui/productionPolish";
 
 const AUTH_KEY = "solcraft:auth";
 const FACE_KEY = "solcraft:face.v1";
@@ -162,6 +165,26 @@ function referralCodeFromIntro() {
     if (value) localStorage.setItem('solcraft.referralCode', value);
     return value;
   } catch { return ''; }
+}
+
+function referralCodeFromEntry() {
+  try {
+    const input = document.querySelector('[data-entry-invite-code="1"]') as HTMLInputElement | null;
+    const value = String(input?.value || localStorage.getItem('solcraft.referralCode') || '').trim().toUpperCase();
+    if (value) localStorage.setItem('solcraft.referralCode', value);
+    return value;
+  } catch { return ''; }
+}
+function characterNameFromEntry() {
+  try {
+    const input = document.querySelector('[data-entry-character-name="1"]') as HTMLInputElement | null;
+    const value = String(input?.value || localStorage.getItem('solcraft.characterName') || '').trim().slice(0, 18);
+    if (value) localStorage.setItem('solcraft.characterName', value);
+    return value;
+  } catch { return ''; }
+}
+function referralCodeForCreate() {
+  return referralCodeFromIntro() || referralCodeFromEntry();
 }
 
 function spawnHarvestPulse(world: any, ch: any, progress: number) {
@@ -1139,8 +1162,10 @@ export default function mount() {
     try {
       const walletAuth = await connectAndSignPhantom();
       if (walletAuth.loginGate) ST.loginGate = walletAuth.loginGate;
-      // Login is wallet-only. New settlers name/customize after they enter the world.
-      const r = await api("/api/join", { name: "", body: ST.profile.body, hat: ST.profile.hat, appearance: ST.characterProfile, walletAuth });
+      const entryName = characterNameFromEntry();
+      const entryInviteCode = referralCodeFromEntry();
+      if (entryName) ST.profile.name = entryName;
+      const r = await api("/api/join", { name: entryName, referralCode: entryInviteCode, body: ST.profile.body, hat: ST.profile.hat, appearance: ST.characterProfile, walletAuth });
       if (!r || !r.ok) throw new Error((r && r.msg) || "Could not join.");
       ST.auth = { pid: r.id, secret: r.secret, wallet: r.wallet || walletAuth.wallet };
       ST.walletVerified = true;
@@ -3174,7 +3199,11 @@ export default function mount() {
             <h1>{t("login.titlePrefix", "World of")} <span>{t("login.titleAccent", "SolCrafts")}</span></h1>
             <p className="ui31-login-copy">{t("login.copy", "Explore from the capital, gather resources, claim land, and grow a settlement outward on one shared map.")}</p>
             <div className="ui31-login-loop" aria-label={t("login.coreLoopAria", "Core loop")}>
-              {tArray("login.loop", ["Explore", "Gather", "Claim", "Build"]).map((label, i) => <div><b>{String(i + 1).padStart(2, "0")}</b><span>{label}</span></div>)}
+              {tArray("login.loop", ["Capture 3 tiles", "Gather resources", "Build a House", "Grow reputation"]).map((label, i) => <div><b>{String(i + 1).padStart(2, "0")}</b><span>{label}</span></div>)}
+            </div>
+            <div className="ui31-entry-fields">
+              <label><span>Character name</span><input data-entry-character-name="1" maxlength="18" placeholder="Wanderer" defaultValue={localStorage.getItem("solcraft.characterName") || ST.profile.name || ""} onInput={(e:any)=>{ try{ localStorage.setItem("solcraft.characterName", String(e.currentTarget.value||"")); }catch{} }} /></label>
+              <label><span>Invite code <em>optional</em></span><input data-entry-invite-code="1" maxlength="32" placeholder="Enter invite code" defaultValue={localStorage.getItem("solcraft.referralCode") || ""} onInput={(e:any)=>{ try{ localStorage.setItem("solcraft.referralCode", String(e.currentTarget.value||"").toUpperCase()); }catch{} }} /></label>
             </div>
             <div className="ui31-login-actions">
               <button className="ui31-play" data-click="join-game" disabled={!canJoin}>{ST.joining ? t("login.checking", "Checking…") : !hasPhantom ? t("login.installPhantom", "Install Phantom") : t("login.enterWorld", "Enter world")}</button>
@@ -3191,7 +3220,7 @@ export default function mount() {
             <div className="ui31-capital-mini"><div className="pad" /><div className="flag" /><div className="roof" /></div>
             <p className="ui31-kicker">{t("login.capitalKicker", "Capital services")}</p>
             <h2>{t("login.capitalTitle", "Start near the capital")}</h2>
-            <p>{t("login.capitalText", "Banking, appearance, guide, and reward systems are moving into world buildings and NPCs instead of permanent HUD menus.")}</p>
+            <p>{t("login.capitalText", "Capture land first, then use capital services for banking, appearance, guide rewards, and production systems once the core loop is clear.")}</p>
           </aside>
         </main>
       </div>
@@ -3309,40 +3338,21 @@ export default function mount() {
     return "";
   }
   function buildingRoleLine(b) {
-    if (b.id === "cottage") return `House · expands tile capacity so your borders can grow`;
-    if (b.id === "warehouse") return `Warehouse · expands storage for long frontier builds`;
-    if (b.id === "academy") return `Removed legacy academy`;
-    if (b.id === "workshop") return `Removed legacy siege workshop`;
-    if (b.id === "alchemy") return `Customizer · change your doll from a world building for 1 coin`;
-    if (b.id === "worldwonder") return `World Wonder · prompt-built coin monument and teleport point`;
-    if (b.id === GOLD_MINE_KIND) return `Removed coin source · use Keeps, NPCs, and bank flows`;
-    if (b.id === "vault") return `Bank · deposit and withdraw actions live from this building preview`;
-    if (b.id === "market") return `Market · future clean fixed-rate exchange, no player escrow`;
-    if (b.id === "lumber") return `Lumber Camp · spawns trees nearby; cut and gather manually`;
-    if (b.id === "quarry") return `Quarry · spawns rocks nearby; mine and gather manually`;
-    if (b.id === "farm") return `Farm · grows crops nearby; cut and gather food manually`;
-    const parts = [];
-    if (b.effect) parts.push(b.effect);
-    if (b.storageBonus) parts.push(`+${b.storageBonus} storage`);
-    if (b.foodStorageBonus) parts.push(`+${b.foodStorageBonus} food cap`);
-    if (b.tileCapBonus) parts.push(`+${b.tileCapBonus} tile cap`);
-    if (b.protect) parts.push("Counters destroy tools");
-    return parts.join(" · ") || (b.decor ? "Decorative city detail" : "City infrastructure");
+    return buildingPurposeLine(b);
   }
   function buildingStatsLine(b) {
-    const cost = b?.id === "worldwonder" ? `${WORLD_WONDER_GOLD_COST}🪙` : (costStr(b.cost) || "Free");
-    return `Cost: ${cost} · HP: ${b.hp || 220} · ${padNameForDef(b)} · ${buildingRoleLine(b)}`;
+    const cost = b?.id === "worldwonder" ? `${WORLD_WONDER_GOLD_COST}🪙` : (polishCostLine(b.cost) || "Free");
+    return `Cost: ${cost} · Requires: ${buildingRequirementLine(b)} · Produces: ${buildingProductionLine(b)} · Best near: ${buildingBestNearLine(b)}`;
   }
   function missingCostLine(cost, m = ST.me) {
-    const miss = Object.entries(cost || {}).filter(([res, amt]) => (res === "e" ? liveE() : (m?.inv?.[res] || 0)) < amt);
-    if (!miss.length) return "";
-    return "Need " + miss.map(([res, amt]) => `${Math.max(0, Math.ceil(amt - (res === "e" ? liveE() : (m?.inv?.[res] || 0))))}${COSTI[res] || res} more`).join(", ");
+    const line = missingCostLineDetailed(cost, m?.inv || {}, liveE());
+    return line === "Ready to build" ? "" : line;
   }
   function buildingUnavailableReason(id) {
     const b = LIB_BY_ID[id];
     const m = ST.me;
     if (!b || !m) return "No settler loaded.";
-    if ((m.territory || 0) < (b.unlock || 0)) return `${b.name} unlocks at ${b.unlock} claimed tiles. You have ${m.territory || 0}.`;
+    if ((m.territory || 0) < (b.unlock || 0)) return `${b.name} unlocks at ${b.unlock} claimed tiles. You have ${m.territory || 0}. Capture more tiles as reputation allows.`;
     if (id === "worldwonder" && (m?.inv?.g || 0) < WORLD_WONDER_GOLD_COST) return `World Wonder needs ${WORLD_WONDER_GOLD_COST}🪙. Collect territory coins or breach neutral Keeps.`;
     const missing = missingCostLine(b.cost, m);
     if (missing) return `${b.name}: ${missing}.`;
@@ -3694,8 +3704,8 @@ export default function mount() {
     return (
       <div className="modal">
         <h2>⌂ Build</h2>
-        <p className="tiny">Stone claims land. Wood builds structures. Houses expand borders, Warehouses expand storage, Academies create science, Workshops craft bombs, and coins fund unique AI World Wonders.</p>
-        <div className="recipe-req">Tiles: {m?.territory || 0}/{m?.tileCap || "?"}. Claiming costs 2🪨. Houses, Town Hall, and World Wonders expand capacity.</div>
+        <p className="tiny">Capture 3 tiles first, gather visible resources, then place a useful building. Every card now explains purpose, cost, requirements, output, and why it may be disabled.</p>
+        <div className="recipe-req">{captureLimitLine(m)}. Claiming costs 2🪨. Reputation clearly defines how many tiles you can capture.</div>
         {wonders.length ? <div className="card" style={{ marginBottom: 10 }}>
           <div className="card-title">World Wonder scrolls</div>
           <div className="tiny">Teleport between your permanent Wonders from here.</div>
@@ -3711,15 +3721,19 @@ export default function mount() {
             const miss = (isWonder || isAdminKeep) ? [] : Object.entries(b.cost || {}).filter(([res, amt]) => (res === "e" ? liveE() : (m?.inv?.[res] || 0)) < amt);
             const needsGold = isWonder && (m?.inv?.g || 0) < WORLD_WONDER_GOLD_COST;
             const disabled = locked || miss.length > 0 || needsGold;
-            const costLabel = isAdminKeep ? "admin" : isWonder ? `${WORLD_WONDER_GOLD_COST}🪙` : (costStr(b.cost) || "Free");
+            const costLabel = isAdminKeep ? "admin" : isWonder ? `${WORLD_WONDER_GOLD_COST}🪙` : (polishCostLine(b.cost) || "Free");
             return (
               <div className={"card" + (locked ? " locked" : "") }>
                 <div className="row" style={{ justifyContent: "space-between" }}><span className="glyph">{b.glyph}</span><span className="cost">{costLabel}</span></div>
                 <div className="card-title">{b.name}</div>
-                <div className="tiny">{b.blurb || buildingRoleLine(b)}</div>
-                <span className="usetag">{isAdminKeep ? "Spawn neutral Keep" : buildingRoleLine(b)}</span>
+                <div className="tiny">{buildingPurposeLine(b)}</div>
+                <span className="usetag">Cost: {costLabel}</span>
+                <div className="building-clarity-list">
+                  <div><b>Requires</b><span>{isAdminKeep ? "Admin permission" : buildingRequirementLine(b)}</span></div>
+                  <div><b>Produces</b><span>{isAdminKeep ? "Neutral event target" : buildingProductionLine(b)}</span></div>
+                  <div><b>Best near</b><span>{isAdminKeep ? "Event area" : buildingBestNearLine(b)}</span></div>
+                </div>
                 <div className="tiny">HP {b.hp || 220}{isAdminKeep ? " · event target" : ` · ${padNameForDef(b)} · ${isWonder ? Math.round(wonderBuildMsClient(currentWonderSize(), currentWonderMode()) / 1000) : Math.round(normalBuildMsClient(b) / 1000)}s construction`}</div>
-                {isAdminKeep ? <div className="space-req">Creates a neutral coin Keep at your current tile. Server allows this only for nickname second.</div> : <div className="space-req">{padRequirementLine(b)}</div>}
                 {isWonder ? <div className="space-req wonder-quick-plan">
                   <div className="recipe-req"><b>World Wonder:</b> one prompt → real AI plan → visible foundation → construction progress. No modal.</div>
                   <input className="wonder-prompt-line" maxlength="180" placeholder="Describe the landmark: school, dish, observatory, market..." value={ST.wonderPrompt || ""} data-input="wonder-prompt" />
@@ -3739,7 +3753,7 @@ export default function mount() {
                   </div>
                   {ST.wonderMsg ? <div className="tiny">{ST.wonderMsg}</div> : null}
                 </div> : null}
-                {locked ? <div className="recipe-req">Unlocks at {b.unlock} claimed tiles</div> : null}
+                {locked ? <div className="recipe-req">Unlocks at {b.unlock} claimed tiles. Capture more territory as reputation allows.</div> : null}
                 {miss.length ? <div className="recipe-req">{missingCostLine(b.cost, m)}</div> : null}
                 {needsGold ? <div className="recipe-req">Need {WORLD_WONDER_GOLD_COST}🪙</div> : null}
                 {isAdminKeep ? <div className="row" style={{ gap: 8, flexWrap: "wrap", marginTop: 8 }}>
@@ -4527,15 +4541,17 @@ export default function mount() {
     ST.profile.name = name;
     const randomHue = Math.floor(Math.random() * 360);
     const randomBody = new THREE.Color().setHSL(randomHue / 360, 0.62, 0.58).getHex();
-    act("setupProfile", { name, referralCode: referralCodeFromIntro(), body: randomBody, hat: ST.profile.hat, appearance: ST.characterProfile }).then((r) => {
+    act("setupProfile", { name, referralCode: referralCodeForCreate(), body: randomBody, hat: ST.profile.hat, appearance: ST.characterProfile }).then((r) => {
       if (r && r.ok) {
         ST.needsProfile = false;
-        if (ST.me) { ST.me.name = name; ST.me.body = randomBody; ST.me.profileDone = true; }
+        const gifted = r.referral || null;
+        if (gifted?.appearance) ST.characterProfile = saveCharacterProfile({ ...ST.characterProfile, ...gifted.appearance, palette: { ...(ST.characterProfile.palette || {}), ...(gifted.appearance.palette || {}) }, parts: { ...(ST.characterProfile.parts || {}), ...(gifted.appearance.parts || {}) } });
+        if (ST.me) { ST.me.name = name; ST.me.body = Number(gifted?.body || randomBody) || randomBody; ST.me.hat = Number(gifted?.hat || ST.me.hat || ST.profile.hat); ST.me.profileDone = true; if (gifted?.appearance) ST.me.appearance = gifted.appearance; }
         world.refreshOwnRig();
         ST.modal = null;
         ST.panel = null;
         maybeStartWalkthrough(true);
-        say("Welcome. Click Character first to try your look, then open Quests for the guide.", 3600);
+        say("Welcome. First capture 3 tiles, then gather resources and build a House.", 4200);
         pollSoon(); paint(true);
       }
     });
@@ -4544,15 +4560,16 @@ export default function mount() {
   function IntroModal() {
     const m = ST.me;
     return <div className="modal" style={{ width: "min(420px,94vw)" }}>
-      <h2>Choose your settler name</h2>
-      <p className="tiny">You will start with a random look. Edit your character live from the nearby panel after entering.</p>
-      <div className="field"><label>Settler name</label><input id="sc-intro-name" maxLength={18} placeholder="Wanderer" defaultValue={ST.profile.name || (m?.name === "Wanderer" ? "" : m?.name || "")} data-keydown="intro-submit" /></div>
-      <div className="field"><label>Referral code</label><input data-referral-code-input="1" className="profile-referral-input" maxLength={32} placeholder="Optional sponsor code" defaultValue={localStorage.getItem("solcraft.referralCode") || ""} onInput={(e:any)=>{ try{ localStorage.setItem("solcraft.referralCode", String(e.currentTarget.value||"")); }catch{} }} /></div>
+      <h2>Choose your character</h2>
+      <p className="tiny">Name your character and optionally enter an invite code. Alpha invite codes may assign a one-of-one doll design from the atlas.</p>
+      <div className="field"><label>Character name</label><input id="sc-intro-name" maxLength={18} placeholder="Wanderer" defaultValue={ST.profile.name || localStorage.getItem("solcraft.characterName") || (m?.name === "Wanderer" ? "" : m?.name || "")} data-keydown="intro-submit" /></div>
+      <div className="field"><label>Invite code <em>optional</em></label><input data-referral-code-input="1" className="profile-referral-input" maxLength={32} placeholder="Enter invite code" defaultValue={localStorage.getItem("solcraft.referralCode") || ""} onInput={(e:any)=>{ try{ localStorage.setItem("solcraft.referralCode", String(e.currentTarget.value||"").toUpperCase()); }catch{} }} /></div>
       <div className="row" style={{ marginTop: 12 }}><button className="btn primary" style={{ width: "100%" }} data-click="intro-submit">Enter the frontier</button></div>
     </div>;
   }
 
   function guideFallbackRows() {
+    const firstRows = firstStepsGuideRows(ST.me);
     const oldRows = (ST.me?.quests && ST.me.quests.length ? ST.me.quests : MILESTONES.map((m, i) => ({ id: `q${i + 1}`, text: m.text, enabled: true })));
     const actionRows = oldRows.filter((q) => q.enabled !== false).map((q, i) => ({
       id: q.id || `-${i}`,
@@ -4560,7 +4577,7 @@ export default function mount() {
       glyph: i >= 5 ? "🪙" : "◇",
       title: q.text,
       text: q.text,
-      detail: "Complete this frontier guide step. Update the server package to enable independent action/building reward cards.",
+      detail: "Core loop reminder: capture 3 tiles, gather resources, then build from an empty captured tile.",
       rewardText: "+XP / supplies",
       done: (ST.me?.msIndex || 0) > i,
       claimed: false,
@@ -4571,14 +4588,14 @@ export default function mount() {
       category: "buildings",
       glyph: b.glyph || "▣",
       title: `Build ${b.name}`,
-      text: b.blurb || b.effect || "City infrastructure",
-      detail: `Select Hammer (3), place a foundation, then choose a building from that foundation panel. Cost: ${costStr(b.cost) || "free"}.${b.unlock ? ` Unlocks after ${b.unlock} tiles.` : ""}`,
+      text: buildingPurposeLine(b),
+      detail: `Cost: ${polishCostLine(b.cost)}. Requires: ${buildingRequirementLine(b)} Produces: ${buildingProductionLine(b)}${b.unlock ? ` Unlocks after ${b.unlock} captured tiles.` : ""}`,
       rewardText: "+XP · +coins",
       done: buildIds.has(b.id),
       claimed: false,
       buildingId: b.id,
     }));
-    return [...actionRows, ...buildingRows];
+    return [...firstRows, ...actionRows, ...buildingRows];
   }
   function guideRows() {
     const rows = Array.isArray(ST.me?.guideQuests) && ST.me.guideQuests.length ? ST.me.guideQuests : guideFallbackRows();

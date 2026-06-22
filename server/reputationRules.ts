@@ -188,6 +188,7 @@ export function storageCapsForPlayer(p: any) {
       caps.p = Math.floor(Number(caps.p || 0) + Math.floor(add / 2));
     }
   } catch {}
+  caps.total = Math.floor(Number(caps.w || 0) + Number(caps.s || 0) + Number(caps.f || 0) + Number(caps.p || 0));
   return caps;
 }
 

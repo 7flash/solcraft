@@ -117,7 +117,7 @@ export type GameRules = {
     yields: Partial<Record<string, ResourceBag>>;
   };
   buildings: Record<string, BuildingRule>;
-  caps: Partial<Record<ResKey, number>>;
+  caps: Partial<Record<ResKey, number>> & { total?: number; shared?: number };
 };
 
 export type SystemContext = {

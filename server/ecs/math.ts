@@ -5,10 +5,14 @@ export function cheb(a: Coord, b: Coord): number { return Math.max(Math.abs(a.x 
 export function manhattan(a: Coord, b: Coord): number { return Math.abs(a.x - b.x) + Math.abs(a.z - b.z); }
 export function cloneBag(bag: ResourceBag = {}): ResourceBag { return { ...bag }; }
 
-export function addBag(target: ResourceBag, delta: ResourceBag, caps: Partial<Record<ResKey, number>> = {}): ResourceBag {
+export function addBag(target: ResourceBag, delta: ResourceBag, caps: Partial<Record<ResKey, number>> & { total?: number; shared?: number } = {}): ResourceBag {
+  const sharedKeys = new Set<ResKey>(["w", "p", "s", "f"]);
+  const sharedCap = Number((caps as any).total ?? (caps as any).shared ?? 0) || 0;
+  const sharedUsed = () => [...sharedKeys].reduce((sum, k) => sum + Math.max(0, Number(target[k] || 0)), 0);
   for (const [k, raw] of Object.entries(delta) as [ResKey, number][]) {
-    const n = Number(raw || 0);
+    let n = Number(raw || 0);
     if (!Number.isFinite(n) || n === 0) continue;
+    if (n > 0 && sharedCap > 0 && sharedKeys.has(k)) n = Math.min(n, Math.max(0, sharedCap - sharedUsed()));
     const cap = caps[k];
     const next = Math.max(0, Number(target[k] || 0) + n);
     target[k] = Number.isFinite(Number(cap)) ? Math.min(Number(cap), next) : next;
