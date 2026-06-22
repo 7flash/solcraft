@@ -11,6 +11,7 @@ import { dispatchEcsGameplayAction, ecsGameplayStatus, ecsGameplaySupportedActio
 import { activeActionSurface, removedFeatureResponse } from "./removedFeatures";
 import { cleanBuildKindResponse } from "./cleanRelease";
 import { recordActivity, logError } from "./activityLog";
+import { withImmediateTx } from "./dbTx";
 import { applyReferralCodeForNewProfile } from "./referralProgram";
 
 export type EcsPlayerRow = any;
@@ -281,7 +282,7 @@ function cloneWorld(world: EcsWorld): EcsWorld {
   return typeof structuredClone === "function" ? structuredClone(world) : loadEcsWorld({ includeAll: true });
 }
 
-export function dispatch(p: EcsPlayerRow, body: any) {
+function dispatchUnlocked(p: EcsPlayerRow, body: any) {
   const type = String(body?.type || "");
   const removed = removedFeatureResponse(type);
   if (removed) { logEcsAction(Number(p?.id || 0), type, removed, "ecs-removed"); return { ...removed, backend: "ecs" }; }
@@ -348,6 +349,11 @@ export function dispatch(p: EcsPlayerRow, body: any) {
   return out;
 }
 
+export function dispatch(p: EcsPlayerRow, body: any) {
+  const type = String(body?.type || "");
+  return withImmediateTx(`ecs.dispatch:${type || "unknown"}:uid=${Number(p?.id || 0)}`, () => dispatchUnlocked(p, body));
+}
+
 function buildingResourceTick(t = now()) {
   // Clean-slate economy: buildings no longer credit resources passively.
   // Camps/quarries/farms spawn harvestable nodes, warehouses set caps, and
@@ -360,8 +366,11 @@ export function runWorldTick(reason = "manual") {
   if (t - ecsTickAt < 900 && reason !== "manual") return { ok: true, skipped: true, backend: "ecs", at: ecsTickAt };
   ecsTickAt = t;
   try {
-    const economy = buildingResourceTick(t);
-    if (reason === "manual") mirrorLegacyToEcsTables("tick-manual");
+    const economy = withImmediateTx(`ecs.worldTick:${reason}`, () => {
+      const r = buildingResourceTick(t);
+      if (reason === "manual") mirrorLegacyToEcsTables("tick-manual");
+      return r;
+    });
     const out = { ok: true, backend: "ecs", at: ecsTickAt, reason, economy };
     if (reason !== "interval" || Math.random() < 0.02) recordActivity({ route: "worldTick", action: reason, backend: "ecs" }, "worldTick", out);
     return out;

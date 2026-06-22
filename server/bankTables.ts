@@ -35,6 +35,7 @@ function toRowWithdrawal(r: any) {
     debitedAt: Number(r?.debitedAt || 0),
     sentAt: Number(r?.sentAt || 0),
     failedAt: Number(r?.failedAt || 0),
+    idempotencyKey: String(r?.idempotencyKey || ""),
   };
 }
 
@@ -178,6 +179,7 @@ export function insertBankWithdrawal(row: any) {
       debitedAt: Number(w.debitedAt || 0),
       sentAt: Number(w.sentAt || 0),
       failedAt: Number(w.failedAt || 0),
+      idempotencyKey: w.idempotencyKey || null,
     });
   } catch {}
   return row;
@@ -189,7 +191,7 @@ export function updateBankWithdrawal(id: string, patch: any) {
   if (!table) return null;
   const row = table.select().where({ withdrawalId: String(id || "") }).first() as any;
   if (!row) return null;
-  for (const k of ["status", "signature", "error", "sentAt", "failedAt", "amountUi"]) if (k in (patch || {})) row[k] = patch[k];
+  for (const k of ["status", "signature", "error", "sentAt", "failedAt", "amountUi", "idempotencyKey"]) if (k in (patch || {})) row[k] = patch[k];
   return toRowWithdrawal(row);
 }
 

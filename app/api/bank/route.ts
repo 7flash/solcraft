@@ -34,7 +34,7 @@ async function handle(req: Request) {
         if (action === "exchange" || action === "prepare") return await exchangeBankStatusForPlayer(p);
         if (action === "deposit") return await ensureDepositWallet(p);
         if (action === "scan") return await scanBankDeposits(p, Number(body.limit || 50));
-        if (action === "withdraw") return await requestBankWithdrawal(p, String(body.amountUi || body.amount || "0"), String(body.to || body.wallet || ""));
+        if (action === "withdraw") return await requestBankWithdrawal(p, String(body.amountUi || body.amount || "0"), String(body.to || body.wallet || ""), String(body.idempotencyKey || body.clientRequestId || body.rid || ""));
         return { ok: false, msg: "Unknown bank action", reasonCode: "UNKNOWN_BANK_ACTION" };
       });
       reasonCode = result?.reasonCode || "";

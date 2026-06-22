@@ -1,4 +1,4 @@
-export const DB_SCHEMA_VERSION = 63;
+export const DB_SCHEMA_VERSION = 64;
 export const CURRENT_DB_SCHEMA_VERSION = DB_SCHEMA_VERSION;
 
 function execIndex(db: any, sql: string) {
@@ -16,6 +16,74 @@ function execIndex(db: any, sql: string) {
 
 export function applyProductionDbSchema(db: { exec(sql: string): unknown }) {
   const d: any = db;
+  const tables = [
+    `CREATE TABLE IF NOT EXISTS coin_ledger (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      player INTEGER NOT NULL DEFAULT 0,
+      delta INTEGER NOT NULL DEFAULT 0,
+      balanceAfter INTEGER NOT NULL DEFAULT 0,
+      reason TEXT NOT NULL DEFAULT 'adjust',
+      refType TEXT,
+      refId TEXT,
+      idempotencyKey TEXT,
+      metaJson TEXT,
+      createdAt INTEGER NOT NULL DEFAULT (strftime('%s','now') * 1000)
+    )`,
+    `CREATE TABLE IF NOT EXISTS bankWithdrawals (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      withdrawalId TEXT NOT NULL,
+      playerId INTEGER NOT NULL DEFAULT 0,
+      wallet TEXT,
+      to TEXT,
+      token TEXT,
+      tokenAddress TEXT,
+      tokenLabel TEXT,
+      amountRaw TEXT NOT NULL DEFAULT '0',
+      amountUi TEXT NOT NULL DEFAULT '0',
+      status TEXT NOT NULL DEFAULT 'pending',
+      signature TEXT,
+      sender TEXT,
+      error TEXT,
+      idempotencyKey TEXT,
+      createdAtMs INTEGER NOT NULL DEFAULT (strftime('%s','now') * 1000),
+      debitedAt INTEGER NOT NULL DEFAULT 0,
+      sentAt INTEGER NOT NULL DEFAULT 0,
+      failedAt INTEGER NOT NULL DEFAULT 0
+    )`,
+    `CREATE TABLE IF NOT EXISTS bankErrors (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      action TEXT,
+      msg TEXT,
+      extraJson TEXT,
+      createdAtMs INTEGER NOT NULL DEFAULT (strftime('%s','now') * 1000)
+    )`,
+    `CREATE TABLE IF NOT EXISTS bankDeposits (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      playerId INTEGER NOT NULL,
+      depositId TEXT,
+      address TEXT,
+      wallet TEXT,
+      createdAtMs INTEGER NOT NULL DEFAULT (strftime('%s','now') * 1000)
+    )`,
+    `CREATE TABLE IF NOT EXISTS bankScans (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      playerId INTEGER NOT NULL,
+      latestSignature TEXT,
+      payloadJson TEXT,
+      createdAtMs INTEGER NOT NULL DEFAULT (strftime('%s','now') * 1000),
+      updatedAtMs INTEGER NOT NULL DEFAULT (strftime('%s','now') * 1000)
+    )`,
+    `CREATE TABLE IF NOT EXISTS bankDepositEvents (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      playerId INTEGER NOT NULL,
+      signature TEXT NOT NULL,
+      amountRaw TEXT NOT NULL DEFAULT '0',
+      amountUi TEXT NOT NULL DEFAULT '0',
+      slot INTEGER NOT NULL DEFAULT 0,
+      confirmedAt INTEGER NOT NULL DEFAULT 0
+    )`,
+  ];
+  for (const sql of tables) execIndex(d, sql);
   const indexes = [
     'CREATE INDEX IF NOT EXISTS idx_tiles_owner_xz ON tiles(owner, x, z)',
     'CREATE INDEX IF NOT EXISTS idx_tiles_xz_id ON tiles(x, z, id)',
@@ -82,6 +150,7 @@ export function applyProductionDbSchema(db: { exec(sql: string): unknown }) {
     'CREATE UNIQUE INDEX IF NOT EXISTS uniq_bank_deposit_events_signature ON bankDepositEvents(signature)',
     'CREATE INDEX IF NOT EXISTS idx_bank_deposit_events_player_confirmed ON bankDepositEvents(playerId, confirmedAt)',
     'CREATE UNIQUE INDEX IF NOT EXISTS uniq_bank_withdrawals_withdrawalId ON bankWithdrawals(withdrawalId)',
+    "CREATE UNIQUE INDEX IF NOT EXISTS uniq_bank_withdrawals_player_idem ON bankWithdrawals(playerId, idempotencyKey) WHERE idempotencyKey IS NOT NULL AND idempotencyKey != ''",
     'CREATE INDEX IF NOT EXISTS idx_bank_withdrawals_player_status ON bankWithdrawals(playerId, status)',
     'CREATE INDEX IF NOT EXISTS idx_bank_withdrawals_wallet_status ON bankWithdrawals(wallet, status)',
     'CREATE INDEX IF NOT EXISTS idx_bank_withdrawals_status_created ON bankWithdrawals(status, createdAtMs)',
@@ -91,6 +160,7 @@ export function applyProductionDbSchema(db: { exec(sql: string): unknown }) {
     'CREATE INDEX IF NOT EXISTS idx_npcs_target ON npcs(targetX, targetZ)',
     'CREATE INDEX IF NOT EXISTS idx_wonders_owner_state ON wonders(owner, state)',
     'CREATE INDEX IF NOT EXISTS idx_coin_ledger_player_created ON coin_ledger(player, createdAt)',
+    "CREATE UNIQUE INDEX IF NOT EXISTS uniq_coin_ledger_player_idem ON coin_ledger(player, idempotencyKey) WHERE idempotencyKey IS NOT NULL AND idempotencyKey != ''",
     'CREATE INDEX IF NOT EXISTS idx_admin_config_history_name_created ON admin_config_history(name, createdAt)',
     'CREATE INDEX IF NOT EXISTS idx_referral_codes_owner ON referralCodes(ownerPlayerId, active, createdAt)',
     'CREATE INDEX IF NOT EXISTS idx_referral_codes_code ON referralCodes(code)',

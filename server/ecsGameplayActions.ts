@@ -2,7 +2,7 @@ import { db, metaGet, metaSet } from "./db";
 import { getPlayer, refreshPlayer } from "./playerStore";
 import { deleteBuilding, getBuilding, refreshBuilding } from "./buildingStore";
 import { insertLoot, lootAt } from "./lootStore";
-import { adjustReputation, reputationDeltaFor, reputationDeltaText, reputationSummaryForWire } from "./reputationRules";
+import { adjustReputation, reputationDeltaFor, reputationDeltaText, reputationSummaryForWire, storageCapsForPlayer } from "./reputationRules";
 import { removedFeatureResponse } from "./removedFeatures";
 import { bumpEcsWorldRev, mirrorLegacyToEcsTables } from "./ecsDbAdapter";
 import { BASE_MAX, ECONOMY_RULES, GOLD_MINE_KIND, LIBRARY, MAX_HP, RAID_COST, RES_KEYS, RES_NAMES, TELEPORT_COST, TELEPORT_MS, XP, biomeAt, cheb, harvestMs, naturalDoodad, proceduralNpcAt } from "./shared";
@@ -54,7 +54,23 @@ function int(v: any, fallback = 0) { const n = Math.trunc(Number(v)); return Num
 function cleanHex(v: any) { const s = String(v || "").trim(); return /^#[0-9a-fA-F]{6}$/.test(s) ? s : ""; }
 function invOf(p: PlayerRow): ResBag { const inv = p.inv && typeof p.inv === "object" ? p.inv : {}; p.inv = inv; return inv as ResBag; }
 function have(p: PlayerRow, res: string) { return Math.max(0, Number(invOf(p)[res] || 0)); }
-function gain(p: PlayerRow, bag: Record<string, any>) { const inv = invOf(p); for (const [k, v] of Object.entries(bag || {})) if (RESOURCE_KEYS.has(k)) inv[k] = Math.max(0, Number(inv[k] || 0) + Number(v || 0)); return inv; }
+function materialUsed(inv: any) { return Math.max(0, Math.floor(Number(inv?.w || 0) + Number(inv?.s || 0) + Number(inv?.f || 0))); }
+function materialCap(p: PlayerRow) { return Math.max(0, Math.floor(Number(storageCapsForPlayer(p)?.total || 0))); }
+function materialFree(p: PlayerRow) { const cap = materialCap(p); return cap > 0 ? Math.max(0, cap - materialUsed(invOf(p))) : 999999; }
+function addResource(p: PlayerRow, res: string, amount: any) {
+  const key = String(res || "");
+  const want = Math.max(0, Math.floor(Number(amount || 0)));
+  const inv = invOf(p);
+  if (!want || !RESOURCE_KEYS.has(key)) return { added: 0, rejected: want, inv };
+  if (key === "w" || key === "s" || key === "f") {
+    const add = Math.min(want, materialFree(p));
+    if (add > 0) inv[key] = Math.max(0, Number(inv[key] || 0) + add);
+    return { added: add, rejected: want - add, inv };
+  }
+  inv[key] = Math.max(0, Number(inv[key] || 0) + want);
+  return { added: want, rejected: 0, inv };
+}
+function gain(p: PlayerRow, bag: Record<string, any>) { for (const [k, v] of Object.entries(bag || {})) addResource(p, k, v); return invOf(p); }
 function missing(p: PlayerRow, bag: Record<string, any>) { return Object.entries(bag || {}).filter(([k, v]) => RESOURCE_KEYS.has(k) && have(p, k) < Number(v || 0)).map(([k, v]) => `${Math.ceil(Number(v || 0))}${String((RES_NAMES as any)[k] || k)}`); }
 function spend(p: PlayerRow, bag: Record<string, any>) { const miss = missing(p, bag); if (miss.length) return miss; const inv = invOf(p); for (const [k, v] of Object.entries(bag || {})) if (RESOURCE_KEYS.has(k)) inv[k] = Math.max(0, Number(inv[k] || 0) - Number(v || 0)); return [] as string[]; }
 function spendEnergy(p: PlayerRow, amount: number) { const n = Math.max(0, Number(amount || 0)); p.energy = Math.max(0, Number(p.energy ?? BASE_MAX) - n); p.energyAt = now(); }
@@ -218,28 +234,35 @@ function actionPickupLoot(p: PlayerRow, body: any) {
   }
   if (!l) return err("That pickup was already collected.", "LOOT_GONE");
   if (!playerNear(p, l.x, l.z, 0)) return err("Stand on the pickup to collect it.", "TOO_FAR");
-  try { (db.loot as any).delete?.(Number(l.id)); } catch {
-    try { db.query("delete from loot where id = ?").run(Number(l.id)); } catch {}
-  }
   let note = "Picked up.";
   const kind = String(l.kind || "");
-  if (kind === "wood") {
-    const amount = Math.max(1, Math.floor(Number(l.gid || 5) || 5));
-    gain(p, { w: amount });
-    note = `Picked up +${amount} wood 🪵.`;
-  } else if (kind === "stone") {
-    const amount = Math.max(1, Math.floor(Number(l.gid || 4) || 4));
-    gain(p, { s: amount });
-    note = `Picked up +${amount} stone 🪨.`;
-  } else if (kind === "food") {
-    const amount = Math.max(1, Math.floor(Number(l.gid || 3) || 3));
-    gain(p, { f: amount });
-    note = `Picked up +${amount} food 🌾.`;
+  const materialMap: any = { wood: ["w", "wood 🪵", 5], stone: ["s", "stone 🪨", 4], food: ["f", "food 🌾", 3] };
+  const material = materialMap[kind];
+  if (material) {
+    const [res, label, fallback] = material;
+    const amount = Math.max(1, Math.floor(Number(l.gid || fallback) || fallback));
+    const free = materialFree(p);
+    if (free <= 0) return err("Shared storage is full. Build a Warehouse or spend materials before collecting more.", "STORAGE_FULL", { inv: p.inv, storageCap: storageCapsForPlayer(p) });
+    const take = Math.min(amount, free);
+    const added = addResource(p, res, take).added;
+    const left = amount - added;
+    if (left > 0) {
+      try { l.gid = String(left); } catch {}
+      try { db.query("update loot set gid = ? where id = ?").run(String(left), Number(l.id)); } catch {}
+      note = `Picked up +${added} ${label}. Storage full — ${left} left on the ground.`;
+    } else {
+      try { (db.loot as any).delete?.(Number(l.id)); } catch {
+        try { db.query("delete from loot where id = ?").run(Number(l.id)); } catch {}
+      }
+      note = `Picked up +${added} ${label}.`;
+    }
   } else if (kind === "gold" || kind === "coin" || kind === "coins") {
+    try { (db.loot as any).delete?.(Number(l.id)); } catch { try { db.query("delete from loot where id = ?").run(Number(l.id)); } catch {} }
     const amount = Math.max(1, Math.floor(Number(l.gid || 3) || 3));
     gain(p, { g: amount });
     note = `Picked up +${amount} coins 🪙.`;
   } else {
+    try { (db.loot as any).delete?.(Number(l.id)); } catch { try { db.query("delete from loot where id = ?").run(Number(l.id)); } catch {} }
     const amount = Math.max(1, Math.floor(Number(l.gid || 1) || 1));
     gain(p, { g: amount });
     note = `Picked up +${amount} coins 🪙.`;

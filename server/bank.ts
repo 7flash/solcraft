@@ -3,6 +3,8 @@ import { createMeasure } from "measure-fn";
 import { db, metaGet, metaSet } from "./db";
 import { getPlayer } from "./playerStore";
 import { getBankDeposit, listBankDeposits, upsertBankDeposit, getBankScan, listBankScans, upsertBankScan, listBankWithdrawals, insertBankWithdrawal, updateBankWithdrawal, insertBankError, listBankErrors, bankTableAvailable } from "./bankTables";
+import { withImmediateTx } from "./dbTx";
+import { appendCoinLedger, coinLedgerBalance } from "./coinLedger";
 
 const bankMeasure = createMeasure("bank", { maxResultLength: 220 });
 const META_BANK_SETTINGS = "solcraft:bank:settings:v1";
@@ -23,6 +25,7 @@ export type BankSettings = {
   dryRunOnly: boolean;
   minWithdrawUi: string;
   decimals: number;
+  withdrawGameCoinsEnabled: boolean;
 };
 
 const DEFAULT_BANK: BankSettings = {
@@ -36,6 +39,7 @@ const DEFAULT_BANK: BankSettings = {
   dryRunOnly: process.env.SOLCRAFTS_BANK_LIVE !== "1",
   minWithdrawUi: process.env.SOLCRAFTS_BANK_MIN_WITHDRAW_UI || "1",
   decimals: Math.max(0, Math.min(12, Number(process.env.SOLCRAFTS_TOKEN_DECIMALS || process.env.SOLCRAFTS_LOGIN_TOKEN_DECIMALS || "6") || 6)),
+  withdrawGameCoinsEnabled: process.env.SOLCRAFTS_BANK_WITHDRAW_GAME_COINS === "1",
 };
 
 function readJson(key: string, fallback: any) {
@@ -55,6 +59,7 @@ function sanitize(raw: any = {}): BankSettings {
     dryRunOnly: src.dryRunOnly == null ? DEFAULT_BANK.dryRunOnly : !!src.dryRunOnly,
     minWithdrawUi: String(src.minWithdrawUi || DEFAULT_BANK.minWithdrawUi).trim() || "1",
     decimals: Math.max(0, Math.min(12, Math.trunc(Number(src.decimals ?? DEFAULT_BANK.decimals) || 0))),
+    withdrawGameCoinsEnabled: src.withdrawGameCoinsEnabled == null ? DEFAULT_BANK.withdrawGameCoinsEnabled : !!src.withdrawGameCoinsEnabled,
   };
 }
 export function bankSettings(): BankSettings {
@@ -76,6 +81,7 @@ export function publicBankSettings() {
     withdrawalsLive: !s.dryRunOnly,
     minWithdrawUi: s.minWithdrawUi,
     decimals: s.decimals,
+    withdrawGameCoinsEnabled: !!s.withdrawGameCoinsEnabled,
   };
 }
 export function setBankSettings(patch: Partial<BankSettings> = {}) {
@@ -101,6 +107,16 @@ function rawToUi(raw: string | number | bigint, decimals: number) {
 }
 function tokenUnits(n: any, s = bankSettings()) {
   return { amountRaw: String(n || "0"), amountUi: rawToUi(String(n || "0"), s.decimals), tokenLabel: s.tokenLabel };
+}
+function withdrawIdempotencyKey(p: any, amountRaw: bigint, to: string, provided?: string) {
+  const raw = String(provided || "").trim();
+  if (raw) return raw.slice(0, 120);
+  // Safety fallback for old clients: collapse accidental double taps/retries in a short window.
+  return `legacy:${Number(p?.id || 0)}:${to}:${amountRaw.toString()}:${Math.floor(Date.now() / 10000)}`;
+}
+function withdrawalByIdempotency(rows: any[], playerId: number, key: string) {
+  if (!key) return null;
+  return (rows || []).find((r: any) => Number(r.playerId) === Number(playerId) && String(r.idempotencyKey || "") === key) || null;
 }
 async function createBankClient() {
   // Use the Sowl bank SDK as the single source of truth for SolCrafts token
@@ -247,40 +263,49 @@ export async function scanBankDeposits(p: any, limit = 50) {
         fresh.push({ signature: d.signature, slot: d.slot, amountRaw: String(d.amountRaw || "0"), amountUi: d.amountUi, confirmedAt: d.confirmedAt });
       }
       if (creditRaw > 0n) {
-        const tokens = Number(rawToUi(creditRaw, s.decimals));
-        const inv = { ...(p.inv || {}) };
-        inv.g = Math.max(0, Number(inv.g || 0)) + Math.floor(tokens);
-        p.inv = inv;
+        const tokens = Math.floor(Number(rawToUi(creditRaw, s.decimals)) || 0);
+        if (tokens > 0) withImmediateTx(`bank.scan.credit:${p.id}`, () => {
+          const inv = { ...(p.inv || {}) };
+          inv.g = Math.max(0, Number(inv.g || 0)) + tokens;
+          p.inv = inv;
+          appendCoinLedger({ player: p.id, delta: tokens, reason: "bankDepositCredit", refType: "bankDepositScan", refId: result.latestSignature || fresh[0]?.signature || String(Date.now()), idempotencyKey: `deposit:${p.id}:${result.latestSignature || fresh.map((d:any)=>d.signature).join(',')}`, meta: { creditRaw: creditRaw.toString(), amountUi: rawToUi(creditRaw, s.decimals), token: s.token } });
+        });
       }
       byPlayer[String(p.id)] = { ts: Date.now(), latestSignature: result.latestSignature || prev.latestSignature || null, scanned: result.scanned || 0, signatures: Array.from(seen).slice(-1000), deposits: [...(prev.deposits || []), ...fresh].slice(-200), creditedRaw: String((BigInt(prev.creditedRaw || "0") + creditRaw)), creditedUi: rawToUi(BigInt(prev.creditedRaw || "0") + creditRaw, s.decimals) };
-      upsertBankScan(p.id, byPlayer[String(p.id)]);
-      if (!bankTableAvailable()) writeJson(META_BANK_SCANS, byPlayer);
+      withImmediateTx(`bank.scan.record:${p.id}`, () => { upsertBankScan(p.id, byPlayer[String(p.id)]); if (!bankTableAvailable()) writeJson(META_BANK_SCANS, byPlayer); });
       return { ok: true, creditedRaw: creditRaw.toString(), creditedUi: rawToUi(creditRaw, s.decimals), deposits: fresh, scan: byPlayer[String(p.id)], status: bankStatusForPlayer(p) };
     } finally { sowl.close?.(); }
   }).catch((e: any) => ({ ok: false, reasonCode: "BANK_SCAN_FAILED", msg: String(e?.message || e || "Could not scan deposit wallet."), status: bankStatusForPlayer(p) }));
 }
 
-export async function requestBankWithdrawal(p: any, amountUi: string | number, toWallet?: string) {
+export async function requestBankWithdrawal(p: any, amountUi: string | number, toWallet?: string, idempotencyKeyInput?: string) {
   const s = bankSettings();
   if (!s.enabled) return { ok: false, reasonCode: "BANK_DISABLED", msg: "Bank withdrawals are not enabled yet." };
+  if (!s.withdrawGameCoinsEnabled) return { ok: false, reasonCode: "BANK_WITHDRAWALS_REVIEW", msg: "Withdrawals from in-game coins are paused until the hard-currency ledger is explicitly enabled. Deposits, scans, and in-game bank credits still work." };
   const to = String(toWallet || p.wallet || "").trim();
   if (!SOL_ADDR.test(to)) return { ok: false, reasonCode: "WALLET_REQUIRED", msg: "Connect Phantom or provide a valid Solana wallet." };
   const amountRaw = decimalToRaw(amountUi, s.decimals);
   const minRaw = decimalToRaw(s.minWithdrawUi, s.decimals);
   if (amountRaw < minRaw) return { ok: false, reasonCode: "BANK_WITHDRAW_MIN", msg: `Withdraw at least ${s.minWithdrawUi} ${s.tokenLabel}.` };
-  const bankTokens = BigInt(Math.max(0, Math.floor(Number(p?.inv?.g || 0))));
-  const spendUi = Math.ceil(Number(rawToUi(amountRaw, s.decimals)) || 0);
-  if (bankTokens < BigInt(spendUi)) return { ok: false, reasonCode: "BANK_TOKENS_LOW", msg: `Not enough bank tokens. You have ${bankTokens.toString()} ${s.tokenLabel}.` };
+  const spendUi = Math.floor(Number(rawToUi(amountRaw, s.decimals)) || 0);
+  if (spendUi <= 0) return { ok: false, reasonCode: "AMOUNT_REQUIRED", msg: "Enter a whole-token amount greater than zero." };
+  const idem = withdrawIdempotencyKey(p, amountRaw, to, idempotencyKeyInput);
 
-  return bankMeasure.measure({ start: () => `withdraw player=${p.id} amount=${amountUi}`, end: (r: any) => ({ ok: r.ok, status: r.withdrawal?.status || r.status, signature: r.withdrawal?.signature || null }), budget: 2600 }, async () => {
-    const rows = withdrawals();
+  return bankMeasure.measure({ start: () => `withdraw player=${p.id} amount=${amountUi}`, end: (r: any) => ({ ok: r.ok, status: r.withdrawal?.status || r.status, signature: r.withdrawal?.signature || null, idempotencyKey: r.withdrawal?.idempotencyKey || null }), budget: 2600 }, async () => {
+    let rows = withdrawals();
+    const existing = withdrawalByIdempotency(rows, p.id, idem);
+    if (existing) return { ok: true, duplicate: true, withdrawal: existing, status: bankStatusForPlayer(p), msg: `Withdrawal request already exists for ${existing.amountUi} ${s.tokenLabel}.` };
+
+    const bankTokens = Math.max(0, Math.floor(Number(p?.inv?.g || 0)));
+    const ledgerBal = coinLedgerBalance(p.id);
+    if (bankTokens < spendUi) return { ok: false, reasonCode: "BANK_TOKENS_LOW", msg: `Not enough bank tokens. You have ${bankTokens} ${s.tokenLabel}.` };
+    if (ledgerBal < spendUi) return { ok: false, reasonCode: "BANK_LEDGER_LOW", msg: `Withdrawable deposited balance is ${ledgerBal} ${s.tokenLabel}. Gameplay coins cannot drain the token treasury.` };
+
     const id = crypto.randomUUID?.() || `${Date.now()}:${p.id}`;
-    const inv = { ...(p.inv || {}) };
-    inv.g = Math.max(0, Math.floor(Number(inv.g || 0)) - spendUi);
-    p.inv = inv;
-
     const row: any = {
       id,
+      withdrawalId: id,
+      idempotencyKey: idem,
       playerId: p.id,
       wallet: p.wallet || "",
       to,
@@ -292,42 +317,48 @@ export async function requestBankWithdrawal(p: any, amountUi: string | number, t
       status: "pending",
       signature: null,
       createdAt: Date.now(),
+      createdAtMs: Date.now(),
       debitedAt: Date.now(),
       sender: "rpc",
     };
 
+    withImmediateTx(`bank.withdraw.request:${p.id}`, () => {
+      const inv = { ...(p.inv || {}) };
+      inv.g = Math.max(0, Math.floor(Number(inv.g || 0)) - spendUi);
+      p.inv = inv;
+      appendCoinLedger({ player: p.id, delta: -spendUi, reason: "bankWithdrawalDebit", refType: "bankWithdrawal", refId: id, idempotencyKey: `withdraw-debit:${idem}`, meta: { amountRaw: amountRaw.toString(), amountUi: row.amountUi, to } });
+      rows = withdrawals();
+      rows.push(row);
+      insertBankWithdrawal(row);
+      saveWithdrawals(rows);
+    });
+
     try {
-      if (s.dryRunOnly) {
-        rows.push(row); insertBankWithdrawal(row); saveWithdrawals(rows);
-        return { ok: true, withdrawal: row, status: bankStatusForPlayer(p), msg: `Withdrawal request created for ${row.amountUi} ${s.tokenLabel}. It will be sent when transfers are enabled.` };
-      }
+      if (s.dryRunOnly) return { ok: true, withdrawal: row, status: bankStatusForPlayer(p), msg: `Withdrawal request created for ${row.amountUi} ${s.tokenLabel}. It will be sent when transfers are enabled.` };
 
       const sowl = await createBankClient();
       try {
-        const result = await sowl.bank.sendToken({
-          token: s.token,
-          from: s.bankWallet,
-          to,
-          amountRaw,
-          sender: "rpc",
-          live: true,
-        });
+        const result = await sowl.bank.sendToken({ token: s.token, from: s.bankWallet, to, amountRaw, sender: "rpc", live: true });
         row.status = "sent";
         row.signature = result?.signature || null;
         row.sentAt = Date.now();
         row.amountUi = result?.amountUi || row.amountUi;
-        rows.push(row); insertBankWithdrawal(row); updateBankWithdrawal(row.id, { status: row.status, signature: row.signature, sentAt: row.sentAt, amountUi: row.amountUi }); saveWithdrawals(rows);
+        withImmediateTx(`bank.withdraw.sent:${p.id}`, () => { updateBankWithdrawal(row.id, { status: row.status, signature: row.signature, sentAt: row.sentAt, amountUi: row.amountUi }); saveWithdrawals(rows.map((r: any) => String(r.id) === String(row.id) ? row : r)); });
         return { ok: true, withdrawal: row, ...row, status: bankStatusForPlayer(p), msg: `Withdrawal sent: ${row.amountUi} ${s.tokenLabel}.` };
       } finally { sowl.close?.(); }
     } catch (e: any) {
-      const refund = { ...(p.inv || {}) };
-      refund.g = Math.max(0, Math.floor(Number(refund.g || 0)) + spendUi);
-      p.inv = refund;
-      row.status = "failed";
-      row.failedAt = Date.now();
-      row.error = String(e?.message || e || "Token send failed");
-      rows.push(row); insertBankWithdrawal(row); updateBankWithdrawal(row.id, { status: row.status, error: row.error, failedAt: row.failedAt }); saveWithdrawals(rows);
-      recordBankError("withdraw", e, { playerId: p.id, to, amountUi: row.amountUi });
+      withImmediateTx(`bank.withdraw.refund:${p.id}`, () => {
+        const refund = { ...(p.inv || {}) };
+        refund.g = Math.max(0, Math.floor(Number(refund.g || 0)) + spendUi);
+        p.inv = refund;
+        appendCoinLedger({ player: p.id, delta: spendUi, reason: "bankWithdrawalRefund", refType: "bankWithdrawal", refId: id, idempotencyKey: `withdraw-refund:${idem}`, meta: { amountRaw: amountRaw.toString(), amountUi: row.amountUi, error: String(e?.message || e) } });
+        row.status = "failed";
+        row.failedAt = Date.now();
+        row.error = String(e?.message || e || "Token send failed");
+        updateBankWithdrawal(row.id, { status: row.status, error: row.error, failedAt: row.failedAt });
+        saveWithdrawals(rows.map((r: any) => String(r.id) === String(row.id) ? row : r));
+      });
+      recordBankError("withdraw", e, { playerId: p.id, to, amountUi: row.amountUi, idempotencyKey: idem });
       return { ok: false, reasonCode: "BANK_WITHDRAW_FAILED", msg: row.error, status: bankStatusForPlayer(p), withdrawal: row };
     }
   }).catch((e: any) => ({ ok: false, reasonCode: "BANK_WITHDRAW_FAILED", msg: String(e?.message || e || "Could not create withdrawal."), status: bankStatusForPlayer(p) }));
@@ -408,7 +439,7 @@ export async function adminBankProcessPendingWithdrawals(limit = 25) {
       try {
         const player = bankPlayerById(row.playerId);
         if (!row.debitedAt && player) {
-          const spendUi = Math.ceil(Number(rawToUi(row.amountRaw, s.decimals)) || 0);
+          const spendUi = Math.floor(Number(rawToUi(row.amountRaw, s.decimals)) || 0);
           const inv = { ...(player.inv || {}) };
           if (Math.floor(Number(inv.g || 0)) < spendUi) throw new Error(`Player ${row.playerId} no longer has enough in-game balance to cover ${row.amountUi} ${s.tokenLabel}.`);
           inv.g = Math.max(0, Math.floor(Number(inv.g || 0)) - spendUi);

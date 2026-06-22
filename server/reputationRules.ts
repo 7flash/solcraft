@@ -176,19 +176,29 @@ export function reputationShortfallForPlayer(p: any) {
 
 export function storageCapsForPlayer(p: any) {
   const cfg = readReputationConfig();
-  const caps: Record<string, number> = { ...cfg.baseStorage };
+  const base: any = cfg.baseStorage || {};
+  let shared = Math.max(1, Math.floor(finite(base.shared ?? base.total ?? base.materials ?? base.w, 120)));
   try {
     const rows = db.buildings.select().where({ owner: Number(p?.id || 0), kind: "warehouse" }).all() as any[];
     for (const b of rows) {
       const lvl = Math.max(1, Math.floor(Number(b.level || 1)));
-      const add = cfg.warehouseBaseStorage + Math.max(0, lvl - 1) * cfg.warehouseStoragePerLevel;
-      caps.w = Math.floor(Number(caps.w || 0) + add);
-      caps.s = Math.floor(Number(caps.s || 0) + add);
-      caps.f = Math.floor(Number(caps.f || 0) + add);
+      shared += cfg.warehouseBaseStorage + Math.max(0, lvl - 1) * cfg.warehouseStoragePerLevel;
     }
   } catch {}
-  caps.total = Math.floor(Number(caps.w || 0) + Number(caps.s || 0) + Number(caps.f || 0));
-  return caps;
+  // Wood, stone, and food intentionally share one pool. The per-resource values
+  // mirror the shared cap for old callers, while `total/shared` are the source
+  // of truth for UI, pickup validation, and rot. Coins remain uncapped.
+  return {
+    ...base,
+    w: shared,
+    s: shared,
+    f: shared,
+    g: Math.max(999999, Math.floor(finite(base.g, 999999))),
+    sh: Math.floor(finite(base.sh, 0)),
+    sc: Math.floor(finite(base.sc, 0)),
+    shared,
+    total: shared,
+  };
 }
 
 export function publicReputationConfig() {
