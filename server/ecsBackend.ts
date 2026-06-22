@@ -243,11 +243,14 @@ export function snapshot(p: EcsPlayerRow, q: { rev: number; ax: number; az: numb
   const world = loadEcsWorld({ playerId: fresh.id, ax: q.ax, az: q.az, radius: VIEW_RADIUS + ANCHOR_PAD });
   const [ax, az] = anchorOf(fresh.x, fresh.z);
   const worldSame = q.rev === ecsWorldRev() && q.ax === ax && q.az === az && Number(q.mapRev || 0) === ecsWorldRev();
+  const ownedBuildings = (db.buildings.select().where({ owner: fresh.id }).all() as any[]);
+  const houses = ownedBuildings.filter((b) => String(b.kind || "") === "cottage" || String(b.kind || "") === "house").map((b) => ({ uid: Number(b.id), x: Number(b.x), z: Number(b.z), name: b.nm || "House" }));
+  const wonders = ownedBuildings.filter((b) => String(b.kind || "") === "worldwonder").map((b) => ({ uid: Number(b.id), x: Number(b.x), z: Number(b.z), name: b.nm || "World Wonder" }));
   const me = {
     id: fresh.id, name: fresh.name, body: fresh.body, hat: fresh.hat, x: fresh.x, z: fresh.z, spawnX: fresh.spawnX, spawnZ: fresh.spawnZ,
     appearance: safeJson(fresh.appearance, null), energy: fresh.energy || BASE_MAX, maxE: BASE_MAX, regen: ECONOMY_RULES.energyRegenBasePerMinute / 60, hp: fresh.hp || MAX_HP,
     wallet: fresh.wallet || null, tokenBalance: fresh.tokenBalance || 0, strongbox: fresh.strongbox || 0, vaultGold: fresh.vault || 0, biome: biomeAt(fresh.x, fresh.z).name,
-    wonders: [], inv: maxResourceBag(fresh.inv), pack: fresh.pack || [], equip: fresh.equip || {}, scienceCap: resourceCaps(fresh).sc,
+    wonders, houses, inv: maxResourceBag(fresh.inv), pack: fresh.pack || [], equip: fresh.equip || {}, scienceCap: resourceCaps(fresh).sc,
     xp: fresh.xp || 0, level: fresh.level || 1, skillPts: fresh.skillPts || 0, skills: fresh.skills || {}, skillXp: {},
     territory: ownedTileCount(fresh.id), built: nonBombBuildingCount(fresh.id), msIndex: fresh.msIndex || 0,
     treesChopped: fresh.treesChopped || 0, planksMade: fresh.planksMade || 0, gearCrafted: fresh.gearCrafted || 0, tradesDone: fresh.tradesDone || 0, equippedOnce: !!fresh.equippedOnce,

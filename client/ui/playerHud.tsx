@@ -10,13 +10,25 @@ function StatusBar({ label, icon, now, max, pct, id, tip }: any) {
   </div>;
 }
 
-function ResourcePill({ icon, label, value, cap, tip }: any) {
-  const free = Math.max(0, Number(cap || 0) - Number(value || 0));
-  return <div className="player-hud__resource" title={tip || label} data-tip-title={label} data-tip-body={tip}>
-    <span className="player-hud__resource-icon">{icon}</span>
-    <b>{value}</b>
-    <em>{cap ? `${free} free` : "no cap"}</em>
-  </div>;
+function MaterialChip({ icon, label, value }: any) {
+  return <span className="player-hud__material-chip"><i>{icon}</i><b>{value}</b><em>{label}</em></span>;
+}
+
+function SharedStorageBar({ vm }: any) {
+  const wood = `${Math.max(0, Number(vm.woodPct || 0)).toFixed(2)}%`;
+  const stone = `${Math.max(0, Number(vm.stonePct || 0)).toFixed(2)}%`;
+  const food = `${Math.max(0, Number(vm.foodPct || 0)).toFixed(2)}%`;
+  return <section className="player-hud__storage-card" title="Wood, stone, and food share this one storage pool. Warehouses increase it. Coins are separate and unlimited." data-tip-title="Shared storage" data-tip-body={vm.storageText + ". Warehouses are the storage upgrade; coins do not count."}>
+    <div className="player-hud__storage-head"><b>Shared storage</b><span>{vm.storageUsed}/{vm.storageLimit || "?"}</span><em>{vm.storageFree} free</em></div>
+    <div className="player-hud__storage-track" aria-label="Shared storage segments">
+      <i className="wood" style={{ width: wood }} /><i className="stone" style={{ width: stone }} /><i className="food" style={{ width: food }} />
+    </div>
+    <div className="player-hud__materials" aria-label="Material amounts">
+      <MaterialChip icon="🪵" label="wood" value={vm.wood} />
+      <MaterialChip icon="🪨" label="stone" value={vm.stone} />
+      <MaterialChip icon="🌾" label="food" value={vm.food} />
+    </div>
+  </section>;
 }
 
 export function PlayerHudView(props: any) {
@@ -29,21 +41,13 @@ export function PlayerHudView(props: any) {
 
     <section className="player-hud__bars">
       <StatusBar icon="⚡" label="Energy" now={vm.energyNow} max={vm.maxEnergy} pct={vm.energyPct} id="sc-e-now" tip="Energy limits gathering, claiming, building, and attacks." />
-      <StatusBar icon="♥" label="Health" now={vm.hpNow} max={vm.maxHp} pct={vm.hpPct} id="sc-hp-now" tip="Food is needed to regenerate health automatically after combat." />
+      <StatusBar icon="♥" label="Health" now={vm.hpNow} max={vm.maxHp} pct={vm.hpPct} id="sc-hp-now" tip="Food helps health recover after fights and raids." />
     </section>
 
-    <section className="player-hud__row player-hud__storage" title="Build Warehouses to increase storage." data-tip-title="Storage" data-tip-body={vm.storageText + ". Wood, stone, planks, and food share this cap. Coins are separate."}>
-      <b>Shared storage</b><span>{vm.storageUsed}/{vm.storageLimit || "?"}</span><em>{vm.storageFree} free</em>
-    </section>
+    <SharedStorageBar vm={vm} />
 
-    <section className="player-hud__resources" aria-label="Resources">
-      <ResourcePill icon="🪵" label="Wood" value={vm.wood} cap={vm.woodCap} tip="Wood increases by chopping and gathering trees. It shares material storage with stone, planks, and food." />
-      <ResourcePill icon="🪨" label="Stone" value={vm.stone} cap={vm.stoneCap} tip="Stone is used for claiming and building. Build Warehouses to expand storage." />
-      <ResourcePill icon="🌾" label="Food" value={vm.food} cap={vm.foodCap} tip="Food is used to regenerate health automatically after fights and raids." />
-    </section>
-
-    <section className="player-hud__row player-hud__money" title="Coins are separate from resource storage." data-tip-title="Coins and Wonders" data-tip-body="Coins come from pickups, referrals, markets, and Keep raids. World Wonders are the long-term landmark goal.">
-      <b>🪙 Coins</b><span>{vm.gold}</span><em>Wonders {vm.wondersBuilt}</em>
+    <section className="player-hud__row player-hud__money" title="Coins are separate from resource storage and have no cap." data-tip-title="Coins" data-tip-body="Coins have no storage limit. Deposit at the Bank to speed progress, donate for reputation, or spend on World Wonders.">
+      <b>🪙 Coins</b><span>{vm.gold}</span><em>no cap · Wonders {vm.wondersBuilt}</em>
     </section>
 
     {vm.hint.lead ? <footer className="player-hud__notice"><b>{vm.hint.lead}</b>{vm.hint.rest ? <span>{vm.hint.rest}</span> : null}</footer> : null}

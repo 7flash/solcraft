@@ -6,7 +6,7 @@ export function manhattan(a: Coord, b: Coord): number { return Math.abs(a.x - b.
 export function cloneBag(bag: ResourceBag = {}): ResourceBag { return { ...bag }; }
 
 export function addBag(target: ResourceBag, delta: ResourceBag, caps: Partial<Record<ResKey, number>> & { total?: number; shared?: number } = {}): ResourceBag {
-  const sharedKeys = new Set<ResKey>(["w", "p", "s", "f"]);
+  const sharedKeys = new Set<ResKey>(["w", "s", "f"]);
   const sharedCap = Number((caps as any).total ?? (caps as any).shared ?? 0) || 0;
   const sharedUsed = () => [...sharedKeys].reduce((sum, k) => sum + Math.max(0, Number(target[k] || 0)), 0);
   for (const [k, raw] of Object.entries(delta) as [ResKey, number][]) {

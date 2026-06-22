@@ -255,18 +255,18 @@ export interface BuildingDef {
 export const LIBRARY: BuildingDef[] = [
   { id: "road", name: "Road", glyph: "═", baseC: 0xc49a5a, cost: { w: 1 }, regen: 0, unlock: 0, hp: 9999, decor: true, passableOwner: true, blocksMovement: false,
     blurb: "Legacy path tile. New settlements use open terrain instead of roads.", effect: "Legacy only." },
-  { id: "foundation", name: "Foundation", glyph: "▱", baseC: 0xd9c28a, cost: { w: 4, s: 1 }, regen: 0, unlock: 0, hp: 80,
-    blurb: "A prepared building pad. Inspect it, then choose the final structure for this spot.", effect: "Choose House, Lumber Camp, Mine, Farm, or Market from its panel." },
-  { id: "cottage", name: "House", glyph: "⌂", baseC: 0xf6e7c8, cost: { w: 16, s: 6 }, regen: 0.06, maxE: 5, unlock: 0,
-    use: { k: "rest", cd: 20, label: "Rest — restore ♥" }, blurb: "A simple home that expands your settlement and gives settlers a place to recover.", effect: "Restores HP when used nearby." },
+  { id: "foundation", name: "Foundation", glyph: "▱", baseC: 0xd9c28a, cost: { w: 0 }, regen: 0, unlock: 0, hp: 80,
+    blurb: "A prepared building pad. Inspect it, then choose the final structure for this spot.", effect: "Choose House, Lumber Camp, Quarry, Farm, or Warehouse from its panel." },
+  { id: "cottage", name: "House", glyph: "⌂", baseC: 0xf6e7c8, cost: { w: 6 }, regen: 0.06, maxE: 5, unlock: 0,
+    use: { k: "rest", cd: 20, label: "Rest — restore ♥" }, blurb: "A simple home that anchors your settlement and acts as a travel point between your Houses.", effect: "Travel point and recovery shelter." },
   { id: "well", name: "Stone Well", glyph: "◍", baseC: 0xa8aeb4, cost: { w: 12, s: 4 }, regen: 0.1, unlock: 0,
     use: { k: "energy", amt: 10, cd: 20, label: "Draw water +10⚡" }, blurb: "Cool water. Drink for a burst of energy.", effect: "Use for a burst of energy." },
-  { id: "farm", name: "Farm Plot", glyph: "🌾", baseC: 0x86c95e, cost: { w: 16, s: 6 }, regen: 0.12, unlock: 0,
-    prod: { f: 0.08 }, blurb: "Grows food over time — harvest it with E.", effect: "Produces food every cycle." },
-  { id: "lumber", name: "Lumber Camp", glyph: "🪓", baseC: 0xb0793f, cost: { w: 16, s: 6 }, regen: 0.08, unlock: 0,
-    prod: { w: 0.06 }, blurb: "Workers replant useful trees around the camp every cycle. Upgrades improve wood yield from every tree on your owned territory.", effect: "Spawns trees; upgrades increase owned-territory tree wood." },
-  { id: "quarry", name: "Mine", glyph: "⛏", baseC: 0x8d897f, cost: { w: 6, s: 2 }, regen: 0.06, unlock: 0,
-    prod: { s: 0.05 }, blurb: "Opens fresh stone around the mine every cycle. Upgrades improve stone yield from rocks on your territory.", effect: "Spawns rocks; upgrades increase owned-territory rock stone." },
+  { id: "farm", name: "Farm", glyph: "🌾", baseC: 0x86c95e, cost: { w: 14 }, regen: 0.12, unlock: 0,
+    prod: { f: 0.08 }, blurb: "Grows food patches nearby. Harvest them manually before fights and raids.", effect: "Creates food work nearby." },
+  { id: "lumber", name: "Lumber Camp", glyph: "🪓", baseC: 0xb0793f, cost: { w: 12 }, regen: 0.08, unlock: 0,
+    prod: { w: 0.06 }, blurb: "Creates tree work nearby. Chop and collect manually for wood.", effect: "Creates wood work nearby." },
+  { id: "quarry", name: "Quarry", glyph: "⛏", baseC: 0x8d897f, cost: { w: 12 }, regen: 0.06, unlock: 0,
+    prod: { s: 0.05 }, blurb: "Opens fresh stone work nearby. Stone is mainly used to capture more land.", effect: "Creates stone work nearby." },
   { id: "sawmill", name: "Sawmill", glyph: "🪚", baseC: 0xc97a3d, cost: { w: 12, s: 4 }, regen: 0.08, unlock: 0,
     use: { k: "convert", inp: { w: 4 }, out: { p: 1 }, e: 1, label: "Saw 4🪵 → 1📦" }, blurb: "Turns raw wood into planks for crafting and city upgrades.", effect: "Converts wood into planks." },
   { id: "market", name: "Market", glyph: "᯼", baseC: 0xe8b94e, cost: { w: 24, s: 12 }, regen: 0.2, unlock: 0,
@@ -301,7 +301,7 @@ export const LIBRARY: BuildingDef[] = [
     blurb: "Warm night light for paths and plazas." },
   { id: "bench", name: "Bench", glyph: "▱", baseC: 0xb0793f, cost: { w: 4 }, regen: 0.01, unlock: 0, decor: true,
     blurb: "A place to sit. No promises anyone will." },
-  { id: "campfire", name: "Campfire", glyph: "♨", baseC: 0xff7a45, cost: { w: 4, s: 1 }, regen: 0.02, unlock: 0, decor: true,
+  { id: "campfire", name: "Campfire", glyph: "♨", baseC: 0xff7a45, cost: { w: 0 }, regen: 0.02, unlock: 0, decor: true,
     blurb: "Small flame, good vibes." },
   { id: "arch", name: "Stone Arch", glyph: "∩", baseC: 0xb8b1a0, cost: { s: 6 }, regen: 0.01, unlock: 0, hp: 16, decor: true,
     blurb: "A clean entrance marker for your land." },
@@ -319,14 +319,14 @@ export const LIBRARY: BuildingDef[] = [
     prod: { sc: ACADEMY_SCIENCE_RATE }, blurb: "Scholars passively generate 🔬 science up to your science cap. Science is spent on bombs and future inventions.", effect: `Produces 🔬 science up to ${SCIENCE_BASE_CAP}+${SCIENCE_CAP_PER_ACADEMY} per Academy.` },
   { id: "workshop", name: "Workshop", glyph: "⚙", baseC: 0x7dcfe8, cost: { w: 64, s: 46 }, regen: 0, unlock: 0, hp: 240,
     blurb: "Unlocks advanced recipes and heavy siege craft like Thumpers.", effect: "Unlocks advanced Craft recipes and heavy tools." },
-  { id: "warehouse", name: "Warehouse", glyph: "▤", baseC: 0xc79337, cost: { w: 72, s: 38 }, regen: 0, unlock: 0, hp: 260, storageBonus: WAREHOUSE_RESOURCE_CAP_BONUS,
-    blurb: "A logistics building that increases wood, stone, plank, and shard storage.", effect: `+${WAREHOUSE_RESOURCE_CAP_BONUS} resource storage.` },
+  { id: "warehouse", name: "Warehouse", glyph: "▤", baseC: 0xc79337, cost: { w: 30 }, regen: 0, unlock: 0, hp: 260, storageBonus: WAREHOUSE_RESOURCE_CAP_BONUS,
+    blurb: "A logistics building that increases the shared wood, stone, and food storage pool.", effect: `+${WAREHOUSE_RESOURCE_CAP_BONUS} shared material storage.` },
   { id: "barracks", name: "Barracks", glyph: "🛡", baseC: 0x5f6876, cost: { w: 86, s: 70 }, regen: 0, unlock: 0, hp: 280, defenseBonus: true,
     blurb: "A defensive district that trains your towers to hit destroy tools harder and farther.", effect: "Boosts Watchtower range, damage, and bomb resistance." },
   { id: "townhall", name: "Town Hall", glyph: "🏛", baseC: 0xf3ead7, cost: { w: 140, s: 120 }, regen: 0, unlock: 24, hp: 420, tileCapBonus: TOWNHALL_TILE_CAP_BONUS, storageBonus: TOWNHALL_STORAGE_BONUS,
     blurb: "Settlement core. Expands your city capacity and storage while making the city feel official.", effect: `+${TOWNHALL_TILE_CAP_BONUS} tile capacity and +${TOWNHALL_STORAGE_BONUS} storage.` },
-  { id: "worldwonder", name: "World Wonder", glyph: "★", baseC: 0xfff0a8, cost: {}, regen: 0, unlock: 0, hp: 5000, tileCapBonus: 250, storageBonus: 1000,
-    blurb: "A permanent AI-shaped monument. Spend coins from territory pickups and Keep sieges to found a unique 9×9 Wonder plaza anywhere in the frontier.", effect: "+250 tile capacity, +1000 storage, permanent teleport anchor." },
+  { id: "worldwonder", name: "World Wonder", glyph: "★", baseC: 0xfff0a8, cost: {}, regen: 0, unlock: 0, hp: 5000, tileCapBonus: 0, storageBonus: 0,
+    blurb: "A permanent AI-shaped landmark. Spend coins to found a unique Wonder plaza outside normal building pads and gain reputation.", effect: "Coin sink, reputation landmark, and permanent teleport anchor." },
   { id: "goldmine", name: "Coin Mint", glyph: "⛏", baseC: 0xffd76e, cost: { ...GOLD_MINE_BASE_COST }, regen: 0, unlock: 0, hp: GOLD_MINE_BASE_HP, storage: true,
     blurb: "City mint and redemption office. Territory coins spawn on claimed land; upgrades improve coins from owned-territory pickups and taxes.", effect: "Enables redemption; upgrades increase territory coin and tax income." },
   { id: "barbcamp", name: "Deprecated Coin Ruin", glyph: "⚔", baseC: 0x7b4a35, cost: {}, regen: 0, unlock: 0, hp: GOLD_SOURCE_CAMP_HP, decor: true,
@@ -388,8 +388,8 @@ for (const b of LIBRARY) {
   }
   if (b.id === "warehouse") {
     b.storageBonus = WAREHOUSE_RESOURCE_CAP_BONUS;
-    b.blurb = "Stores more wood, stone, planks, shards, and supplies for long frontier building.";
-    b.effect = `+${WAREHOUSE_RESOURCE_CAP_BONUS} resource storage.`;
+    b.blurb = "Increases the shared wood, stone, and food storage pool.";
+    b.effect = `+${WAREHOUSE_RESOURCE_CAP_BONUS} shared material storage.`;
   }
   if (b.id === "townhall") {
     b.tileCapBonus = TOWNHALL_TILE_CAP_BONUS;
@@ -398,12 +398,12 @@ for (const b of LIBRARY) {
     b.effect = `+${TOWNHALL_TILE_CAP_BONUS} tile capacity and +${TOWNHALL_STORAGE_BONUS} storage.`;
   }
   if (b.id === "academy") {
-    b.blurb = `Passively generates 🔬 science up to your science cap. Science is spent crafting bombs and later inventions.`;
-    b.effect = `Produces science; +${SCIENCE_CAP_PER_ACADEMY} science cap.`;
+    b.blurb = `Legacy research building hidden from the production surface.`;
+    b.effect = `Removed from production build.`;
   }
   if (b.id === "workshop") {
-    b.blurb = "Turns gathered materials and Academy science into siege bombs. Bombs are needed to breach Keeps for coins.";
-    b.effect = "Unlocks bomb crafting and repair kits.";
+    b.blurb = "Legacy workshop hidden from the production surface.";
+    b.effect = "Removed from production build.";
   }
   if (b.id === "alchemy") {
     b.blurb = "Brews elixirs for travel, energy, and defense.";
@@ -411,8 +411,8 @@ for (const b of LIBRARY) {
   }
   if (b.id === "worldwonder") {
     b.cost = {};
-    b.blurb = `A permanent prompt-built AI district anchor. Costs ${WORLD_WONDER_GOLD_COST}🪙, reserves a protected plaza, shapes nearby roads, and seeds district coin pickups.`;
-    b.effect = "Configurable plaza, road/coin district anchor, teleport point, +250 tile capacity, +1000 storage.";
+    b.blurb = `A permanent prompt-built landmark. Costs ${WORLD_WONDER_GOLD_COST}🪙, boosts reputation, and becomes a prestige teleport destination.`;
+    b.effect = "Configurable plaza, reputation landmark, prestige teleport point, and coin sink.";
   }
 }
 

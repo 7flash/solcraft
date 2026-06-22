@@ -12,10 +12,19 @@ const DEFAULT_ATLAS: Record<string, string> = {
   cursor: "/api/atlas-runtime/cursor",
 };
 
-// Stage 31: art atlases are being regenerated. Keep the live game on the
-// procedural/canvas fallback path until the new atlas contract is published.
-const FORCE_PROCEDURAL_TERRAIN = true;
-const FORCE_FALLBACK_ATLASES = true;
+// Runtime atlas fallback flags. Default keeps the safe procedural/canvas path,
+// but production/staging can flip these without code changes:
+//   NEXT_PUBLIC_SOLCRAFT_FORCE_PROCEDURAL_TERRAIN=0
+//   NEXT_PUBLIC_SOLCRAFT_FORCE_FALLBACK_ATLASES=0
+// This lets us switch between atlas-rendered and canvas-drawn characters.
+function envFlag(name: string, fallback: boolean) {
+  const value = String((typeof process !== "undefined" ? (process as any)?.env?.[name] : "") ?? "").trim().toLowerCase();
+  if (["1", "true", "yes", "on"].includes(value)) return true;
+  if (["0", "false", "no", "off"].includes(value)) return false;
+  return fallback;
+}
+const FORCE_PROCEDURAL_TERRAIN = envFlag("NEXT_PUBLIC_SOLCRAFT_FORCE_PROCEDURAL_TERRAIN", true);
+const FORCE_FALLBACK_ATLASES = envFlag("NEXT_PUBLIC_SOLCRAFT_FORCE_FALLBACK_ATLASES", true);
 
 let ATLAS: Record<string, string> = { ...DEFAULT_ATLAS };
 let ATLAS_BOUNDS: Record<string, any> = {

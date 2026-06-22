@@ -5,6 +5,7 @@ const KNOWN_ACTIONS = new Set([
   "claim", "place", "upgrade", "demolish", "repair", "customize", "customizerAccess",
   "harvest", "harvestStart", "harvestFinish", "harvestCancel", "pickup",
   "home", "homeStart", "homeFinish", "homeCancel",
+  "houseStart", "houseFinish", "houseCancel",
   "wonderStart", "wonderFinish", "wonderCancel", "placeWonder",
   "profileFace", "profileAppearance", "setupProfile",
   "use", "fight", "attackNpc", "donateNpc", "donateKeep", "raid",
@@ -83,6 +84,7 @@ export function actionRatePolicy(type: string) {
     case "fight":
     case "attackNpc":
     case "raid": return { capacity: 12, refillPerSec: 2.5, cost: 1 };
+    case "houseStart":
     case "wonderStart":
     case "placeWonder": return { capacity: 4, refillPerSec: 1 / 30, cost: 1 };
     default: return { capacity: 30, refillPerSec: 12, cost: 1 };

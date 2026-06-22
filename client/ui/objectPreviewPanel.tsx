@@ -4,11 +4,11 @@ import { objectPreviewActionLabel, objectPreviewDescription, objectPreviewGlyph,
 import { BUILDING_POLISH, costLine } from "./productionPolish";
 
 const BUILD_CHOICES = [
-  ["cottage", "House", "🏠", { w: 6, s: 2 }],
-  ["lumber", "Lumber Camp", "🪵", { w: 12, s: 4 }],
-  ["quarry", "Mine", "⛏", { w: 10, s: 8 }],
-  ["farm", "Farm", "🌾", { w: 10, f: 2 }],
-  ["warehouse", "Warehouse", "▣", { w: 14, s: 8 }],
+  ["cottage", "House", "🏠", { w: 6 }],
+  ["lumber", "Lumber Camp", "🪵", { w: 12 }],
+  ["quarry", "Quarry", "⛏", { w: 12 }],
+  ["farm", "Farm", "🌾", { w: 14 }],
+  ["warehouse", "Warehouse", "▣", { w: 30 }],
 ] as const;
 
 function hasCoords(p: any) {
@@ -44,7 +44,7 @@ export function ObjectPreviewPanelView({ preview }: any) {
         <div className="tiny">{desc}</div>
       </div>
     </div>
-    {p.kind === "buildTile" ? <div className="build-first-rule"><b>Build rule:</b> capture 3 tiles first, then place buildings on empty captured tiles. Reputation controls your tile limit.</div> : null}
+    {p.kind === "buildTile" ? <div className="build-first-rule"><b>Build rule:</b> capture 3 tiles first, then place starter buildings on empty captured tiles. Buildings cost wood; claiming uses stone; reputation controls your tile limit.</div> : null}
     {p.kind === "keep" && (p.maxHp || p.coins) ? <div className="ui35-rally-strip" aria-label="Shared keep rally details">
       {p.maxHp ? <span><b>{Math.max(0, Math.floor(Number(p.hp || 0)))}/{Math.floor(Number(p.maxHp || 0))}</b><em>HP when shared</em></span> : null}
       {p.coins ? <span><b>{Math.floor(Number(p.coins || 0))}🪙</b><em>reported inside</em></span> : null}

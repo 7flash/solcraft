@@ -36,13 +36,16 @@ const DIRECT_ACTIONS = new Set([
   "homeStart",
   "homeFinish",
   "homeCancel",
+  "houseStart",
+  "houseFinish",
+  "houseCancel",
   "wonderStart",
   "wonderFinish",
   "wonderCancel",
   "wallet",
 ]);
 
-const channels = new Map<number, { type: "home" | "wonder" | "harvest"; x: number; z: number; until: number; uid?: number; tx?: number; tz?: number; kind?: "tree" | "rock" | "food" }>();
+const channels = new Map<number, { type: "home" | "house" | "wonder" | "harvest"; x: number; z: number; until: number; uid?: number; tx?: number; tz?: number; kind?: "tree" | "rock" | "food" }>();
 
 function now() { return Date.now(); }
 function ok(extra: Record<string, any> = {}) { return { ok: true, ...extra, backend: "ecs" }; }
@@ -102,7 +105,7 @@ function npcGatheredBonus(npc: any) {
   const bonus = near.reduce((sum, b) => sum + Math.max(1, Math.floor(Number(b.level || 1))), 0);
   return { bonus: Math.min(12, bonus), source: infra === "lumber" ? "nearby Lumber Camp" : infra === "quarry" ? "nearby Quarry" : "nearby Farm" };
 }
-function completionChannel(p: PlayerRow, kind: "home" | "wonder") {
+function completionChannel(p: PlayerRow, kind: "home" | "house" | "wonder") {
   const ch = channels.get(Number(p.id));
   if (!ch || ch.type !== kind) return null;
   return ch;
@@ -331,7 +334,7 @@ function actionTalkNpc(p: PlayerRow, body: any) {
   const npc = proceduralNpcAt(x, z);
   if (!npc || npcAlreadyGone(x, z)) return err("Nobody is there anymore.", "NPC_GONE");
   if (!playerNear(p, x, z)) return err("Stand beside the traveler first.", "TOO_FAR");
-  return ok({ npc, note: `${npc.name}: The roads are dangerous. Supplies buy goodwill; blades buy trouble.` });
+  return ok({ npc, note: `${npc.name}: The roads are dangerous. Coins buy goodwill; blades buy trouble.` });
 }
 
 function actionDonateNpc(p: PlayerRow, body: any) {
@@ -339,15 +342,15 @@ function actionDonateNpc(p: PlayerRow, body: any) {
   const npc = proceduralNpcAt(x, z);
   if (!npc || npcAlreadyGone(x, z)) return err("Nobody is there anymore.", "NPC_GONE");
   if (!playerNear(p, x, z)) return err("Stand beside the traveler first.", "TOO_FAR");
-  const cost = have(p, "f") >= 2 ? { f: 2 } : have(p, "w") >= 3 ? { w: 3 } : null;
-  if (!cost) return err("Donate 2 food or 3 wood.", "DONATION_NEEDS_SUPPLIES");
-  spend(p, cost);
+  const coinCost = 5;
+  if (have(p, "g") < coinCost) return err(`Donate ${coinCost}🪙 to earn reputation. Coins are separate from storage.`, "DONATION_NEEDS_COINS");
+  spend(p, { g: coinCost });
   p.hp = Math.min(MAX_HP, Math.max(1, Number(p.hp || MAX_HP)) + 3);
   addXp(p, 8);
   markNpcGone(x, z);
   const rep = adjustReputation(Number(p.id), reputationDeltaFor("npcDonate"), "npcDonate");
   refreshPlayer(p); bump("donate-npc"); mirrorLegacyToEcsTables("donate-npc");
-  return ok({ note: `Donated supplies to ${npc.title || "traveler"}. +3♥ goodwill, +8 XP. ${reputationDeltaText(rep)}`, player: { hp: p.hp, maxHp: MAX_HP }, inv: p.inv, reputation: reputationSummaryForWire(Number(p.id)) });
+  return ok({ note: `Donated ${coinCost}🪙 to ${npc.title || "traveler"}. +3♥ goodwill, +8 XP. ${reputationDeltaText(rep)}`, player: { hp: p.hp, maxHp: MAX_HP }, inv: p.inv, reputation: reputationSummaryForWire(Number(p.id)) });
 }
 
 function actionAttackNpc(p: PlayerRow, body: any) {
@@ -459,6 +462,27 @@ function actionHomeFinish(p: PlayerRow) {
 }
 function actionHomeCancel(p: PlayerRow) { channels.delete(Number(p.id)); return ok(); }
 
+function houseLanding(x: number, z: number) { return { x: int(x) + 1, z: int(z) }; }
+function actionHouseStart(p: PlayerRow, body: any) {
+  const b = getBuilding(int(body.uid));
+  if (!b || Number(b.owner || 0) !== Number(p.id) || !(String(b.kind || "") === "cottage" || String(b.kind || "") === "house")) return err("That House is not yours.", "NOT_HOUSE");
+  if (playerNear(p, b.x, b.z, 1)) return err("Already at that House.", "ALREADY_THERE");
+  channels.set(Number(p.id), { type: "house", x: int(p.x), z: int(p.z), until: now() + TELEPORT_MS, uid: Number(b.id), tx: int(b.x), tz: int(b.z) });
+  return ok({ ms: TELEPORT_MS, note: `${b.nm || "House"} travel casting… stand still until the route opens.` });
+}
+function actionHouseFinish(p: PlayerRow) {
+  const ch = completionChannel(p, "house");
+  if (!ch) return err("Not travelling to a House.", "NO_TELEPORT_CHANNEL");
+  if (now() < ch.until - 250) return err("Still travelling…", "TELEPORT_PENDING");
+  if (int(p.x) !== ch.x || int(p.z) !== ch.z) { channels.delete(Number(p.id)); return err("Teleport cancelled because you moved.", "TELEPORT_MOVED"); }
+  const b = getBuilding(Number(ch.uid || 0));
+  if (!b || Number(b.owner || 0) !== Number(p.id) || !(String(b.kind || "") === "cottage" || String(b.kind || "") === "house")) { channels.delete(Number(p.id)); return err("That House is gone.", "HOUSE_GONE"); }
+  const spot = houseLanding(Number(b.x), Number(b.z));
+  p.x = spot.x; p.z = spot.z; channels.delete(Number(p.id)); refreshPlayer(p); bump("house-teleport");
+  return ok({ note: `Arrived at ${b.nm || "House"}. Houses are your fast-travel points.`, x: p.x, z: p.z });
+}
+function actionHouseCancel(p: PlayerRow) { channels.delete(Number(p.id)); return ok(); }
+
 function actionWonderStart(p: PlayerRow, body: any) {
   const b = getBuilding(int(body.uid));
   if (!b || Number(b.owner || 0) !== Number(p.id) || String(b.kind || "") !== "worldwonder") return err("That World Wonder is not yours.", "NOT_WONDER");
@@ -519,6 +543,9 @@ export function dispatchEcsGameplayAction(playerLike: PlayerRow, body: any): Ecs
     if (type === "home" || type === "homeStart") return { handled: true, result: actionHomeStart(p) };
     if (type === "homeFinish") return { handled: true, result: actionHomeFinish(p) };
     if (type === "homeCancel") return { handled: true, result: actionHomeCancel(p) };
+    if (type === "houseStart") return { handled: true, result: actionHouseStart(p, body) };
+    if (type === "houseFinish") return { handled: true, result: actionHouseFinish(p) };
+    if (type === "houseCancel") return { handled: true, result: actionHouseCancel(p) };
     if (type === "wonderStart") return { handled: true, result: actionWonderStart(p, body) };
     if (type === "wonderFinish") return { handled: true, result: actionWonderFinish(p) };
     if (type === "wonderCancel") { channels.delete(Number(p.id)); return { handled: true, result: ok() }; }

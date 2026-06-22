@@ -92,17 +92,21 @@ export function ActionRibbon(props: any) {
 
   if (teleportOpen) {
     const wonders = Array.isArray(m?.wonders) ? m.wonders : [];
+    const houses = Array.isArray(m?.houses) ? m.houses : [];
     return <div className="build-ribbon teleport-ribbon ui2-top-ribbon">
       <div id="sc-build-strip" className="build-strip" data-build-strip="1">
         <div className="build-sep"><b>{t("ribbon.teleportTitle", "Teleport")}</b><small>{t("ribbon.teleportText", "settlement and unlocked wonders")}</small></div>
         <button className="build-tile on" aria-label={t("ribbon.homeAria", "Home base — return to your settlement flag")} data-tip-title={t("ribbon.homeTipTitle", "✦ Home base")} data-tip-body={t("ribbon.homeTipBody", "Cast briefly, then return to your settlement flag. Moving cancels the cast.")} data-click="home-cast">
           <span className="bg">✦</span><span className="bn">{t("ribbon.homeLabel", "Home Base")}</span><span className="bc">{t("ribbon.homeAction", "Settlement flag")}</span>
         </button>
-        {wonders.map((w: any) => <button className="build-tile" aria-label={`Teleport to ${w.name || `Wonder ${w.x},${w.z}`}`} data-tip-title={t("ribbon.worldWonderTip", "★ World Wonder")} data-tip-body={t("ribbon.wonderTravelTip", "Travel to an explored/unlocked Wonder. Wonder taxes can be balanced server-side later.")} data-click="wonder-teleport" data-uid={w.uid}>
+        {houses.map((h: any) => <button className="build-tile" aria-label={`Teleport to House ${h.x},${h.z}`} data-tip-title={t("ribbon.houseTip", "🏠 House travel")} data-tip-body={t("ribbon.houseTravelTip", "Houses are normal travel points between your settlements.")} data-click="house-teleport" data-uid={h.uid}>
+          <span className="bg">🏠</span><span className="bn">{h.name || `House ${h.x},${h.z}`}</span><span className="bc">{t("ribbon.houseTravel", "House travel")}</span>
+        </button>)}
+        {wonders.map((w: any) => <button className="build-tile" aria-label={`Teleport to ${w.name || `Wonder ${w.x},${w.z}`}`} data-tip-title={t("ribbon.worldWonderTip", "★ World Wonder")} data-tip-body={t("ribbon.wonderTravelTip", "Travel to an unlocked Wonder landmark.")} data-click="wonder-teleport" data-uid={w.uid}>
           <span className="bg">★</span><span className="bn">{w.name || `Wonder ${w.x},${w.z}`}</span><span className="bc">{t("ribbon.wonderTravel", "Wonder travel")}</span>
         </button>)}
-        {!wonders.length ? <button className="build-tile" disabled aria-label={t("ribbon.noWondersAria", "No World Wonders unlocked yet")}>
-          <span className="bg">◇</span><span className="bn">{t("ribbon.noWonders", "No Wonders yet")}</span><span className="bc">{t("ribbon.exploreFound", "Explore/found one")}</span>
+        {!wonders.length && !houses.length ? <button className="build-tile" disabled aria-label={t("ribbon.noWondersAria", "No travel points yet")}>
+          <span className="bg">◇</span><span className="bn">{t("ribbon.noWonders", "No travel points yet")}</span><span className="bc">{t("ribbon.exploreFound", "Build a House")}</span>
         </button> : null}
       </div>
       <div className="build-scroll-track"><i id="sc-build-scroll-thumb" /></div>

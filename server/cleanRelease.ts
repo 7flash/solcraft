@@ -9,16 +9,12 @@ import { LIBRARY } from "./shared";
  * rediscovering old feature flags.
  */
 export const CLEAN_BUILDING_IDS = [
-  "cottage",      // houses attract NPCs and expand settlement presence
-  "warehouse",    // raises storage caps; destroyed warehouses cause rot pressure
+  "cottage",      // House: first settlement anchor and travel point
   "lumber",       // spawns trees nearby; no passive credit
   "quarry",       // spawns rocks nearby; no passive credit
-  "farm",         // spawns crops nearby; crops must be cut/gathered
-  "market",       // future clean market/rates, no player escrow
-  "vault",        // bank building / capital bank service
-  "alchemy",      // temporary character customizer building until Tailor exists
-  "townhall",     // higher-order settlement authority/storage
-  "worldwonder",  // prompt-built reputation landmark outside territory
+  "farm",         // spawns crops nearby; crops must be harvested
+  "warehouse",    // the only normal storage-cap building
+  "worldwonder",  // coin sink, reputation landmark, prestige teleport
 ] as const;
 
 export type CleanBuildingId = (typeof CLEAN_BUILDING_IDS)[number];
@@ -55,7 +51,7 @@ export function cleanBuildKindResponse(kind: any) {
     ok: false,
     reasonCode: "BUILDING_REMOVED",
     msg: isRemovedBuildKind(k)
-      ? "That building was removed from the clean release. Use houses, warehouses, camps, quarries, farms, markets, bank, customizer, town hall, or World Wonders."
+      ? "That building was removed from the clean release. Use House, Lumber Camp, Quarry, Farm, Warehouse, or World Wonder."
       : "That building is not part of the clean release build list.",
     kind: k,
   };
@@ -72,6 +68,7 @@ export const CLEAN_ACTION_SURFACE = [
   "place", "upgrade", "repair", "demolish", "customize", "use",
   "talkNpc", "attackNpc", "donateNpc", "donateKeep", "raid", "attack", "fight",
   "home", "homeStart", "homeFinish", "homeCancel",
+  "houseStart", "houseFinish", "houseCancel",
   "wonderStart", "wonderFinish", "wonderCancel", "placeWonder",
   "profileAppearance", "profileFace", "setupProfile", "customizerAccess", "wallet", "chat",
 ] as const;

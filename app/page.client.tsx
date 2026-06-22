@@ -2405,6 +2405,15 @@ export default function mount() {
       showChannel("Travelling to Wonder…");
     });
   }
+  function startHouseCast(uid) {
+    if (ST.channel) return;
+    const x = world.me.x, z = world.me.z;
+    act("houseStart", { uid }).then((r) => {
+      if (!r || !r.ok) return;
+      ST.channel = { x, z, until: performance.now() + r.ms, ms: r.ms, kind: "house", uid };
+      showChannel("Travelling to House…");
+    });
+  }
   function spawnWonderHere() {
     if (!ST.me) return;
     const x = Math.round(world.me.x), z = Math.round(world.me.z);
@@ -2465,13 +2474,13 @@ export default function mount() {
     const kind = ST.channel.kind;
     ST.channel = null;
     channelEl.classList.remove("on");
-    if (!silent) act(kind === "home" ? "homeCancel" : kind === "wonder" ? "wonderCancel" : kind === "redeem" ? "redeemCancel" : "harvestCancel", {});
+    if (!silent) act(kind === "home" ? "homeCancel" : kind === "house" ? "houseCancel" : kind === "wonder" ? "wonderCancel" : kind === "redeem" ? "redeemCancel" : "harvestCancel", {});
   }
   /* drives the bar + completion; cancels if the player walks off */
   const channelT = setInterval(() => {
     if (!ST.channel) return;
     const ch = ST.channel;
-    const moved = (ch.kind === "home" || ch.kind === "wonder" || ch.kind === "redeem" || ch.kind === "combat")
+    const moved = (ch.kind === "home" || ch.kind === "house" || ch.kind === "wonder" || ch.kind === "redeem" || ch.kind === "combat")
       ? (!ST.me || world.me.x !== ch.x || world.me.z !== ch.z)
       : (!ST.me || cheb(world.me.x, world.me.z, ch.x, ch.z) > 1);
     if (moved) { cancelChop(); return; }
@@ -2489,6 +2498,13 @@ export default function mount() {
         try { ch.run?.(); } catch {}
       } else if (kind === "home") {
         act("homeFinish", {}).then((r) => {
+          if (r && r.ok && Number.isFinite(r.x) && Number.isFinite(r.z)) {
+            world.hardSnapMe(r.x, r.z);
+            world.shockwave(r.x, r.z, 0x14f195);
+          }
+        });
+      } else if (kind === "house") {
+        act("houseFinish", {}).then((r) => {
           if (r && r.ok && Number.isFinite(r.x) && Number.isFinite(r.z)) {
             world.hardSnapMe(r.x, r.z);
             world.shockwave(r.x, r.z, 0x14f195);
@@ -3119,6 +3135,368 @@ export default function mount() {
   window.addEventListener("keyup", onKeyUp);
   window.addEventListener("blur", clearHeldMoveKeys);
 
+  function handleDelegatedUiClick(action, el, ev) {
+    switch (action) {
+      case "join-game": return joinGame();
+      case "spectate-game": return spectateGame();
+      case "forget-session": return forgetLocalSettler();
+      case "toggle-panel": return togglePanel(readStr(el, "panel"));
+      case "explore-mode": closeTools(); clearHeldMoveKeys(); ST.panel = null; ST.modal = null; say("Move mode — click the map, use WASD/arrows, or hold two directions for diagonal movement.", 1800); paint(true); return;
+      case "open-options":
+      case "open-more": return openOptions();
+      case "open-bank": advanceWalkthroughAction("bank"); return openBankPanel(false);
+      case "select-wonder": advanceWalkthroughAction("wonder"); return selectWonderTool();
+      case "select-craft": return selectCraftTool();
+      case "tools-toggle": return toggleToolsRibbon();
+      case "gather-wood": return doGather("wood");
+      case "gather-stone": return doGather("stone");
+      case "claim":
+      case "capture-tool": return selectCaptureTool();
+      case "select-build": advanceWalkthroughAction("build"); return selectBuildTool();
+      case "demolish-tool": return selectDemolishTool();
+      case "teleport-toggle": return toggleTeleportRibbon();
+      case "siege-tool": return doAttackTool();
+      case "select-spawn-tool": return selectDeployTool();
+      case "use-tool": advanceWalkthroughAction("use"); return doUseTool();
+      case "select-building": return selectBuilding(readStr(el, "id"));
+      case "make-bomb": return say("Bombs were removed from the clean release. Use Attack/Raid pressure instead.", 2400);
+      case "craft-recipe": return say("Crafting is removed from the client for this release.", 2200);
+      case "select-spawn": return selectDeploy(readStr(el, "id"));
+      case "home-cast": return startHomeCast();
+      case "use-pack-slot": return say("Packs are removed from the client for this release.", 2200);
+      case "place-building": {
+        const id = readStr(el, "id");
+        if (id === "worldwonder") {
+          if (!ST.wonderRecipe) return openWonderPlanner("Generate the AI plan first, then found the Wonder in a valid wild location.");
+          enterWonderPlacement();
+          return;
+        }
+        if (!ST.objectPreview || ST.objectPreview.kind !== "buildTile") { sfx.err(); say("Click a captured tile first, then choose what to build from the right panel.", 2400); return; }
+        const target = ST.objectPreview;
+        return act("place", { kind: id, x: target.x, z: target.z }).then((r) => {
+          if (r?.ok) { sfx.build(); world.shockwave(target.x, target.z, 0xffe2a8); ST.objectPreview = null; ST.panel = null; closeTools(); pollSoon(); paint(true); say(r.note || "Construction started.", 1800); }
+        });
+      }
+      case "foundation-build": return say("Foundations were removed. Select Hammer, click an empty owned tile, then choose a building from the right panel.", 2600);
+      case "build-tile-choice": {
+        const kind = readStr(el, "id");
+        const target = ST.objectPreview || {};
+        if (target.kind !== "buildTile") { sfx.err(); return say("Select an empty owned tile with the Hammer first.", 2200); }
+        return act("place", { kind, x: target.x, z: target.z }).then((r) => {
+          if (r?.ok) { sfx.build(); world.shockwave(target.x, target.z, 0xffe2a8); ST.objectPreview = null; ST.panel = null; closeTools(); pollSoon(); paint(true); say(r.note || "Construction started.", 1800); }
+        });
+      }
+      case "unequip": return say("Equipment is removed from the client for this release.", 2200);
+      case "pack-trophy": return say(`${readStr(el, "name", "Trophy")} — a trophy of the frontier.`);
+      case "pack-drop": return say("Packs are removed from the client for this release.", 2200);
+      case "pack-spawn-select": ST.destroying = readStr(el, "id"); return selectDeployTool();
+      case "pack-equip": return say("Equipment is removed from the client for this release.", 2200);
+      case "learn-skill": return say("Skills are being rebuilt for the ECS release and are hidden for now.", 2200);
+      case "player-walk": if (ST.inspectPlayer) { const q = ST.inspectPlayer; ST.modal = null; ST.inspectPlayer = null; paint(); world.pathTo(q.x, q.z); } return;
+      case "player-close": ST.modal = null; ST.inspectPlayer = null; paint(); return;
+      case "trade-tab": if (!ST.serviceAccess) return directServiceHint("market"); ST.tradeTab = readStr(el, "tab", "market"); if (ST.tradeTab === "bank") loadBankStatus(); paint(); return;
+      case "post-offer": return say("Player escrow trading was removed from this release.", 2200);
+      case "cancel-offer": return say("Player escrow trading was removed from this release.", 2200);
+      case "accept-offer": return say("Player escrow trading was removed from this release.", 2200);
+      case "withdraw-safe": return say("Use the Bank building or Capital Bank for withdrawals.", 2200);
+      case "redeem-main": return say("Old redeem flow was removed. Use the Bank building instead.", 2200);
+      case "inspect-close": return closeInspectPanel();
+      case "inspect-rename": return customizeInspect({ nm: (document.getElementById("sc-rename") || {}).value || "" });
+      case "inspect-wonder-view": { ST.wonderViewUid = ST.inspect; ST.wonderViewError = ""; ST.modal = "wonder-view"; ST.panel = null; paint(true); mountWonderViewerSoon(); return; }
+      case "inspect-share": return shareInspectedBuildingInChat();
+      case "inspect-use": return useBuildingClient(ST.inspect);
+      case "inspect-bank-open": return openBankFromInspect();
+      case "inspect-customizer-open": return openCustomizerFromInspect(ST.inspect);
+      case "inspect-bank-deposit-disabled": return say("Open the bank screen to prepare and copy your deposit address.", 2200);
+      case "inspect-bank-withdraw-disabled": return say("Open the bank screen to review amount, wallet, and withdrawal status.", 2200);
+      case "inspect-raid": return doRaid(ST.inspect);
+      case "inspect-donate-keep": return doDonateKeep(ST.inspect, 10);
+      case "inspect-upgrade": return act("upgrade", { uid: ST.inspect });
+      case "inspect-repair": return act("repair", { uid: ST.inspect });
+      case "inspect-demolish": return act("demolish", { uid: ST.inspect }).then((r) => { if (r && r.ok) { sfx.demolish(); closeInspectPanel(); } });
+      case "inspect-walk-near": { const uid = ST.inspect || ST.wonderViewUid; const b = uid ? world.buildPool.get(uid) : null; closeInspectPanel(); ST.modal = null; ST.wonderViewUid = null; if (b) world.pathToNear(b.x, b.z); return; }
+      case "intro-submit": return submitIntroName();
+      case "modal-close": ST.modal = null; ST.wonderViewUid = null; ST.wonderViewError = ""; stopWonderViewer(); paint(true); return;
+      case "panel-close": ST.panel = null; ST.serviceAccess = ""; paint(true); return;
+      case "char-sync": world.refreshOwnRig?.(); say(t("toast.characterSynced", "Character synced."), 900); return;
+      case "bank-refresh": return loadBankStatus();
+      case "bank-deposit": return bankAction("deposit");
+      case "bank-scan": return bankAction("scan");
+      case "bank-withdraw-request": return bankAction("withdraw", { amountUi: Number((document.getElementById("sc-bank-withdraw-ui") || {}).value) });
+      case "toggle-music": return toggleMusicSound();
+      case "start-music": return startMusicNow();
+      case "toggle-ui-sound": return toggleUiSound();
+      case "ui-scale-step": return stepUiScale(readStr(el, "kind", "ui"), readNum(el, "delta", 0));
+      case "ui-scale-set": return setUiScale(readStr(el, "kind", "ui"), readNum(el, "value", 1), true);
+      case "ui-scale-reset": return resetUiScale(readStr(el, "kind", "all"));
+      case "camera-zoom-out": return stepCameraZoom(CAMERA_ZOOM_STEP);
+      case "camera-zoom-in": return stepCameraZoom(-CAMERA_ZOOM_STEP);
+      case "camera-zoom-reset": return resetCameraView();
+      case "camera-map-view": return setCameraZoom(2.05, true);
+      case "open-world-map": ST.modal = "worldmap"; paint(true); return;
+      case "worldmap-click": return handleWorldMapClick(ev);
+      case "camera-zoom-set": return setCameraZoom(readNum(el, "value", 1), true);
+      case "camera-rotate-left": return stepCameraYaw(-CAMERA_ROTATION_STEP);
+      case "camera-rotate-right": return stepCameraYaw(CAMERA_ROTATION_STEP);
+      case "camera-rotation-set": return setCameraYaw(readNum(el, "value", Math.PI / 4) * Math.PI / 180, true);
+      case "visual-comfort": return setVisual({ warmth: 0.66, texture: 0.18, quality: "balanced", motion: "smooth" });
+      case "time-auto-toggle": return toggleTimeAuto();
+      case "time-set-noon": return setFixedWorldHour(12);
+      case "time-set-dusk": return setFixedWorldHour(18);
+      case "referral-create": return createReferralFromSettings();
+      case "referral-status": return showReferralStatus();
+      case "wonder-preview": return prepareWonderRecipe();
+      case "wonder-open-planner": return openWonderPlanner("Type the Wonder prompt here, then click the map where it should be founded.");
+      case "wonder-plan-place": return enterWonderPlacement();
+      case "wonder-footprint": setWonderFootprint(readNum(el, "size", 9)); paint(true); return;
+      case "wonder-mode": setWonderMode(readStr(el, "mode")); paint(true); return;
+      case "wonder-palette": setWonderPalette(readStr(el, "palette", "solar")); paint(true); return;
+      case "spawn-wonder": return spawnWonderHere();
+      case "admin-toggle": return selectAdminTool(ST.adminTool || "demolish");
+      case "admin-tool": return selectAdminTool(readStr(el, "tool", "demolish"));
+      case "admin-demolish-here": return adminDemolishAt(world.me.x, world.me.z, 0, false);
+      case "admin-clear-tile-here": return adminDemolishAt(world.me.x, world.me.z, 0, true);
+      case "admin-spawn-keep": return adminSpawnKeep(readStr(el, "mode", "here"));
+      case "house-teleport": return startHouseCast(readNum(el, "uid", 0));
+      case "wonder-teleport": return startWonderCast(readNum(el, "uid", 0));
+      case "reload-atlases-silent": return reloadArtRuntime(false);
+      case "reload-art": return reloadArtRuntime(true);
+      case "open-character-panel": return directServiceHint("tailor");
+      case "open-help": ST.modal = "help"; paint(true); return;
+      case "guide-skip": return skipWalkthrough();
+      case "tutorial-restart": return restartWalkthrough();
+      case "copy-text": return copyTextToClipboard(readStr(el, "copy"), readStr(el, "label", "Value"));
+      case "reload-page": writeAckedClientVersion(ST.updateVersion); return location.reload();
+      case "chat-share-here": return shareHereInChat();
+      case "chat-card-open": return openChatCardFromElement(el);
+      case "capital-service-close": return closeCapitalService();
+      case "capital-service-walk": return walkToCapitalService();
+      case "capital-service-action": return useCapitalService(readStr(el, "service", ""));
+      case "object-preview-close": ST.objectPreview = null; if (ST.panel === "object") ST.panel = null; paint(true); return;
+      case "object-preview-walk-near": if (ST.objectPreview) { const p = ST.objectPreview; ST.panel = null; ST.objectPreview = null; world.pathToNear(p.x, p.z); paint(true); } return;
+      case "object-preview-share": {
+        const p = ST.objectPreview;
+        if (!p || !Number.isFinite(Number(p.x)) || !Number.isFinite(Number(p.z))) return;
+        act("chat", { msg: formatLocationChatCard(p.x, p.z, p.title || p.name || "Shared location") });
+        say(t("toast.sharedLocation", "Shared your location."), 900);
+        return;
+      }
+      case "object-preview-action": {
+        const p = ST.objectPreview;
+        const action = readStr(el, "objectAction", "");
+        if (!p) return;
+        if (action === "walk" || action === "walk-near") { ST.panel = null; ST.objectPreview = null; world.pathToNear ? world.pathToNear(p.x, p.z) : world.pathTo(p.x, p.z); paint(true); return; }
+        if (action === "talk-npc") { if (cheb(p.x, p.z, world.me.x, world.me.z) <= 1) say(npcTalkLine(p), 4200); else { say(t("toast.walkCloserToTalk", "Walk closer to talk."), 1400); world.pathToNear(p.x, p.z); } return; }
+        if (action === "donate-npc") { if (cheb(p.x, p.z, world.me.x, world.me.z) <= 1) act("donateNpc", { x: p.x, z: p.z }).then((r) => { if (r?.ok) { sfx.coin(); pollSoon(); paint(true); } }); else world.pathToNear(p.x, p.z); return; }
+        if (action === "attack-npc") { if (cheb(p.x, p.z, world.me.x, world.me.z) <= 1) startCombatAction("Attacking wanderer…", 560, () => act("attackNpc", { x: p.x, z: p.z }).then((r) => { if (r?.ok) { sfx.hit(); ST.objectPreview = null; if (ST.panel === "object") ST.panel = null; pollSoon(); paint(true); } })); else world.pathToNear(p.x, p.z); return; }
+        if (action === "donate-keep") return doDonateKeep(p.uid || p.id, 10);
+        if (action === "raid-keep") return doRaid(p.uid || p.id);
+        return;
+      }
+      case "object-preview-primary": {
+        const p = ST.objectPreview;
+        const action = readStr(el, "objectAction", "");
+        if (!p) return;
+        if (action === "select-axe") { doGather("wood"); if (cheb(p.x, p.z, world.me.x, world.me.z) <= 1) startChop(p.x, p.z); else world.pathToNear(p.x, p.z); return; }
+        if (action === "select-pickaxe") { doGather("stone"); if (cheb(p.x, p.z, world.me.x, world.me.z) <= 1) startChop(p.x, p.z); else world.pathToNear(p.x, p.z); return; }
+        if (action === "harvest-food") { ST.tool = "none"; ST.mode = "explore"; if (cheb(p.x, p.z, world.me.x, world.me.z) <= 1) startChop(p.x, p.z); else world.pathToNear(p.x, p.z); paint(true); return; }
+        if (action === "open-trade") { if (cheb(p.x, p.z, world.me.x, world.me.z) <= 1) openTrade(); else world.pathToNear(p.x, p.z); return; }
+        if (action === "talk-npc") {
+          if (cheb(p.x, p.z, world.me.x, world.me.z) <= 1) say(npcTalkLine(p), 4200);
+          else { say(t("toast.walkCloserToTalk", "Walk closer to talk."), 1400); world.pathToNear(p.x, p.z); }
+          return;
+        }
+        if (action === "attack-npc") {
+          if (cheb(p.x, p.z, world.me.x, world.me.z) <= 1) startCombatAction("Attacking wanderer…", 560, () => act("attackNpc", { x: p.x, z: p.z }).then((r) => { if (r?.ok) { sfx.hit(); ST.objectPreview = null; if (ST.panel === "object") ST.panel = null; pollSoon(); paint(true); } }));
+          else world.pathToNear(p.x, p.z);
+          return;
+        }
+        if (action === "donate-npc") {
+          if (cheb(p.x, p.z, world.me.x, world.me.z) <= 1) act("donateNpc", { x: p.x, z: p.z }).then((r) => { if (r?.ok) { sfx.coin(); pollSoon(); paint(true); } });
+          else world.pathToNear(p.x, p.z);
+          return;
+        }
+        ST.panel = null; ST.objectPreview = null; world.pathTo(p.x, p.z); paint(true); return;
+      }
+      case "modal-backdrop": if (ev.target === el) { ST.modal = null; ST.inspect = null; ST.inspectPlayer = null; ST.wonderViewUid = null; ST.wonderViewError = ""; stopWonderViewer(); paint(); } return;
+    }
+  }
+  function onDelegatedHudClick(ev) {
+    const target = ev.target;
+    const ctxBtn = target?.closest?.("[data-ctx-run]");
+    if (ctxBtn && hudEl.contains(ctxBtn)) {
+      ev.preventDefault(); ev.stopPropagation(); ev.stopImmediatePropagation?.();
+      const run = ctxRuns.get(ctxBtn.getAttribute("data-ctx-run"));
+      hideCtx(); if (run) run(); return;
+    }
+    const charPresetEl = target?.closest?.("[data-char-preset-id]");
+    if (charPresetEl && hudEl.contains(charPresetEl)) {
+      ev.preventDefault(); ev.stopPropagation(); ev.stopImmediatePropagation?.();
+      return applyCharacterPreset(charPresetEl.getAttribute("data-char-preset-id"));
+    }
+    const charPartStepEl = target?.closest?.("[data-char-part-step]");
+    if (charPartStepEl && hudEl.contains(charPartStepEl)) {
+      ev.preventDefault(); ev.stopPropagation(); ev.stopImmediatePropagation?.();
+      const k = charPartStepEl.getAttribute("data-key");
+      const delta = Math.trunc(Number(charPartStepEl.getAttribute("data-delta")) || 0);
+      const cur = Number(ST.characterProfile?.parts?.[k] || 0);
+      return setCharacterPart(k, cur + delta);
+    }
+    const buildingPresetEl = target?.closest?.("[data-inspect-preset-id]");
+    if (buildingPresetEl && hudEl.contains(buildingPresetEl)) {
+      ev.preventDefault(); ev.stopPropagation(); ev.stopImmediatePropagation?.();
+      return setInspectBuildingPreset(buildingPresetEl.getAttribute("data-inspect-preset-id"));
+    }
+    let actionEl = target?.closest?.("[data-click]");
+    if (actionEl?.getAttribute?.("data-click") === "modal-backdrop" && ev.target !== actionEl) actionEl = null;
+    if (actionEl && hudEl.contains(actionEl)) {
+      ev.preventDefault(); ev.stopPropagation(); ev.stopImmediatePropagation?.();
+      return handleDelegatedUiClick(actionEl.getAttribute("data-click"), actionEl, ev);
+    }
+    const colorEl = target?.closest?.("[data-inspect-color-idx]");
+    if (colorEl && hudEl.contains(colorEl)) {
+      ev.preventDefault(); ev.stopPropagation(); ev.stopImmediatePropagation?.();
+      const idx = Math.max(0, Math.min(COLOR_CHOICES.length - 1, Math.trunc(Number(colorEl.getAttribute("data-inspect-color-idx")) || 0)));
+      customizeInspect({ cl: COLOR_CHOICES[idx] ?? null });
+    }
+  }
+
+  function onDelegatedHudInput(ev) {
+    const input = ev.target?.closest?.("[data-input]");
+    if (!input || !hudEl.contains(input)) return;
+    const kind = input.getAttribute("data-input");
+    if (kind === "visual-warmth") return setVisual({ warmth: Number(input.value) });
+    if (kind === "visual-texture") return setVisual({ texture: Number(input.value) });
+    if (kind === "visual-quality") return setVisual({ quality: input.value });
+    if (kind === "motion-feel") return setVisual({ motion: input.value });
+    if (kind === "ui-scale") return setUiScale(input.getAttribute("data-kind") || "ui", Number(input.value));
+    if (kind === "camera-zoom") return setCameraZoom(Number(input.value));
+    if (kind === "camera-rotation") return setCameraYaw(Number(input.value) * Math.PI / 180);
+    if (kind === "wonder-name") {
+      setWonderName(input.value || "");
+      paint(true, ["bottom", "modal", "utility"]);
+      return;
+    }
+    if (kind === "wonder-prompt") {
+      ST.wonderPrompt = cleanWonderPromptClient(input.value);
+      invalidateWonderPlan(ST.wonderPrompt ? `Prompt set. Click a valid map tile to generate and found it. ${wonderFactsLine()}.` : "");
+      paint(true, ["bottom", "modal", "utility"]);
+      return;
+    }
+    if (kind === "char-color") return setCharacterPalette(input.getAttribute("data-key"), input.value);
+    if (kind === "char-part") return setCharacterPart(input.getAttribute("data-key"), Number(input.value));
+  }
+  function onDelegatedHudChange(ev) {
+    const input = ev.target?.closest?.("[data-input]");
+    if (!input || !hudEl.contains(input)) return;
+    const kind = input.getAttribute("data-input");
+    if (kind === "visual-quality") return setVisual({ quality: input.value });
+    if (kind === "motion-feel") return setVisual({ motion: input.value });
+    if (kind === "camera-zoom") return setCameraZoom(Number(input.value), true);
+    if (kind === "camera-rotation") return setCameraYaw(Number(input.value) * Math.PI / 180, true);
+    if (kind === "wonder-name-select") { setWonderName(input.value || ""); return paint(true, ["bottom", "modal", "utility"]); }
+    if (kind === "wonder-footprint-select") { setWonderFootprint(input.value); return paint(true, ["bottom", "modal", "utility"]); }
+    if (kind === "wonder-mode-select") { setWonderMode(input.value); return paint(true, ["bottom", "modal", "utility"]); }
+    if (kind === "wonder-palette-select") { setWonderPalette(input.value); return paint(true, ["bottom", "modal", "utility"]); }
+    if (kind === "char-show-back") return setCharacterFlag("showBack", !!input.checked);
+  }
+  function onDelegatedHudKeyDown(ev) {
+    const input = ev.target?.closest?.("[data-keydown]");
+    if (!input || !hudEl.contains(input)) return;
+    const kind = input.getAttribute("data-keydown");
+    if (kind === "intro-submit" && ev.key === "Enter") {
+      ev.preventDefault();
+      submitIntroName();
+    }
+  }
+  function onDelegatedHudPointerDown(ev) {
+    const stopEl = ev.target?.closest?.("[data-stop-pointerdown]");
+    if (stopEl && hudEl.contains(stopEl)) ev.stopPropagation();
+  }
+  function stripNativeTooltipAttrs(start) {
+    let el = start;
+    while (el && el !== hudEl && el.nodeType === 1) {
+      if (el.getAttribute?.("title")) {
+        el.setAttribute("data-native-title-disabled", el.getAttribute("title") || "");
+        el.removeAttribute("title");
+      }
+      el = el.parentElement;
+    }
+  }
+  function onDelegatedHudPointerOver(ev) {
+    stripNativeTooltipAttrs(ev.target);
+    const tipTarget = ev.target?.closest?.("[data-tip-title]");
+    if (!tipTarget || !hudEl.contains(tipTarget)) return;
+    showTip(tipText(tipTarget.getAttribute("data-tip-title") || "", tipTarget.getAttribute("data-tip-body") || ""), ev);
+  }
+  function onDelegatedHudPointerMove(ev) {
+    const tipTarget = ev.target?.closest?.("[data-tip-title]");
+    if (tipTarget && hudEl.contains(tipTarget)) moveTip(ev);
+  }
+  function onDelegatedHudPointerOut(ev) {
+    const tipTarget = ev.target?.closest?.("[data-tip-title]");
+    if (!tipTarget || !hudEl.contains(tipTarget)) return;
+    const next = ev.relatedTarget;
+    if (!next || !tipTarget.contains(next)) hideTip();
+  }
+  function onDelegatedHudWheel(ev) {
+    const strip = ev.target?.closest?.("[data-build-strip]");
+    if (strip && hudEl.contains(strip)) scrollBuildWheelTarget(strip, ev);
+  }
+  function onDelegatedHudScroll(ev) {
+    const strip = ev.target?.closest?.("[data-build-strip]");
+    if (strip && hudEl.contains(strip)) syncBuildScroll(strip);
+  }
+  function onDelegatedHudDragStart(ev) {
+    const el = ev.target?.closest?.("[data-drag-pack-idx]");
+    if (!el || !hudEl.contains(el)) return;
+    ST.drag = Math.max(0, Math.trunc(Number(el.getAttribute("data-drag-pack-idx")) || 0));
+    el.classList.add("dragging");
+    if (ev.dataTransfer) { ev.dataTransfer.effectAllowed = "move"; ev.dataTransfer.setData("text/plain", String(ST.drag)); }
+  }
+  function onDelegatedHudDragEnd(ev) {
+    const el = ev.target?.closest?.("[data-drag-pack-idx]");
+    if (el) el.classList.remove("dragging");
+    ST.drag = null;
+  }
+  function onDelegatedHudDragOver(ev) {
+    const slot = ev.target?.closest?.("[data-equip-slot]");
+    if (!slot || !hudEl.contains(slot)) return;
+    ev.preventDefault();
+    slot.classList.add("drop-ok");
+    if (ev.dataTransfer) ev.dataTransfer.dropEffect = "move";
+  }
+  function onDelegatedHudDragLeave(ev) {
+    const slot = ev.target?.closest?.("[data-equip-slot]");
+    if (!slot || !hudEl.contains(slot)) return;
+    const next = ev.relatedTarget;
+    if (!next || !slot.contains(next)) slot.classList.remove("drop-ok");
+  }
+  function onDelegatedHudDrop(ev) {
+    const slot = ev.target?.closest?.("[data-equip-slot]");
+    if (!slot || !hudEl.contains(slot)) return;
+    ev.preventDefault();
+    slot.classList.remove("drop-ok");
+    equipFromDrag(slot.getAttribute("data-equip-slot"));
+  }
+
+  hudEl.addEventListener("click", onDelegatedHudClick, true);
+  hudEl.addEventListener("input", onDelegatedHudInput, true);
+  hudEl.addEventListener("change", onDelegatedHudChange, true);
+  hudEl.addEventListener("keydown", onDelegatedHudKeyDown, true);
+  hudEl.addEventListener("pointerdown", onDelegatedHudPointerDown, true);
+  hudEl.addEventListener("pointerover", onDelegatedHudPointerOver, true);
+  hudEl.addEventListener("pointermove", onDelegatedHudPointerMove, true);
+  hudEl.addEventListener("pointerout", onDelegatedHudPointerOut, true);
+  hudEl.addEventListener("wheel", onDelegatedHudWheel, true);
+  hudEl.addEventListener("scroll", onDelegatedHudScroll, true);
+  hudEl.addEventListener("dragstart", onDelegatedHudDragStart, true);
+  hudEl.addEventListener("dragend", onDelegatedHudDragEnd, true);
+  hudEl.addEventListener("dragover", onDelegatedHudDragOver, true);
+  hudEl.addEventListener("dragleave", onDelegatedHudDragLeave, true);
+  hudEl.addEventListener("drop", onDelegatedHudDrop, true);
+
+
   /* ============================================================
      UI VIEWS — region-scoped vdom
      ============================================================ */
@@ -3197,9 +3575,9 @@ export default function mount() {
           <section className="ui31-login-card">
             <p className="ui31-kicker"><span className="login-pulse" /> {t("login.kicker", "Shared frontier")}</p>
             <h1>{t("login.titlePrefix", "World of")} <span>{t("login.titleAccent", "SolCrafts")}</span></h1>
-            <p className="ui31-login-copy">{t("login.copy", "Explore from the capital, gather resources, claim land, and grow a settlement outward on one shared map.")}</p>
+            <p className="ui31-login-copy">{t("login.copy", "Capture land, gather resources, build your first House, and grow your reputation on one shared map.")}</p>
             <div className="ui31-login-loop" aria-label={t("login.coreLoopAria", "Core loop")}>
-              {tArray("login.loop", ["Capture 3 tiles", "Gather resources", "Build a House", "Grow reputation"]).map((label, i) => <div><b>{String(i + 1).padStart(2, "0")}</b><span>{label}</span></div>)}
+              {tArray("login.loop", ["Gather resources", "Capture 3 tiles", "Build a House", "Grow reputation"]).map((label, i) => <div><b>{String(i + 1).padStart(2, "0")}</b><span>{label}</span></div>)}
             </div>
             <div className="ui31-entry-fields">
               <label><span>Character name</span><input data-entry-character-name="1" maxlength="18" placeholder="Wanderer" defaultValue={localStorage.getItem("solcraft.characterName") || ST.profile.name || ""} onInput={(e:any)=>{ try{ localStorage.setItem("solcraft.characterName", String(e.currentTarget.value||"")); }catch{} }} /></label>
@@ -3289,7 +3667,7 @@ export default function mount() {
     if (ST.screen !== "playing" || !m) return <div />;
     const visiblePlayers = Array.isArray(ST.players) ? ST.players.length : 0;
     const activePlayers = Array.isArray(ST.map?.players) ? ST.map.players.length : visiblePlayers;
-    const hint = ST.channel ? (ST.channel.kind === "home" ? "Returning to flag" : ST.channel.kind === "redeem" ? "Withdrawing coins" : ST.channel.kind === "combat" ? "Attacking" : ST.channel.kind === "tree" ? "Chopping wood" : "Mining stone") : "";
+    const hint = ST.channel ? (ST.channel.kind === "home" ? "Returning to flag" : ST.channel.kind === "house" ? "Travelling to House" : ST.channel.kind === "wonder" ? "Travelling to Wonder" : ST.channel.kind === "redeem" ? "Withdrawing coins" : ST.channel.kind === "combat" ? "Attacking" : ST.channel.kind === "tree" ? "Chopping wood" : ST.channel.kind === "food" ? "Harvesting food" : "Mining stone") : "";
     const wondersBuilt = (ST.map?.buildings || []).filter((b) => b && b.kind === "worldwonder" && Number(b.owner || 0) === Number(m.id || 0)).length;
     return <><PlayerHudView
       player={m}
@@ -3318,7 +3696,7 @@ export default function mount() {
 
 
   const FOUNDATION_CHOICES = [];
-  const CLEAN_BUILDABLE_IDS = new Set(["cottage", "warehouse", "lumber", "quarry", "farm", "market", "vault", "alchemy", "townhall", "worldwonder"]);
+  const CLEAN_BUILDABLE_IDS = new Set(["cottage", "lumber", "quarry", "farm", "warehouse", "worldwonder"]);
   const BUILDABLES = LIBRARY.filter((b) => CLEAN_BUILDABLE_IDS.has(String(b.id || "")));
   const ADMIN_KEEP_BUILDING = {
     id: "admin_keep",
@@ -3701,16 +4079,24 @@ export default function mount() {
   function BuildModal() {
     const m = ST.me;
     const wonders = m?.wonders || [];
+    const houses = m?.houses || [];
     return (
       <div className="modal">
         <h2>⌂ Build</h2>
         <p className="tiny">Capture 3 tiles first, gather visible resources, then place a useful building. Every card now explains purpose, cost, requirements, output, and why it may be disabled.</p>
         <div className="recipe-req">{captureLimitLine(m)}. Claiming costs 2🪨. Reputation clearly defines how many tiles you can capture.</div>
+        {houses.length ? <div className="card" style={{ marginBottom: 10 }}>
+          <div className="card-title">House travel</div>
+          <div className="tiny">Houses are your normal settlement travel points. Cast briefly, then jump between them.</div>
+          <div className="row" style={{ gap: 8, flexWrap: "wrap", marginTop: 8 }}>
+            {houses.map((h) => <button className="btn" data-click="house-teleport" data-uid={h.uid}>House · {h.x},{h.z}</button>)}
+          </div>
+        </div> : null}
         {wonders.length ? <div className="card" style={{ marginBottom: 10 }}>
           <div className="card-title">World Wonder scrolls</div>
-          <div className="tiny">Teleport between your permanent Wonders from here.</div>
+          <div className="tiny">World Wonders are coin sinks, reputation landmarks, and prestige travel points.</div>
           <div className="row" style={{ gap: 8, flexWrap: "wrap", marginTop: 8 }}>
-            {wonders.map((w) => <button className="btn" data-click="wonder-teleport" data-uid={w.uid}>Teleport · {w.name || `Wonder ${w.x},${w.z}`}</button>)}
+            {wonders.map((w) => <button className="btn" data-click="wonder-teleport" data-uid={w.uid}>Wonder · {w.name || `${w.x},${w.z}`}</button>)}
           </div>
         </div> : null}
         <div className="grid">
@@ -3824,737 +4210,7 @@ export default function mount() {
   }
 
   function CraftModal() {
-    const m = ST.me;
-    return (
-      <div className="modal">
-        <h2>⚒ Crafting</h2>
-        <p className="tiny">Crafting is currently hidden while the core loop is rebuilt.</p>
-        <h3>Destroy tools</h3>
-        <div className="grid">
-          {DESTROY_TOOLS.map((b) => {
-            const miss = Object.entries(b.cost || {}).filter(([res, amt]) => (res === "e" ? liveE() : (m?.inv?.[res] || 0)) < amt);
-            return (
-              <div className="card">
-                <div className="row" style={{ justifyContent: "space-between" }}><span className="glyph">{b.glyph}</span><span className="cost">{costStr(b.cost)}</span></div>
-                <div className="card-title">{b.name}</div>
-                <div className="tiny">{b.blurb}</div>
-                <span className="usetag">Target: {(b as any).target || "territory"}</span>
-                <span className="usetag">Owned: {craftedToolCount(b.id)} · Fuse {Math.round((b.fuseMs || 0) / 1000)}s</span>
-                <span className="usetag">Science-only craft</span>
-                <button className="btn primary" disabled={miss.length > 0} data-click="make-bomb" data-id={b.id}>
-                  {miss.length ? "Need " + miss.map(([r]) => COSTI[r]).join(" ") : "Craft"}
-                </button>
-              </div>
-            );
-          })}
-        </div>
-        <h3>Gear & supplies</h3>
-        <div className="grid">
-          {RECIPES.map((r) => {
-            const miss = Object.entries(r.cost || {}).filter(([res, amt]) => (res === "e" ? liveE() : (m?.inv?.[res] || 0)) < amt);
-            const out = r.out?.t === "gear" ? GEAR_BY_ID[r.out.id] : null;
-            return (
-              <div className="card">
-                <div className="row" style={{ justifyContent: "space-between" }}><span className="glyph">{r.glyph}</span><span className="cost">{costStr(r.cost)}</span></div>
-                <div className="card-title">{r.name}</div>
-                <div className="tiny">{r.blurb}</div>
-                {out ? <span className="usetag">{out.atk ? `💥+${out.atk} ` : ""}{out.def ? `🛡+${out.def} ` : ""}{out.spd ? `👟+${out.spd}` : ""}</span> : null}
-                <span className="usetag">Science-only craft</span>
-                <button className="btn primary" disabled={miss.length > 0} data-click="craft-recipe" data-id={r.id}>
-                  {miss.length ? "Need " + miss.map(([res]) => COSTI[res]).join(" ") : "Craft"}
-                </button>
-              </div>
-            );
-          })}
-        </div>
-      </div>
-    );
-  }
-
-  function SkillsModal() {
-    const m = ST.me;
-    return (
-      <div className="modal" style={{ width: "min(620px,94vw)" }}>
-        <h2>★ Skills <span className="tiny">— {m.skillPts || 0} point{m.skillPts === 1 ? "" : "s"} to spend</span></h2>
-        <p className="tiny">Earn XP from chopping, mining, building, crafting, trading and combat. Each level grants a skill point.</p>
-        <div className="grid">
-          {SKILLS.map((s) => {
-            const lvl = skillLvl(m.skills, s.id);
-            const maxed = lvl >= s.max;
-            return (
-              <div className="card">
-                <div className="row" style={{ justifyContent: "space-between" }}>
-                  <span className="glyph">{s.glyph}</span>
-                  <span className="lvl" style={{ color: "#ffd76e", fontWeight: 900 }}>{lvl}/{s.max}</span>
-                </div>
-                <div className="card-title">{s.name}</div>
-                <div className="tiny">{s.blurb}</div>
-                <button className="btn primary" disabled={maxed || (m.skillPts || 0) < 1}
-                  data-click="learn-skill" data-id={s.id}>{maxed ? "Maxed" : "Level up (1★)"}</button>
-              </div>
-            );
-          })}
-        </div>
-      </div>
-    );
-  }
-
-
-  function WorldMapModal() {
-    return <WorldMapModalView
-      map={ST.map}
-      admin={isAdminPlayer()}
-      onDraw={(cv) => drawKnownWorldMap(cv, true)}
-    />;
-  }
-
-  function PlayerModal() {
-    const q = ST.inspectPlayer;
-    if (!q) { ST.modal = null; return <div />; }
-    return <PlayerModalView target={q} player={ST.me} worldPlayer={world.me} />;
-  }
-
-  function TradeModal() {
-    const m = ST.me;
-    return (
-      <div className="modal">
-        <h2>⛏ Trade Post</h2>
-        <div className="tabs">
-          <button className={"btn" + (ST.tradeTab === "market" ? " primary" : "")} data-click="trade-tab" data-tab="market">Info</button>
-          <button className={"btn" + (ST.tradeTab === "players" ? " primary" : "")} data-click="trade-tab" data-tab="players">Player offers</button>
-          <button className={"btn" + (ST.tradeTab === "bank" ? " primary" : "")} data-click="trade-tab" data-tab="bank">Exchange</button>
-        </div>
-        {ST.tradeTab === "market" ? (
-          <div className="grid">
-            <div className="card"><div className="card-title">Player-priced economy</div><div className="tiny">No NPC resource prices. Players trade resources directly; Coin Mints redeem purse coins into $CRAFTS at a fixed launch rate.</div></div>
-            <div className="card"><div className="card-title">Territory coin economy</div><div className="tiny">Coins spawn on claimed empty tiles. Anyone can pick them up, and foreign pickups pay tax to the tile owner.</div></div>
-          </div>
-        ) : ST.tradeTab === "players" ? (
-          <div>
-            <h3>Post an offer (goods are escrowed)</h3>
-            <div className="row">
-              <span className="tiny">Give</span>
-              <select id="sc-o-gres">{RES_KEYS.map((r) => <option value={r}>{RES_NAMES[r]}</option>)}</select>
-              <input id="sc-o-gamt" type="number" min={1} max={99} defaultValue={5} style={{ width: 70 }} />
-              <span className="tiny">for</span>
-              <select id="sc-o-wres">{RES_KEYS.map((r) => <option value={r} selected={r === "s"}>{RES_NAMES[r]}</option>)}</select>
-              <input id="sc-o-wamt" type="number" min={1} max={99} defaultValue={5} style={{ width: 70 }} />
-              <button className="btn primary" data-click="post-offer">Post</button>
-            </div>
-            <h3>Open offers</h3>
-            {ST.offers.length === 0 ? <p className="tiny">No open offers — be the first.</p> : null}
-            {ST.offers.map((o) => (
-              <div className="slot">
-                <span><b>{o.byName}</b> gives {o.gAmt}{COSTI[o.gRes]} for {o.wAmt}{COSTI[o.wRes]}</span>
-                {o.byId === m.id
-                  ? <button className="btn" data-click="cancel-offer" data-id={o.id}>Cancel</button>
-                  : <button className="btn primary" disabled={(m.inv[o.wRes] || 0) < o.wAmt} data-click="accept-offer" data-id={o.id}>Accept</button>}
-              </div>
-            ))}
-          </div>
-        ) : (
-          <div className="grid">
-            <div className="card">
-              <div className="card-title">$CRAFTS exchange</div>
-              <div className="tiny">The old bank flow is now a single exchange widget: copy your personal deposit address, scan deposits, or withdraw coins to the wallet that signed in.</div>
-              <span className={"wallet-chip" + (m.wallet ? "" : " off")}>👻 {m.wallet ? shortWallet(m.wallet) : "Wallet not connected"}</span>
-              <button className="btn primary" disabled={!m.wallet} data-click="open-bank">Open Exchange</button>
-            </div>
-          </div>
-        )}
-      </div>
-    );
-  }
-
-  function customizeInspect(change) {
-    const b = world.buildPool.get(ST.inspect);
-    if (b) {
-      if (Object.prototype.hasOwnProperty.call(change, "cl")) { b.cl = change.cl == null ? null : change.cl; ST.inspectDraft = { ...(ST.inspectDraft || {}), uid: ST.inspect, cl: b.cl, at: Date.now() }; }
-      if (Object.prototype.hasOwnProperty.call(change, "nm")) { b.nm = change.nm || null; ST.inspectDraft = { ...(ST.inspectDraft || {}), uid: ST.inspect, nm: b.nm, at: Date.now() }; }
-      b.sig = String(b.sig || "") + "|local:" + Date.now();
-      world.rebuildBuilding?.(ST.inspect);
-    }
-    paint(true);
-    act("customize", { uid: ST.inspect, ...change }).then((r) => { if (!r || !r.ok) return; pollSoon(); });
-  }
-  function setInspectBuildingPreset(id) {
-    const preset = buildingPresetById(id);
-    if (!preset) return;
-    customizeInspect({ cl: preset.primary || null });
-    say(`${preset.name} building colors applied.`, 900);
-  }
-
-  function closeInspectPanel() {
-    ST.inspect = null;
-    ST.inspectDraft = null;
-    if (ST.panel === "inspect") ST.panel = null;
-    if (ST.modal === "inspect") ST.modal = null;
-    paint(true);
-  }
-
-  function equipFromDrag(slot) {
-    const m = ST.me;
-    const idx = ST.drag;
-    ST.drag = null;
-    if (!m || idx == null) return;
-    const item = (m.pack || [])[idx];
-    if (!item || item.t !== "gear") { say("Only gear can be equipped."); return; }
-    const g = GEAR_BY_ID[item.id];
-    if (g && g.slot !== slot) { sfx.err(); say(`${g.name} goes in the ${SLOT_LABEL[g.slot]} slot.`); return; }
-    act("equip", { idx }).then((r) => r && r.ok && sfx.equip());
-  }
-
-  function readNum(el, key, fallback = 0) {
-    const n = Number(el?.dataset?.[key] ?? el?.getAttribute?.(`data-${key}`));
-    return Number.isFinite(n) ? n : fallback;
-  }
-  function readStr(el, key, fallback = "") {
-    return String(el?.dataset?.[key] ?? el?.getAttribute?.(`data-${key}`) ?? fallback);
-  }
-  function copyTextToClipboard(text, label = "Copied") {
-    const value = String(text || "").trim();
-    if (!value) return say("Nothing to copy.", 900);
-    navigator.clipboard?.writeText(value).then(() => say(`${label} copied.`, 1100)).catch(() => say(value, 2200));
-  }
-  function reloadArtRuntime(withToast = true) {
-    loadAtlasRuntimeConfig(true).then(() => {
-      for (const [, c] of world.cells) c.owner = -1;
-      world.refreshWindow?.(true);
-      world.refreshOwnRig?.();
-      if (withToast) say("Art reloaded.");
-      paint(true);
-    });
-  }
-  function handleDelegatedUiClick(action, el, ev) {
-    switch (action) {
-      case "join-game": return joinGame();
-      case "spectate-game": return spectateGame();
-      case "forget-session": return forgetLocalSettler();
-      case "toggle-panel": return togglePanel(readStr(el, "panel"));
-      case "explore-mode": closeTools(); clearHeldMoveKeys(); ST.panel = null; ST.modal = null; say("Move mode — click the map, use WASD/arrows, or hold two directions for diagonal movement.", 1800); paint(true); return;
-      case "open-options":
-      case "open-more": return openOptions();
-      case "open-bank": advanceWalkthroughAction("bank"); return openBankPanel(false);
-      case "select-wonder": advanceWalkthroughAction("wonder"); return selectWonderTool();
-      case "select-craft": return selectCraftTool();
-      case "tools-toggle": return toggleToolsRibbon();
-      case "gather-wood": return doGather("wood");
-      case "gather-stone": return doGather("stone");
-      case "claim":
-      case "capture-tool": return selectCaptureTool();
-      case "select-build": advanceWalkthroughAction("build"); return selectBuildTool();
-      case "demolish-tool": return selectDemolishTool();
-      case "teleport-toggle": return toggleTeleportRibbon();
-      case "siege-tool": return doAttackTool();
-      case "select-spawn-tool": return selectDeployTool();
-      case "use-tool": advanceWalkthroughAction("use"); return doUseTool();
-      case "select-building": return selectBuilding(readStr(el, "id"));
-      case "make-bomb": return say("Bombs were removed from the clean release. Use Attack/Raid pressure instead.", 2400);
-      case "craft-recipe": return say("Crafting is removed from the client for this release.", 2200);
-      case "select-spawn": return selectDeploy(readStr(el, "id"));
-      case "home-cast": return startHomeCast();
-      case "use-pack-slot": return say("Packs are removed from the client for this release.", 2200);
-      case "place-building": {
-        const id = readStr(el, "id");
-        if (id === "worldwonder") {
-          if (!ST.wonderRecipe) return openWonderPlanner("Generate the AI plan first, then found the Wonder in a valid wild location.");
-          enterWonderPlacement();
-          return;
-        }
-        if (!ST.objectPreview || ST.objectPreview.kind !== "buildTile") { sfx.err(); say("Click a captured tile first, then choose what to build from the right panel.", 2400); return; }
-        const target = ST.objectPreview;
-        return act("place", { kind: id, x: target.x, z: target.z }).then((r) => {
-          if (r?.ok) { sfx.build(); world.shockwave(target.x, target.z, 0xffe2a8); ST.objectPreview = null; ST.panel = null; closeTools(); pollSoon(); paint(true); say(r.note || "Construction started.", 1800); }
-        });
-      }
-      case "foundation-build": return say("Foundations were removed. Select Hammer, click an empty owned tile, then choose a building from the right panel.", 2600);
-      case "build-tile-choice": {
-        const kind = readStr(el, "id");
-        const target = ST.objectPreview || {};
-        if (target.kind !== "buildTile") { sfx.err(); return say("Select an empty owned tile with the Hammer first.", 2200); }
-        return act("place", { kind, x: target.x, z: target.z }).then((r) => {
-          if (r?.ok) { sfx.build(); world.shockwave(target.x, target.z, 0xffe2a8); ST.objectPreview = null; ST.panel = null; closeTools(); pollSoon(); paint(true); say(r.note || "Construction started.", 1800); }
-        });
-      }
-      case "unequip": return say("Equipment is removed from the client for this release.", 2200);
-      case "pack-trophy": return say(`${readStr(el, "name", "Trophy")} — a trophy of the frontier.`);
-      case "pack-drop": return say("Packs are removed from the client for this release.", 2200);
-      case "pack-spawn-select": ST.destroying = readStr(el, "id"); return selectDeployTool();
-      case "pack-equip": return say("Equipment is removed from the client for this release.", 2200);
-      case "learn-skill": return say("Skills are being rebuilt for the ECS release and are hidden for now.", 2200);
-      case "player-walk": if (ST.inspectPlayer) { const q = ST.inspectPlayer; ST.modal = null; ST.inspectPlayer = null; paint(); world.pathTo(q.x, q.z); } return;
-      case "player-close": ST.modal = null; ST.inspectPlayer = null; paint(); return;
-      case "trade-tab": if (!ST.serviceAccess) return directServiceHint("market"); ST.tradeTab = readStr(el, "tab", "market"); if (ST.tradeTab === "bank") loadBankStatus(); paint(); return;
-      case "post-offer": return say("Player escrow trading was removed from this release.", 2200);
-      case "cancel-offer": return say("Player escrow trading was removed from this release.", 2200);
-      case "accept-offer": return say("Player escrow trading was removed from this release.", 2200);
-      case "withdraw-safe": return say("Use the Bank building or Capital Bank for withdrawals.", 2200);
-      case "redeem-main": return say("Old redeem flow was removed. Use the Bank building instead.", 2200);
-      case "inspect-close": return closeInspectPanel();
-      case "inspect-rename": return customizeInspect({ nm: (document.getElementById("sc-rename") || {}).value || "" });
-      case "inspect-wonder-view": { ST.wonderViewUid = ST.inspect; ST.wonderViewError = ""; ST.modal = "wonder-view"; ST.panel = null; paint(true); mountWonderViewerSoon(); return; }
-      case "inspect-share": return shareInspectedBuildingInChat();
-      case "inspect-use": return useBuildingClient(ST.inspect);
-      case "inspect-bank-open": return openBankFromInspect();
-      case "inspect-customizer-open": return openCustomizerFromInspect(ST.inspect);
-      case "inspect-bank-deposit-disabled": return say("Open the bank screen to prepare and copy your deposit address.", 2200);
-      case "inspect-bank-withdraw-disabled": return say("Open the bank screen to review amount, wallet, and withdrawal status.", 2200);
-      case "inspect-raid": return doRaid(ST.inspect);
-      case "inspect-donate-keep": return doDonateKeep(ST.inspect, 10);
-      case "inspect-upgrade": return act("upgrade", { uid: ST.inspect });
-      case "inspect-repair": return act("repair", { uid: ST.inspect });
-      case "inspect-demolish": return act("demolish", { uid: ST.inspect }).then((r) => { if (r && r.ok) { sfx.demolish(); closeInspectPanel(); } });
-      case "inspect-walk-near": { const uid = ST.inspect || ST.wonderViewUid; const b = uid ? world.buildPool.get(uid) : null; closeInspectPanel(); ST.modal = null; ST.wonderViewUid = null; if (b) world.pathToNear(b.x, b.z); return; }
-      case "intro-submit": return submitIntroName();
-      case "modal-close": ST.modal = null; ST.wonderViewUid = null; ST.wonderViewError = ""; stopWonderViewer(); paint(true); return;
-      case "panel-close": ST.panel = null; ST.serviceAccess = ""; paint(true); return;
-      case "char-sync": world.refreshOwnRig?.(); say(t("toast.characterSynced", "Character synced."), 900); return;
-      case "bank-refresh": return loadBankStatus();
-      case "bank-deposit": return bankAction("deposit");
-      case "bank-scan": return bankAction("scan");
-      case "bank-withdraw-request": return bankAction("withdraw", { amountUi: Number((document.getElementById("sc-bank-withdraw-ui") || {}).value) });
-      case "toggle-music": return toggleMusicSound();
-      case "start-music": return startMusicNow();
-      case "toggle-ui-sound": return toggleUiSound();
-      case "ui-scale-step": return stepUiScale(readStr(el, "kind", "ui"), readNum(el, "delta", 0));
-      case "ui-scale-set": return setUiScale(readStr(el, "kind", "ui"), readNum(el, "value", 1), true);
-      case "ui-scale-reset": return resetUiScale(readStr(el, "kind", "all"));
-      case "camera-zoom-out": return stepCameraZoom(CAMERA_ZOOM_STEP);
-      case "camera-zoom-in": return stepCameraZoom(-CAMERA_ZOOM_STEP);
-      case "camera-zoom-reset": return resetCameraView();
-      case "camera-map-view": return setCameraZoom(2.05, true);
-      case "open-world-map": ST.modal = "worldmap"; paint(true); return;
-      case "worldmap-click": return handleWorldMapClick(ev);
-      case "camera-zoom-set": return setCameraZoom(readNum(el, "value", 1), true);
-      case "camera-rotate-left": return stepCameraYaw(-CAMERA_ROTATION_STEP);
-      case "camera-rotate-right": return stepCameraYaw(CAMERA_ROTATION_STEP);
-      case "camera-rotation-set": return setCameraYaw(readNum(el, "value", Math.PI / 4) * Math.PI / 180, true);
-      case "visual-comfort": return setVisual({ warmth: 0.66, texture: 0.18, quality: "balanced", motion: "smooth" });
-      case "time-auto-toggle": return toggleTimeAuto();
-      case "time-set-noon": return setFixedWorldHour(12);
-      case "time-set-dusk": return setFixedWorldHour(18);
-      case "referral-create": return createReferralFromSettings();
-      case "referral-status": return showReferralStatus();
-      case "wonder-preview": return prepareWonderRecipe();
-      case "wonder-open-planner": return openWonderPlanner("Type the Wonder prompt here, then click the map where it should be founded.");
-      case "wonder-plan-place": return enterWonderPlacement();
-      case "wonder-footprint": setWonderFootprint(readNum(el, "size", 9)); paint(true); return;
-      case "wonder-mode": setWonderMode(readStr(el, "mode")); paint(true); return;
-      case "wonder-palette": setWonderPalette(readStr(el, "palette", "solar")); paint(true); return;
-      case "spawn-wonder": return spawnWonderHere();
-      case "admin-toggle": return selectAdminTool(ST.adminTool || "demolish");
-      case "admin-tool": return selectAdminTool(readStr(el, "tool", "demolish"));
-      case "admin-demolish-here": return adminDemolishAt(world.me.x, world.me.z, 0, false);
-      case "admin-clear-tile-here": return adminDemolishAt(world.me.x, world.me.z, 0, true);
-      case "admin-spawn-keep": return adminSpawnKeep(readStr(el, "mode", "here"));
-      case "wonder-teleport": return startWonderCast(readNum(el, "uid", 0));
-      case "reload-atlases-silent": return reloadArtRuntime(false);
-      case "reload-art": return reloadArtRuntime(true);
-      case "open-character-panel": return directServiceHint("tailor");
-      case "open-help": ST.modal = "help"; paint(true); return;
-      case "guide-skip": return skipWalkthrough();
-      case "tutorial-restart": return restartWalkthrough();
-      case "copy-text": return copyTextToClipboard(readStr(el, "copy"), readStr(el, "label", "Value"));
-      case "reload-page": writeAckedClientVersion(ST.updateVersion); return location.reload();
-      case "chat-share-here": return shareHereInChat();
-      case "chat-card-open": return openChatCardFromElement(el);
-      case "capital-service-close": return closeCapitalService();
-      case "capital-service-walk": return walkToCapitalService();
-      case "capital-service-action": return useCapitalService(readStr(el, "service", ""));
-      case "object-preview-close": ST.objectPreview = null; if (ST.panel === "object") ST.panel = null; paint(true); return;
-      case "object-preview-walk-near": if (ST.objectPreview) { const p = ST.objectPreview; ST.panel = null; ST.objectPreview = null; world.pathToNear(p.x, p.z); paint(true); } return;
-      case "object-preview-share": {
-        const p = ST.objectPreview;
-        if (!p || !Number.isFinite(Number(p.x)) || !Number.isFinite(Number(p.z))) return;
-        act("chat", { msg: formatLocationChatCard(p.x, p.z, p.title || p.name || "Shared location") });
-        say(t("toast.sharedLocation", "Shared your location."), 900);
-        return;
-      }
-      case "object-preview-action": {
-        const p = ST.objectPreview;
-        const action = readStr(el, "objectAction", "");
-        if (!p) return;
-        if (action === "walk" || action === "walk-near") { ST.panel = null; ST.objectPreview = null; world.pathToNear ? world.pathToNear(p.x, p.z) : world.pathTo(p.x, p.z); paint(true); return; }
-        if (action === "talk-npc") { if (cheb(p.x, p.z, world.me.x, world.me.z) <= 1) say(npcTalkLine(p), 4200); else { say(t("toast.walkCloserToTalk", "Walk closer to talk."), 1400); world.pathToNear(p.x, p.z); } return; }
-        if (action === "donate-npc") { if (cheb(p.x, p.z, world.me.x, world.me.z) <= 1) act("donateNpc", { x: p.x, z: p.z }).then((r) => { if (r?.ok) { sfx.coin(); pollSoon(); paint(true); } }); else world.pathToNear(p.x, p.z); return; }
-        if (action === "attack-npc") { if (cheb(p.x, p.z, world.me.x, world.me.z) <= 1) startCombatAction("Attacking wanderer…", 560, () => act("attackNpc", { x: p.x, z: p.z }).then((r) => { if (r?.ok) { sfx.hit(); ST.objectPreview = null; if (ST.panel === "object") ST.panel = null; pollSoon(); paint(true); } })); else world.pathToNear(p.x, p.z); return; }
-        if (action === "donate-keep") return doDonateKeep(p.uid || p.id, 10);
-        if (action === "raid-keep") return doRaid(p.uid || p.id);
-        return;
-      }
-      case "object-preview-primary": {
-        const p = ST.objectPreview;
-        const action = readStr(el, "objectAction", "");
-        if (!p) return;
-        if (action === "select-axe") { doGather("wood"); if (cheb(p.x, p.z, world.me.x, world.me.z) <= 1) startChop(p.x, p.z); else world.pathToNear(p.x, p.z); return; }
-        if (action === "select-pickaxe") { doGather("stone"); if (cheb(p.x, p.z, world.me.x, world.me.z) <= 1) startChop(p.x, p.z); else world.pathToNear(p.x, p.z); return; }
-        if (action === "harvest-food") { ST.tool = "none"; ST.mode = "explore"; if (cheb(p.x, p.z, world.me.x, world.me.z) <= 1) startChop(p.x, p.z); else world.pathToNear(p.x, p.z); paint(true); return; }
-        if (action === "open-trade") { if (cheb(p.x, p.z, world.me.x, world.me.z) <= 1) openTrade(); else world.pathToNear(p.x, p.z); return; }
-        if (action === "talk-npc") {
-          if (cheb(p.x, p.z, world.me.x, world.me.z) <= 1) say(npcTalkLine(p), 4200);
-          else { say(t("toast.walkCloserToTalk", "Walk closer to talk."), 1400); world.pathToNear(p.x, p.z); }
-          return;
-        }
-        if (action === "attack-npc") {
-          if (cheb(p.x, p.z, world.me.x, world.me.z) <= 1) startCombatAction("Attacking wanderer…", 560, () => act("attackNpc", { x: p.x, z: p.z }).then((r) => { if (r?.ok) { sfx.hit(); ST.objectPreview = null; if (ST.panel === "object") ST.panel = null; pollSoon(); paint(true); } }));
-          else world.pathToNear(p.x, p.z);
-          return;
-        }
-        if (action === "donate-npc") {
-          if (cheb(p.x, p.z, world.me.x, world.me.z) <= 1) act("donateNpc", { x: p.x, z: p.z }).then((r) => { if (r?.ok) { sfx.coin(); pollSoon(); paint(true); } });
-          else world.pathToNear(p.x, p.z);
-          return;
-        }
-        ST.panel = null; ST.objectPreview = null; world.pathTo(p.x, p.z); paint(true); return;
-      }
-      case "modal-backdrop": if (ev.target === el) { ST.modal = null; ST.inspect = null; ST.inspectPlayer = null; ST.wonderViewUid = null; ST.wonderViewError = ""; stopWonderViewer(); paint(); } return;
-    }
-  }
-  function onDelegatedHudClick(ev) {
-    const target = ev.target;
-    const ctxBtn = target?.closest?.("[data-ctx-run]");
-    if (ctxBtn && hudEl.contains(ctxBtn)) {
-      ev.preventDefault(); ev.stopPropagation(); ev.stopImmediatePropagation?.();
-      const run = ctxRuns.get(ctxBtn.getAttribute("data-ctx-run"));
-      hideCtx(); if (run) run(); return;
-    }
-    const charPresetEl = target?.closest?.("[data-char-preset-id]");
-    if (charPresetEl && hudEl.contains(charPresetEl)) {
-      ev.preventDefault(); ev.stopPropagation(); ev.stopImmediatePropagation?.();
-      return applyCharacterPreset(charPresetEl.getAttribute("data-char-preset-id"));
-    }
-    const charPartStepEl = target?.closest?.("[data-char-part-step]");
-    if (charPartStepEl && hudEl.contains(charPartStepEl)) {
-      ev.preventDefault(); ev.stopPropagation(); ev.stopImmediatePropagation?.();
-      const k = charPartStepEl.getAttribute("data-key");
-      const delta = Math.trunc(Number(charPartStepEl.getAttribute("data-delta")) || 0);
-      const cur = Number(ST.characterProfile?.parts?.[k] || 0);
-      return setCharacterPart(k, cur + delta);
-    }
-    const buildingPresetEl = target?.closest?.("[data-inspect-preset-id]");
-    if (buildingPresetEl && hudEl.contains(buildingPresetEl)) {
-      ev.preventDefault(); ev.stopPropagation(); ev.stopImmediatePropagation?.();
-      return setInspectBuildingPreset(buildingPresetEl.getAttribute("data-inspect-preset-id"));
-    }
-    let actionEl = target?.closest?.("[data-click]");
-    if (actionEl?.getAttribute?.("data-click") === "modal-backdrop" && ev.target !== actionEl) actionEl = null;
-    if (actionEl && hudEl.contains(actionEl)) {
-      ev.preventDefault(); ev.stopPropagation(); ev.stopImmediatePropagation?.();
-      return handleDelegatedUiClick(actionEl.getAttribute("data-click"), actionEl, ev);
-    }
-    const colorEl = target?.closest?.("[data-inspect-color-idx]");
-    if (colorEl && hudEl.contains(colorEl)) {
-      ev.preventDefault(); ev.stopPropagation(); ev.stopImmediatePropagation?.();
-      const idx = Math.max(0, Math.min(COLOR_CHOICES.length - 1, Math.trunc(Number(colorEl.getAttribute("data-inspect-color-idx")) || 0)));
-      customizeInspect({ cl: COLOR_CHOICES[idx] ?? null });
-    }
-  }
-
-  function onDelegatedHudInput(ev) {
-    const input = ev.target?.closest?.("[data-input]");
-    if (!input || !hudEl.contains(input)) return;
-    const kind = input.getAttribute("data-input");
-    if (kind === "visual-warmth") return setVisual({ warmth: Number(input.value) });
-    if (kind === "visual-texture") return setVisual({ texture: Number(input.value) });
-    if (kind === "visual-quality") return setVisual({ quality: input.value });
-    if (kind === "motion-feel") return setVisual({ motion: input.value });
-    if (kind === "ui-scale") return setUiScale(input.getAttribute("data-kind") || "ui", Number(input.value));
-    if (kind === "camera-zoom") return setCameraZoom(Number(input.value));
-    if (kind === "camera-rotation") return setCameraYaw(Number(input.value) * Math.PI / 180);
-    if (kind === "wonder-name") {
-      setWonderName(input.value || "");
-      paint(true, ["bottom", "modal", "utility"]);
-      return;
-    }
-    if (kind === "wonder-prompt") {
-      ST.wonderPrompt = cleanWonderPromptClient(input.value);
-      invalidateWonderPlan(ST.wonderPrompt ? `Prompt set. Click a valid map tile to generate and found it. ${wonderFactsLine()}.` : "");
-      paint(true, ["bottom", "modal", "utility"]);
-      return;
-    }
-    if (kind === "char-color") return setCharacterPalette(input.getAttribute("data-key"), input.value);
-    if (kind === "char-part") return setCharacterPart(input.getAttribute("data-key"), Number(input.value));
-  }
-  function onDelegatedHudChange(ev) {
-    const input = ev.target?.closest?.("[data-input]");
-    if (!input || !hudEl.contains(input)) return;
-    const kind = input.getAttribute("data-input");
-    if (kind === "visual-quality") return setVisual({ quality: input.value });
-    if (kind === "motion-feel") return setVisual({ motion: input.value });
-    if (kind === "camera-zoom") return setCameraZoom(Number(input.value), true);
-    if (kind === "camera-rotation") return setCameraYaw(Number(input.value) * Math.PI / 180, true);
-    if (kind === "wonder-name-select") { setWonderName(input.value || ""); return paint(true, ["bottom", "modal", "utility"]); }
-    if (kind === "wonder-footprint-select") { setWonderFootprint(input.value); return paint(true, ["bottom", "modal", "utility"]); }
-    if (kind === "wonder-mode-select") { setWonderMode(input.value); return paint(true, ["bottom", "modal", "utility"]); }
-    if (kind === "wonder-palette-select") { setWonderPalette(input.value); return paint(true, ["bottom", "modal", "utility"]); }
-    if (kind === "char-show-back") return setCharacterFlag("showBack", !!input.checked);
-  }
-  function onDelegatedHudKeyDown(ev) {
-    const input = ev.target?.closest?.("[data-keydown]");
-    if (!input || !hudEl.contains(input)) return;
-    const kind = input.getAttribute("data-keydown");
-    if (kind === "intro-submit" && ev.key === "Enter") {
-      ev.preventDefault();
-      submitIntroName();
-    }
-  }
-  function onDelegatedHudPointerDown(ev) {
-    const stopEl = ev.target?.closest?.("[data-stop-pointerdown]");
-    if (stopEl && hudEl.contains(stopEl)) ev.stopPropagation();
-  }
-  function stripNativeTooltipAttrs(start) {
-    let el = start;
-    while (el && el !== hudEl && el.nodeType === 1) {
-      if (el.getAttribute?.("title")) {
-        el.setAttribute("data-native-title-disabled", el.getAttribute("title") || "");
-        el.removeAttribute("title");
-      }
-      el = el.parentElement;
-    }
-  }
-  function onDelegatedHudPointerOver(ev) {
-    stripNativeTooltipAttrs(ev.target);
-    const tipTarget = ev.target?.closest?.("[data-tip-title]");
-    if (!tipTarget || !hudEl.contains(tipTarget)) return;
-    showTip(tipText(tipTarget.getAttribute("data-tip-title") || "", tipTarget.getAttribute("data-tip-body") || ""), ev);
-  }
-  function onDelegatedHudPointerMove(ev) {
-    const tipTarget = ev.target?.closest?.("[data-tip-title]");
-    if (tipTarget && hudEl.contains(tipTarget)) moveTip(ev);
-  }
-  function onDelegatedHudPointerOut(ev) {
-    const tipTarget = ev.target?.closest?.("[data-tip-title]");
-    if (!tipTarget || !hudEl.contains(tipTarget)) return;
-    const next = ev.relatedTarget;
-    if (!next || !tipTarget.contains(next)) hideTip();
-  }
-  function onDelegatedHudWheel(ev) {
-    const strip = ev.target?.closest?.("[data-build-strip]");
-    if (strip && hudEl.contains(strip)) scrollBuildWheelTarget(strip, ev);
-  }
-  function onDelegatedHudScroll(ev) {
-    const strip = ev.target?.closest?.("[data-build-strip]");
-    if (strip && hudEl.contains(strip)) syncBuildScroll(strip);
-  }
-  function onDelegatedHudDragStart(ev) {
-    const el = ev.target?.closest?.("[data-drag-pack-idx]");
-    if (!el || !hudEl.contains(el)) return;
-    ST.drag = Math.max(0, Math.trunc(Number(el.getAttribute("data-drag-pack-idx")) || 0));
-    el.classList.add("dragging");
-    if (ev.dataTransfer) { ev.dataTransfer.effectAllowed = "move"; ev.dataTransfer.setData("text/plain", String(ST.drag)); }
-  }
-  function onDelegatedHudDragEnd(ev) {
-    const el = ev.target?.closest?.("[data-drag-pack-idx]");
-    if (el) el.classList.remove("dragging");
-    ST.drag = null;
-  }
-  function onDelegatedHudDragOver(ev) {
-    const slot = ev.target?.closest?.("[data-equip-slot]");
-    if (!slot || !hudEl.contains(slot)) return;
-    ev.preventDefault();
-    slot.classList.add("drop-ok");
-    if (ev.dataTransfer) ev.dataTransfer.dropEffect = "move";
-  }
-  function onDelegatedHudDragLeave(ev) {
-    const slot = ev.target?.closest?.("[data-equip-slot]");
-    if (!slot || !hudEl.contains(slot)) return;
-    const next = ev.relatedTarget;
-    if (!next || !slot.contains(next)) slot.classList.remove("drop-ok");
-  }
-  function onDelegatedHudDrop(ev) {
-    const slot = ev.target?.closest?.("[data-equip-slot]");
-    if (!slot || !hudEl.contains(slot)) return;
-    ev.preventDefault();
-    slot.classList.remove("drop-ok");
-    equipFromDrag(slot.getAttribute("data-equip-slot"));
-  }
-
-  hudEl.addEventListener("click", onDelegatedHudClick, true);
-  hudEl.addEventListener("input", onDelegatedHudInput, true);
-  hudEl.addEventListener("change", onDelegatedHudChange, true);
-  hudEl.addEventListener("keydown", onDelegatedHudKeyDown, true);
-  hudEl.addEventListener("pointerdown", onDelegatedHudPointerDown, true);
-  hudEl.addEventListener("pointerover", onDelegatedHudPointerOver, true);
-  hudEl.addEventListener("pointermove", onDelegatedHudPointerMove, true);
-  hudEl.addEventListener("pointerout", onDelegatedHudPointerOut, true);
-  hudEl.addEventListener("wheel", onDelegatedHudWheel, true);
-  hudEl.addEventListener("scroll", onDelegatedHudScroll, true);
-  hudEl.addEventListener("dragstart", onDelegatedHudDragStart, true);
-  hudEl.addEventListener("dragend", onDelegatedHudDragEnd, true);
-  hudEl.addEventListener("dragover", onDelegatedHudDragOver, true);
-  hudEl.addEventListener("dragleave", onDelegatedHudDragLeave, true);
-  hudEl.addEventListener("drop", onDelegatedHudDrop, true);
-
-  let wonderViewerState = null;
-  function wonderRecipeForInspect(b) {
-    const raw = b?.wonder && typeof b.wonder === "object" ? b.wonder : {};
-    const prompt = String(raw.prompt || b?.nm || raw.name || "World Wonder");
-    return {
-      ...raw,
-      name: String(raw.name || b?.nm || prompt || "World Wonder").slice(0, 48),
-      prompt,
-      footprint: normalizeWonderFootprintClient(raw.footprint || b?.footprint || 5),
-      mode: raw.mode || "district",
-      paletteId: raw.paletteId || "solar",
-      palette: Array.isArray(raw.palette) && raw.palette.length ? raw.palette : ["#f3ead7", "#ffd76e", "#7dcfe8", "#14f195"],
-    };
-  }
-  function stopWonderViewer() {
-    if (!wonderViewerState) return;
-    try { cancelAnimationFrame(wonderViewerState.raf || 0); } catch {}
-    try { wonderViewerState.renderer?.dispose?.(); } catch {}
-    try { wonderViewerState.root && (wonderViewerState.root.innerHTML = ""); } catch {}
-    wonderViewerState = null;
-  }
-  function mountWonderViewerSoon() { requestAnimationFrame(mountWonderViewer); }
-  function mountWonderViewer() {
-    if (ST.modal !== "wonder-view") { stopWonderViewer(); return; }
-    const root = document.getElementById("sc-wonder-viewer");
-    const b = ST.wonderViewUid ? world.buildPool.get(ST.wonderViewUid) : null;
-    if (!root || !b || b.kind !== "worldwonder") { stopWonderViewer(); return; }
-    const sig = [b.uid, b.nm || "", b.cl || "", JSON.stringify(b.wonder || {}), b.cdUntil || 0, b.accAt || 0].join("|");
-    if (wonderViewerState && wonderViewerState.sig === sig && wonderViewerState.root === root) return;
-    stopWonderViewer();
-    ST.wonderViewError = "";
-    try {
-      const w = Math.max(360, root.clientWidth || 760);
-      const h = Math.max(320, root.clientHeight || 480);
-      const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
-      renderer.setPixelRatio(Math.min(2, window.devicePixelRatio || 1));
-      renderer.setSize(w, h);
-      renderer.shadowMap.enabled = true;
-      renderer.shadowMap.type = THREE.PCFSoftShadowMap;
-      root.innerHTML = "";
-      root.appendChild(renderer.domElement);
-      const scene = new THREE.Scene();
-      const camera = new THREE.PerspectiveCamera(38, w / h, 0.1, 120);
-      camera.position.set(6.2, 5.4, 7.4);
-      camera.lookAt(0, 1.1, 0);
-      scene.add(new THREE.HemisphereLight(0xd8f6ff, 0x1b251e, 1.65));
-      const sun = new THREE.DirectionalLight(0xffffff, 2.0);
-      sun.position.set(5, 8, 4);
-      sun.castShadow = true;
-      sun.shadow.mapSize.set(1024, 1024);
-      scene.add(sun);
-      const fill = new THREE.DirectionalLight(0x7dcfe8, 0.75);
-      fill.position.set(-4, 4, -5);
-      scene.add(fill);
-      const base = new THREE.Mesh(new THREE.CircleGeometry(5.8, 64), new THREE.MeshStandardMaterial({ color: 0x19231d, roughness: 0.92, metalness: 0.02, transparent: true, opacity: 0.86 }));
-      base.rotation.x = -Math.PI / 2;
-      base.receiveShadow = true;
-      scene.add(base);
-      const recipe = wonderRecipeForInspect(b);
-      const cs = constructionStateForBuilding(b);
-      const progress = cs ? Math.max(0.05, Math.min(1, cs.progress || 0)) : 1;
-      const made = makeBuildingGroup("worldwonder", { nm: b.nm, cl: b.cl, plinth: true, wonder: recipe, buildProgress: progress, buildUntil: b.cdUntil });
-      const group = made?.group || made || new THREE.Group();
-      group.position.set(0, 0.02, 0);
-      group.scale.setScalar(0.86);
-      scene.add(group);
-      const resize = () => {
-        if (!root || !renderer.domElement.isConnected) return;
-        const nw = Math.max(360, root.clientWidth || w);
-        const nh = Math.max(320, root.clientHeight || h);
-        renderer.setSize(nw, nh, false);
-        camera.aspect = nw / nh; camera.updateProjectionMatrix();
-      };
-      let lastW = w, lastH = h;
-      const animate = () => {
-        if (!wonderViewerState || wonderViewerState.sig !== sig || ST.modal !== "wonder-view") return;
-        const nw = root.clientWidth || lastW, nh = root.clientHeight || lastH;
-        if (Math.abs(nw - lastW) > 2 || Math.abs(nh - lastH) > 2) { lastW = nw; lastH = nh; resize(); }
-        group.rotation.y += 0.006;
-        renderer.render(scene, camera);
-        wonderViewerState.raf = requestAnimationFrame(animate);
-      };
-      wonderViewerState = { sig, root, renderer, scene, camera, group, raf: 0 };
-      animate();
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err || "unknown render error");
-      ST.wonderViewError = msg;
-      root.innerHTML = "";
-      const div = document.createElement("div");
-      div.className = "wonder-view-error";
-      div.textContent = `Could not render Wonder preview: ${msg}`;
-      root.appendChild(div);
-    }
-  }
-
-  function InspectPanel() {
-    const b = (world.buildPool.get(ST.inspect)) || null;
-    if (!b || !ST.me) { ST.panel = null; ST.inspect = null; return <div />; }
-    const def = LIB_BY_ID[b.kind];
-    return <InspectPanelView
-      building={b}
-      player={ST.me}
-      def={def}
-      inspectUid={ST.inspect}
-      inspectDraft={ST.inspectDraft}
-      faceImage={ST.faceImage}
-      buildingColorPresets={BUILDING_COLOR_PRESETS}
-      construction={constructionStateForBuilding(b)}
-      territoryHint={territoryUpgradeHint(b.kind, b.level || 1)}
-      estimatedBin={estAcc(b)}
-      costStr={costStr}
-      foundationChoices={FOUNDATION_CHOICES}
-      bank={ST.bank || ST.me?.bank || {}}
-    />;
-  }
-
-  function WonderViewModal() {
-    const b = ST.wonderViewUid ? world.buildPool.get(ST.wonderViewUid) : null;
-    if (!b || b.kind !== "worldwonder") { ST.modal = null; ST.wonderViewUid = null; return <div />; }
-    const recipe = wonderRecipeForInspect(b);
-    const cs = constructionStateForBuilding(b);
-    const size = normalizeWonderFootprintClient(recipe.footprint || b.footprint || 5);
-    const title = recipe.name || b.nm || "World Wonder";
-    return <div className="modal wonder-view-modal" data-stop-pointerdown="1">
-      <div className="wonder-view-head">
-        <div>
-          <h2>★ {title}</h2>
-          <div className="tiny">3D inspection preview · rotating model · footprint {size}×{size} · {recipe.mode === "single" ? "single landmark" : "district wonder"}</div>
-        </div>
-        <button className="utility-close" data-click="modal-close">×</button>
-      </div>
-      <div id="sc-wonder-viewer" className="wonder-view-stage">
-        {ST.wonderViewError ? <div className="wonder-view-error">Could not render Wonder preview: {ST.wonderViewError}</div> : <div className="wonder-view-overlay">
-          <span className="wonder-view-chip">Loading 3D preview…</span>
-        </div>}
-      </div>
-      <div className="wonder-view-overlay" style={{ position: "static", marginTop: 10 }}>
-        <span className="wonder-view-chip">Prompt: {String(recipe.prompt || title).slice(0, 90)}</span>
-        <span className="wonder-view-chip">Palette: {recipe.paletteId || "custom"}</span>
-        {cs ? <span className="wonder-view-chip">Building {Math.round((cs.progress || 0) * 100)}% · {Math.ceil((cs.left || 0) / 1000)}s left</span> : <span className="wonder-view-chip">Complete preview</span>}
-      </div>
-      <div className="wonder-view-note">This uses the same in-world renderer, just isolated with a dedicated camera. It helps check whether the AI output actually reads like the prompt before we tune generation further.</div>
-      <div className="row" style={{ marginTop: 12 }}>
-        <button className="btn" data-click="modal-close">Close</button>
-        <button className="btn primary" data-click="inspect-walk-near">Walk near</button>
-      </div>
-    </div>;
-  }
-
-  function submitIntroName() {
-    const input = document.getElementById("sc-intro-name");
-    const name = String(input?.value || "").trim().slice(0, 18);
-    if (!name) { sfx.err(); say("Choose a settler name."); return; }
-    ST.profile.name = name;
-    const randomHue = Math.floor(Math.random() * 360);
-    const randomBody = new THREE.Color().setHSL(randomHue / 360, 0.62, 0.58).getHex();
-    act("setupProfile", { name, referralCode: referralCodeForCreate(), body: randomBody, hat: ST.profile.hat, appearance: ST.characterProfile }).then((r) => {
-      if (r && r.ok) {
-        ST.needsProfile = false;
-        const gifted = r.referral || null;
-        if (gifted?.appearance) ST.characterProfile = saveCharacterProfile({ ...ST.characterProfile, ...gifted.appearance, palette: { ...(ST.characterProfile.palette || {}), ...(gifted.appearance.palette || {}) }, parts: { ...(ST.characterProfile.parts || {}), ...(gifted.appearance.parts || {}) } });
-        if (ST.me) { ST.me.name = name; ST.me.body = Number(gifted?.body || randomBody) || randomBody; ST.me.hat = Number(gifted?.hat || ST.me.hat || ST.profile.hat); ST.me.profileDone = true; if (gifted?.appearance) ST.me.appearance = gifted.appearance; }
-        world.refreshOwnRig();
-        ST.modal = null;
-        ST.panel = null;
-        maybeStartWalkthrough(true);
-        say("Welcome. First capture 3 tiles, then gather resources and build a House.", 4200);
-        pollSoon(); paint(true);
-      }
-    });
+    return <div className="modal"><h2>Removed</h2><p className="tiny">Crafting, bombs, packs, and deployables are removed from the production loop. Gather, capture tiles, build starter buildings, donate coins for reputation, raid carefully, and found World Wonders.</p><div className="row" style={{ marginTop: 12 }}><button className="btn" data-click="modal-close">Close</button></div></div>;
   }
 
   function IntroModal() {
@@ -4995,20 +4651,20 @@ export default function mount() {
     const m = ST.me;
     if (ST.screen !== "playing" || !m) return "x";
     /* energy/hp deliberately EXCLUDED — the ticker mutates them in place */
-    return [m.name, m.level, m.territory, m.built, m.maxE, m.msIndex, JSON.stringify(m.factions || {}), JSON.stringify(m.inv), JSON.stringify(m.equip),
-      (m.pack || []).filter(Boolean).length, ST.mode, ST.placing, ST.tool, ST.destroying, ST.channel && ST.channel.kind, ST.near.i && ST.near.i.label].join("|");
+    return [m.name, m.level, m.territory, m.built, m.maxE, m.msIndex, JSON.stringify(m.factions || {}), JSON.stringify(m.reputation || {}), JSON.stringify(m.storageCap || {}), JSON.stringify(m.inv), JSON.stringify(m.equip),
+      (m.pack || []).filter(Boolean).length, JSON.stringify(m.houses || []), ST.mode, ST.placing, ST.tool, ST.destroying, ST.channel && ST.channel.kind, ST.near.i && ST.near.i.label].join("|");
   }
   function actionsSig() { return ST.screen !== "playing" ? "x" : [ST.uiMuted ? 1 : 0, ST.musicMuted ? 1 : 0, ST.panel || "", ST.ui?.uiScale || 1, ST.visual?.cameraZoom || 1, ST.walkthrough?.active ? 1 : 0, ST.walkthrough?.step || ""].join("|"); }
   function utilitySig() {
     if (ST.screen !== "playing") return "x";
     const m = ST.me;
     const b = ST.panel === "inspect" ? world.buildPool.get(ST.inspect) : null;
-    return [ST.panel, ST.objectPreview && JSON.stringify(ST.objectPreview), JSON.stringify(ST.visual || {}) || "", ST.questTab || "", ST.inspect || "", ST.inspectDraft && JSON.stringify(ST.inspectDraft), b && [b.level, Math.ceil(b.hp), b.maxHp, b.nm, b.cl, b.constructUntil || 0, Math.floor((constructionStateForBuilding(b)?.progress || 1) * 20)].join(":"), JSON.stringify(ST.characterProfile), ST.capitalService && JSON.stringify(ST.capitalService), ST.serviceAccess || "", m && JSON.stringify(m.inv), m && JSON.stringify(m.pack), m && JSON.stringify(m.factions || {}), m && JSON.stringify(m.skills), m && JSON.stringify(m.skillXp), m && m.wallet, m && m.strongbox, m && m.vaultGold, m && JSON.stringify(m.wonders), ST.wonderPrompt || "", ST.wonderName || "", ST.wonderFootprint || 9, ST.wonderMode || "district", ST.wonderPaletteId || "solar", ST.wonderBusy ? 1 : 0, ST.wonderPlacing ? 1 : 0, ST.wonderRecipe?.name || "", ST.wonderRecipe?.footprint || "", ST.wonderRecipe?.paletteId || "", ST.wonderMsg || "", m && m.biome, m && JSON.stringify(m.guideQuests), m && JSON.stringify(m.guideSummary), ST.uiMuted ? 1 : 0, ST.musicMuted ? 1 : 0, ST.ui?.uiScale || 1, ST.ui?.menuScale || 1, ST.visual?.cameraZoom || 1].join("|");
+    return [ST.panel, ST.objectPreview && JSON.stringify(ST.objectPreview), JSON.stringify(ST.visual || {}) || "", ST.questTab || "", ST.inspect || "", ST.inspectDraft && JSON.stringify(ST.inspectDraft), b && [b.level, Math.ceil(b.hp), b.maxHp, b.nm, b.cl, b.constructUntil || 0, Math.floor((constructionStateForBuilding(b)?.progress || 1) * 20)].join(":"), JSON.stringify(ST.characterProfile), ST.capitalService && JSON.stringify(ST.capitalService), ST.serviceAccess || "", m && JSON.stringify(m.inv), m && JSON.stringify(m.pack), m && JSON.stringify(m.factions || {}), m && JSON.stringify(m.skills), m && JSON.stringify(m.skillXp), m && m.wallet, m && m.strongbox, m && m.vaultGold, m && JSON.stringify(m.wonders), m && JSON.stringify(m.houses), m && JSON.stringify(m.reputation || {}), ST.wonderPrompt || "", ST.wonderName || "", ST.wonderFootprint || 9, ST.wonderMode || "district", ST.wonderPaletteId || "solar", ST.wonderBusy ? 1 : 0, ST.wonderPlacing ? 1 : 0, ST.wonderRecipe?.name || "", ST.wonderRecipe?.footprint || "", ST.wonderRecipe?.paletteId || "", ST.wonderMsg || "", m && m.biome, m && JSON.stringify(m.guideQuests), m && JSON.stringify(m.guideSummary), ST.uiMuted ? 1 : 0, ST.musicMuted ? 1 : 0, ST.ui?.uiScale || 1, ST.ui?.menuScale || 1, ST.visual?.cameraZoom || 1].join("|");
   }
   function bottomSig() {
     if (ST.screen !== "playing") return "x";
     const m = ST.me;
-    return [ST.near.i && ST.near.i.label, ST.near.g && ST.near.g.id, ST.near.r && ST.near.r.uid, ST.mode, ST.placing, ST.tool, ST.destroying, ST.channel && ST.channel.kind, ST.uiMuted ? 1 : 0, ST.musicMuted ? 1 : 0, m && m.territory, m && JSON.stringify(m.inv), m && JSON.stringify(m.pack), ST.panel === "more" ? "more" : "", ST.wonderPrompt || "", ST.wonderName || "", ST.wonderFootprint || 9, ST.wonderMode || "", ST.wonderPaletteId || "", ST.wonderRecipe?.name || "", ST.adminTool || "", ST.adminMsg || "", Math.floor(liveE())].join("|");
+    return [ST.near.i && ST.near.i.label, ST.near.g && ST.near.g.id, ST.near.r && ST.near.r.uid, ST.mode, ST.placing, ST.tool, ST.destroying, ST.channel && ST.channel.kind, ST.uiMuted ? 1 : 0, ST.musicMuted ? 1 : 0, m && m.territory, m && JSON.stringify(m.reputation || {}), m && JSON.stringify(m.inv), m && JSON.stringify(m.pack), ST.panel === "more" ? "more" : "", ST.wonderPrompt || "", ST.wonderName || "", ST.wonderFootprint || 9, ST.wonderMode || "", ST.wonderPaletteId || "", ST.wonderRecipe?.name || "", ST.adminTool || "", ST.adminMsg || "", Math.floor(liveE())].join("|");
   }
   function modalSig() {
     if (ST.updateRequired) return ["update", ST.updateVersion || "", ST.updateReason || ""].join("|");
@@ -5019,7 +4675,7 @@ export default function mount() {
     const b = ST.panel === "inspect" ? world.buildPool.get(ST.inspect) : null;
     return [ST.modal, ST.tradeTab, ST.inspect, ST.wonderViewUid || "", ST.inspectPlayer && ST.inspectPlayer.id,
       JSON.stringify(m && m.inv), m && m.maxE, m && m.wallet, m && m.skillPts, JSON.stringify(m && m.skills),
-      JSON.stringify(m && m.equip), JSON.stringify(m && m.pack), m && m.territory,
+      JSON.stringify(m && m.equip), JSON.stringify(m && m.pack), m && m.territory, m && JSON.stringify(m.reputation || {}),
       ST.near.m ? 1 : 0, ST.offers.length, ST.faceImage ? 1 : 0, ST.wonderPrompt || "", ST.wonderName || "", ST.wonderFootprint || 9, ST.wonderMode || "", ST.wonderPaletteId || "", ST.wonderBusy ? 1 : 0, ST.wonderPlacing ? 1 : 0, ST.wonderRecipe?.name || "", ST.wonderMsg || "", ST.wonderViewError || "", m && m.tokenBalance, ST.bank && JSON.stringify(ST.bank), m && m.msIndex, ST.inspectDraft && JSON.stringify(ST.inspectDraft), b && [b.level, Math.ceil(b.hp), b.maxHp, b.nm, b.cl, b.constructUntil || 0, Math.floor((constructionStateForBuilding(b)?.progress || 1) * 20)].join(":")].join("|");
   }
   function menuSig() { return ST.screen !== "menu" ? "x" : [ST.auth ? 1 : 0, ST.joining ? 1 : 0, ST.profile.body, ST.profile.hat, ST.profile.wallet, ST.loginMsg || "", JSON.stringify(ST.loginGate || {}), ST.ui?.menuScale || 1, phantomProvider() ? 1 : 0].join("|"); }

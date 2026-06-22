@@ -38,8 +38,8 @@ import { applyKeepRegen, keepRaidHitPreview, keepRaidNote } from "./mechanics/ke
 import { academyScienceCapFor, resourceCapFor, scienceStatusFor, storageCapsFor } from "./mechanics/science";
 import { craftDestroyToolFor, tunedDestroySpecFor } from "./mechanics/destroyTools";
 import { capitalBlocksPlayerTerritory } from "./capitalRules";
-import { tileCapacityForProgress, tileCapacityExplanation } from "./progressionRules";
 import { FOUNDATION_KIND, isFoundationBuildKind, foundationChoiceLabel } from "./foundationRules";
+import { adjustReputation, reputationDeltaFor, reputationDeltaText, reputationSummaryForWire, storageCapsForPlayer, tileCapacityForPlayer } from "./reputationRules";
 import { adjustFactionStanding, factionDeltaText, factionSummaryForWire, factionTileCapacityBonus, readFactionStanding } from "./factionRules";
 import { devCommandsEnabled, isAdminPlayerName } from "./adminAuth";
 import { buildingAt, buildingCacheStats, deleteBuilding, getBuilding, hydrateBuildingStore, insertBuilding } from "./buildingStore";
@@ -371,6 +371,9 @@ function ownerBuildings(pid: number): Building[] {
 function ownerWonders(pid: number): Building[] {
   return ownerBuildings(pid).filter((b) => b.kind === "worldwonder");
 }
+function ownerHouses(pid: number): Building[] {
+  return ownerBuildings(pid).filter((b) => b.kind === "cottage" || b.kind === "house");
+}
 function ownedKindCount(pid: number, kind: string): number {
   return ownerBuildings(pid).filter((b) => b.kind === kind).length;
 }
@@ -406,14 +409,9 @@ function scienceContext() {
 }
 function academyScienceCap(p: Player): number { return academyScienceCapFor(scienceContext(), p); }
 function resourceCap(p: Player, res: string): number { return resourceCapFor(scienceContext(), p, res); }
-function storageCaps(p: Player) { return storageCapsFor(scienceContext(), p); }
+function storageCaps(p: Player) { return storageCapsForPlayer(p); }
 function scienceStatus(p: Player) { return scienceStatusFor(scienceContext(), p); }
-function tileCapacityFor(p: Player): number {
-  // Tile ownership is progression-gated. XP/level remain the main path, while
-  // faction standing adds a small frontier trust bonus without replacing levels.
-  const base = tileCapacityForProgress({ level: p.level || 1, buildings: nonBombBuildings(p.id) as any[] });
-  return base + factionTileCapacityBonus(readFactionStanding(p.id));
-}
+function tileCapacityFor(p: Player): number { return tileCapacityForPlayer(p); }
 function ownedTileCount(p: Player): number {
   return db.tiles.select().where({ owner: p.id }).count();
 }
@@ -421,9 +419,8 @@ function tileCapacityBlockReason(p: Player, action = "claim"): string {
   const owned = ownedTileCount(p);
   const cap = tileCapacityFor(p);
   if (owned < cap) return "";
-  const factionBonus = factionTileCapacityBonus(readFactionStanding(p.id));
-  const factionText = factionBonus ? ` Faction standing adds +${factionBonus} trusted frontier tiles.` : "";
-  return `Tile limit reached (${owned}/${cap}). ${tileCapacityExplanation({ level: p.level || 1, buildings: nonBombBuildings(p.id) as any[] })}${factionText}`;
+  const rep = reputationSummaryForWire(p.id);
+  return `Tile limit reached (${owned}/${cap}). Reputation ${rep.value} (${rep.title}) controls expansion. Donate coins to NPCs/Keeps or found World Wonders to increase your tile limit; raids can lower it.`;
 }
 function energyRefillPerMinute(p: Player) {
   return tokenRegenPerMin(Number(p.tokenBalance || 0));
@@ -668,7 +665,7 @@ export function learnSkill(p: Player, id: string) {
 }
 
 /* ---------- channelled harvest state (in-memory; no DB writes) ---------- */
-const channels = new Map<number, { x: number; z: number; until: number; type?: "harvest" | "home" | "redeem" | "wonder"; gold?: number; uid?: number; tx?: number; tz?: number }>();
+const channels = new Map<number, { x: number; z: number; until: number; type?: "harvest" | "home" | "house" | "redeem" | "wonder"; gold?: number; uid?: number; tx?: number; tz?: number }>();
 const clearChannel = (pid: number) => channels.delete(pid);
 
 function playerById(id: number): Player | null {
@@ -1988,6 +1985,8 @@ export function snapshot(p: Player, q: { rev: number; ax: number; az: number; ch
       id: p.id, name: p.name, body: p.body, hat: p.hat, x: p.x, z: p.z, spawnX: p.spawnX, spawnZ: p.spawnZ, appearance: parseAppearance((p as any).appearance),
       energy: e.energy, maxE: e.maxE, regen: e.regen, hp: e.hp, wallet: p.wallet ?? null, tokenBalance: p.tokenBalance || 0, strongbox: normalizeStrongbox(p), vaultGold: vaultStoredGold(p.id), biome: biomeAt(p.x, p.z).name,
       wonders: ownerWonders(p.id).map((b) => { const wr = readWonderRecipe(Number(b.id)); return { uid: Number(b.id), x: Number(b.x), z: Number(b.z), name: b.nm || wr?.name || null, prompt: wr?.prompt || "" }; }),
+      houses: ownerHouses(p.id).map((b) => ({ uid: Number(b.id), x: Number(b.x), z: Number(b.z), name: b.nm || "House" })),
+      reputation: reputationSummaryForWire(p.id),
       inv: p.inv as Inv, pack: p.pack as PackItem[], equip: p.equip as Equip, scienceCap: resourceCap(p, "sc"),
       xp: p.xp || 0, level: p.level || 1, skillPts: p.skillPts || 0, skills: (p.skills || {}) as Skills, skillXp: (p.skillXp || {}) as any,
       territory, built, msIndex: p.msIndex,
@@ -2403,6 +2402,7 @@ function placeWorldWonder(p: Player, x: number, z: number, promptRaw = "", recip
   addXp(p, XP.build + 40);
   autoTrainSkill(p, "mason", 12);
   refreshMilestones(p);
+  const repChange = adjustReputation(p.id, reputationDeltaFor("worldWonder"), "worldWonder");
   notifyAll("milestone", `★ ${recipe.name} is under construction at ${x}, ${z}. Founder: ${p.name}.`);
   sysChat(`★ ${recipe.name} founded by ${p.name} at ${x}, ${z}; construction has started.`);
   return ok({
@@ -2412,7 +2412,8 @@ function placeWorldWonder(p: Player, x: number, z: number, promptRaw = "", recip
     wonder: recipe,
     buildMs,
     footprint: { size, radius: wonderFootprintRadius(recipe), tiles },
-    note: `★ ${recipe.name} founded for ${cost}🪙. Its ${size}×${size} plaza (${tiles} cells) is yours; construction finishes in about ${Math.round(buildMs / 1000)}s.`,
+    reputation: reputationSummaryForWire(p.id),
+    note: `★ ${recipe.name} founded for ${cost}🪙. ${reputationDeltaText(repChange)}. Its ${size}×${size} plaza (${tiles} cells) is yours; construction finishes in about ${Math.round(buildMs / 1000)}s.`,
   });
 }
 function manualKeepName(x: number, z: number) {
@@ -2590,7 +2591,8 @@ export function place(p: Player, kind: string, x: number, z: number, prompt = ""
   if ([BARB_CAMP_KIND, "wall", "gate"].includes(kind)) return err("That legacy structure is disabled. Cities stay walkable with normal buildings and one free tile of street around each.");
   if (kind === "worldwonder") return placeWorldWonder(p, x, z, prompt, recipe);
   if (String(kind) === FOUNDATION_KIND) return err("Choose the final building from the selected tile panel.", "FOUNDATION_REMOVED");
-  if (!isFoundationBuildKind(kind)) return err("Choose House, Lumber Camp, Mine, Farm, or Market.", "BUILD_KIND_DISABLED");
+  if (!isFoundationBuildKind(kind)) return err("Choose House, Lumber Camp, Quarry, Farm, or Warehouse.", "BUILD_KIND_DISABLED");
+  if (ownedTileCount(p) < 3) return err("Capture 3 tiles first. Then build your first House on an empty captured tile.", "CAPTURE_THREE_TILES_FIRST");
   if (capitalBlocksPlayerTerritory(x, z)) return err("The capital plaza is reserved for public buildings.", "CAPITAL_RESERVED");
   const territory = db.tiles.select().where({ owner: p.id }).count();
   if (territory < (def.unlock || 0)) return err(`Unlocks at ${def.unlock} tiles.`);
@@ -2622,7 +2624,7 @@ export function place(p: Player, kind: string, x: number, z: number, prompt = ""
 }
 
 export function completeFoundation(p: Player, uid: number, kind: string) {
-  if (!isFoundationBuildKind(kind)) return err("Choose House, Lumber Camp, Mine, Farm, or Market.", "FOUNDATION_KIND_INVALID");
+  if (!isFoundationBuildKind(kind)) return err("Choose House, Lumber Camp, Quarry, Farm, or Warehouse.", "FOUNDATION_KIND_INVALID");
   const b = getBuilding(uid) as Building | null;
   if (!b || b.owner !== p.id) return err("That is not your foundation.");
   if (b.kind !== FOUNDATION_KIND) return err("This spot is already assigned.", "NOT_FOUNDATION");
@@ -3397,21 +3399,19 @@ export function attackNpc(p: Player, x: number, z: number) {
   autoTrainSkill(p, "warrior", npc.role === "warrior" ? 5 : 2);
   const delta = { empire: -8, bandits: 2 };
   const standing = adjustFactionStanding(p.id, delta);
-  const rep = factionDeltaText(delta, standing);
+  const factionRep = factionDeltaText(delta, standing);
+  const repChange = adjustReputation(p.id, reputationDeltaFor("npcKill"), "npcKill");
   bump(); liveTouch(p);
-  return ok({ note: `${npc.title || "Traveler"} defeated. Loot dropped nearby${gathered.bonus ? ` from ${gathered.source}` : ""}. ${rep}`, player: { hp: p.hp, maxHp: MAX_HP }, npc: { id: npc.id, x, z }, factions: factionSummaryForWire(p.id) });
+  return ok({ note: `${npc.title || "Traveler"} defeated. Loot dropped nearby${gathered.bonus ? ` from ${gathered.source}` : ""}. ${reputationDeltaText(repChange)}. ${factionRep}`, player: { hp: p.hp, maxHp: MAX_HP }, npc: { id: npc.id, x, z }, reputation: reputationSummaryForWire(p.id), factions: factionSummaryForWire(p.id) });
 }
 
 export function donateNpc(p: Player, x: number, z: number) {
   const npc = proceduralNpcAt(x, z);
   if (!npc) return err("Nobody is there anymore.");
   if (cheb(x, z, p.x, p.z) > 1) return err("Stand beside the traveler first.");
-  const inv = simpleInvBag(p.inv as any);
-  const food = Math.max(0, Math.floor(Number(inv.f || 0)));
-  const wood = Math.max(0, Math.floor(Number(inv.w || 0)));
-  if (food >= 2) spend(p, { f: 2 } as any);
-  else if (wood >= 3) spend(p, { w: 3 } as any);
-  else return err("Donate 2 food or 3 wood.", "DONATION_NEEDS_SUPPLIES");
+  const coinCost = 5;
+  if (Math.floor(Number(p.inv?.g || 0)) < coinCost) return err(`Donate ${coinCost}🪙 to earn reputation. Coins are separate from storage.`, "DONATION_NEEDS_COINS");
+  spend(p, { g: coinCost });
   const heal = 3;
   p.hp = Math.min(MAX_HP, Math.max(1, Number(p.hp || MAX_HP)) + heal);
   markProceduralNpcGone(x, z);
@@ -3419,9 +3419,9 @@ export function donateNpc(p: Player, x: number, z: number) {
   autoTrainSkill(p, "vigor", 3);
   const delta = { empire: 8, bandits: -1 };
   const standing = adjustFactionStanding(p.id, delta);
-  const rep = factionDeltaText(delta, standing);
+  const repChange = adjustReputation(p.id, reputationDeltaFor("npcDonate"), "npcDonate");
   bump(); liveTouch(p);
-  return ok({ note: `Donated supplies to ${npc.title || "traveler"}. +${heal}♥ goodwill, +8 XP. ${rep}`, player: { hp: p.hp, maxHp: MAX_HP }, inv: p.inv, factions: factionSummaryForWire(p.id) });
+  return ok({ note: `Donated ${coinCost}🪙 to ${npc.title || "traveler"}. +${heal}♥ goodwill, +8 XP. ${reputationDeltaText(repChange)}`, player: { hp: p.hp, maxHp: MAX_HP }, inv: p.inv, reputation: reputationSummaryForWire(p.id), factions: factionSummaryForWire(p.id) });
 }
 
 export function donateKeep(p: Player, uid: number, rawAmount = 10) {
@@ -3439,9 +3439,10 @@ export function donateKeep(p: Player, uid: number, rawAmount = 10) {
   addXp(p, Math.max(4, Math.floor(amount / 2)));
   const delta = { empire: -Math.max(1, Math.floor(amount / 5)), bandits: Math.max(2, Math.ceil(amount / 2)) };
   const standing = adjustFactionStanding(p.id, delta);
-  const rep = factionDeltaText(delta, standing);
+  const factionRep = factionDeltaText(delta, standing);
+  const repChange = adjustReputation(p.id, reputationDeltaFor("keepDonate", Math.max(1, amount / 10)), "keepDonate");
   bump(); liveTouch(p);
-  return ok({ note: `Paid ${amount}🪙 tribute to ${b.nm || "the Keep"}. Bandits remember. ${rep}`, keep: { uid: b.id, hp: b.hp, maxHp: b.maxHp, stored: b.stored }, inv: p.inv, factions: factionSummaryForWire(p.id) });
+  return ok({ note: `Paid ${amount}🪙 tribute to ${b.nm || "the Keep"}. ${reputationDeltaText(repChange)}. ${factionRep}`, keep: { uid: b.id, hp: b.hp, maxHp: b.maxHp, stored: b.stored }, inv: p.inv, reputation: reputationSummaryForWire(p.id), factions: factionSummaryForWire(p.id) });
 }
 
 /* Siege targets infrastructure only: enemy buildings and destroy tools.
@@ -3468,6 +3469,7 @@ export function raid(p: Player, uid: number) {
   if (r.ok && keepHit && getBuilding(b.id)) {
     const delta = { empire: 1, bandits: -1 };
     const standing = adjustFactionStanding(p.id, delta);
+    const repChange = adjustReputation(p.id, reputationDeltaFor("keepRaid"), "keepRaid");
     let coins = 0;
     if (b.hp > 0 && keepHit.coins > 0) {
       coins = Math.min(Math.max(0, Math.floor(Number(b.stored || 0))), Math.floor(keepHit.coins));
@@ -3477,8 +3479,9 @@ export function raid(p: Player, uid: number) {
       }
     }
     const rep = factionDeltaText(delta, standing);
-    (r as any).note = `${keepRaidNote({ baseNote: (r as any).note || "Raid landed.", backlash: keepHit.backlash, coins })} ${rep}`;
+    (r as any).note = `${keepRaidNote({ baseNote: (r as any).note || "Raid landed.", backlash: keepHit.backlash, coins })} ${reputationDeltaText(repChange)}. ${rep}`;
     (r as any).player = { hp: p.hp, maxHp: MAX_HP };
+    (r as any).reputation = reputationSummaryForWire(p.id);
     (r as any).factions = factionSummaryForWire(p.id);
     if (coins) (r as any).coins = coins;
     sysChat(`${p.name} struck ${b.nm || "a Keep"} at ${b.x}, ${b.z}.`);
@@ -3490,6 +3493,42 @@ export function raid(p: Player, uid: number) {
 
 export function withdrawGold(p: Player, amount: number) {
   return withdrawSafeGold(p, Math.max(0, Math.floor(Number(amount) || 0)));
+}
+
+function findBuildingLanding(p: Player, x: number, z: number) {
+  for (const [dx, dz] of N8) {
+    const sx = Number(x) + dx, sz = Number(z) + dz;
+    const t = tileAt(sx, sz);
+    if (t?.owner === p.id && !buildingAt(sx, sz) && !naturalDoodad(sx, sz) && !tradePostAt(sx, sz)) return { x: sx, z: sz };
+  }
+  return { x: Number(x) + 1, z: Number(z) };
+}
+
+export function teleportHouseStart(p: Player, uid: number) {
+  const b = getBuilding(uid) as Building | null;
+  if (!b || b.owner !== p.id || !(b.kind === "cottage" || b.kind === "house")) return err("That House is not yours.");
+  if (cheb(p.x, p.z, b.x, b.z) <= 1) return err("Already at that House.");
+  channels.set(p.id, { x: p.x, z: p.z, until: now() + TELEPORT_MS, type: "house", uid: Number(b.id), tx: Number(b.x), tz: Number(b.z) });
+  return ok({ ms: TELEPORT_MS, note: `${b.nm || "House"} travel casting… stand still until the route opens.` });
+}
+export function teleportHouseFinish(p: Player) {
+  const ch = channels.get(p.id);
+  if (!ch || ch.type !== "house") return err("Not travelling to a House.");
+  if (now() < ch.until - 250) return err("Still travelling…");
+  if (p.x !== ch.x || p.z !== ch.z) { clearChannel(p.id); return err("Teleport cancelled because you moved."); }
+  const b = getBuilding(Number(ch.uid || 0)) as Building | null;
+  if (!b || b.owner !== p.id || !(b.kind === "cottage" || b.kind === "house")) { clearChannel(p.id); return err("That House is gone."); }
+  const spot = findBuildingLanding(p, Number(b.x), Number(b.z));
+  p.x = spot.x; p.z = spot.z;
+  clearChannel(p.id);
+  liveTouch(p);
+  bump();
+  return ok({ note: `Arrived at ${b.nm || "House"}. Houses are your fast-travel points.`, x: p.x, z: p.z });
+}
+export function teleportHouseCancel(p: Player) {
+  const ch = channels.get(p.id);
+  if (ch?.type === "house") clearChannel(p.id);
+  return ok();
 }
 
 export function teleportHomeStart(p: Player) {
@@ -3611,7 +3650,7 @@ export function sendChat(p: Player, msg: string) {
 /* ---------- dispatcher used by the API route ---------- */
 function dispatchInner(p: Player, body: any) {
   const t = String(body.type || "");
-  if (isSpectator(p) && !["move", "movePath", "adminMapTeleport", "adminDemolishAt", "adminSpawnKeep", "profileAppearance", "setupProfile", "home", "homeStart", "homeFinish", "homeCancel", "wonderStart", "wonderFinish", "wonderCancel"].includes(t)) {
+  if (isSpectator(p) && !["move", "movePath", "adminMapTeleport", "adminDemolishAt", "adminSpawnKeep", "profileAppearance", "setupProfile", "home", "homeStart", "homeFinish", "homeCancel", "houseStart", "houseFinish", "houseCancel", "wonderStart", "wonderFinish", "wonderCancel"].includes(t)) {
     return err("Spectator mode can move and customize, but cannot affect the world.");
   }
   switch (t) {
@@ -3623,6 +3662,9 @@ function dispatchInner(p: Player, body: any) {
     case "homeStart": return teleportHomeStart(p);
     case "homeFinish": return teleportHomeFinish(p);
     case "homeCancel": return teleportHomeCancel(p);
+    case "houseStart": return teleportHouseStart(p, Number(body.uid || 0));
+    case "houseFinish": return teleportHouseFinish(p);
+    case "houseCancel": return teleportHouseCancel(p);
     case "wonderStart": return teleportWonderStart(p, body.uid | 0);
     case "wonderFinish": return teleportWonderFinish(p);
     case "wonderCancel": return teleportWonderCancel(p);
@@ -3631,9 +3673,9 @@ function dispatchInner(p: Player, body: any) {
     case "place": return place(p, String(body.kind), body.x | 0, body.z | 0, body.prompt, body.recipe);
     case "completeFoundation": return completeFoundation(p, Number(body.uid || 0), String(body.kind || ""));
     case "placeWonder": return placeWorldWonder(p, body.x | 0, body.z | 0, body.prompt, body.recipe);
-    case "makeBomb": return craftDestroyTool(p, String(body.variant || body.bomb || "popper"));
-    case "spawnBomb": return castBorderBomb(p, String(body.variant || body.bomb || "popper"), body.x, body.z);
-    case "placeBomb": return castBorderBomb(p, String(body.variant || body.bomb || "popper"), body.x, body.z);
+    case "makeBomb":
+    case "spawnBomb":
+    case "placeBomb": return err("Crafting, bombs, packs, and deployables are removed from the SolCrafts production loop.", "FEATURE_REMOVED");
     case "demolish": return demolish(p, body.uid | 0);
     case "customize": return customize(p, body.uid | 0, body.nm, body.cl);
     case "profileFace": return setProfileFace(p, body.faceImage == null ? null : String(body.faceImage));
@@ -3644,7 +3686,7 @@ function dispatchInner(p: Player, body: any) {
     case "harvestStart": return harvestStart(p, body.x | 0, body.z | 0);
     case "harvestFinish": return harvestFinish(p, body.x | 0, body.z | 0);
     case "harvestCancel": return harvestCancel(p);
-    case "craft": return craftRecipe(p, String(body.recipe || body.id || ""));
+    case "craft": return err("Crafting, bombs, packs, and deployables are removed from the SolCrafts production loop.", "FEATURE_REMOVED");
     case "learn": return err("Skills are hidden in the minimal build.");
     case "use": return useBuilding(p, body.uid | 0);
     case "trade": return trade(p, body.idx | 0);

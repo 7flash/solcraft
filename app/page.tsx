@@ -43,6 +43,15 @@ const PRODUCTION_POLISH_CSS = `
 .exchange-balance{display:grid;gap:4px;}
 .exchange-balance b{font-size:22px;}
 @media (max-width:720px){.ui31-entry-fields,.exchange-balances{grid-template-columns:1fr}.ui31-login-loop{grid-template-columns:repeat(2,minmax(0,1fr))}.notice-rail.production-notice-rail{left:12px;right:12px;top:12px}.building-clarity-list div{grid-template-columns:1fr}.settings-panel.pause-panel{width:calc(100vw - 16px);border-radius:18px}}
+
+.player-hud__storage-card{display:grid;gap:7px;padding:10px 11px;border-radius:16px;background:rgba(10,20,18,.64);box-shadow:0 0 0 1px rgba(255,255,255,.08) inset;}
+.player-hud__storage-head{display:flex;align-items:center;gap:8px;justify-content:space-between;font-size:12px;}
+.player-hud__storage-head b{font-weight:900;}.player-hud__storage-head span{font-weight:900}.player-hud__storage-head em{opacity:.74;font-style:normal;}
+.player-hud__storage-track{height:10px;display:flex;overflow:hidden;border-radius:999px;background:rgba(255,255,255,.10);box-shadow:0 0 0 1px rgba(0,0,0,.24) inset;}
+.player-hud__storage-track i{display:block;height:100%;min-width:0;}.player-hud__storage-track .wood{background:linear-gradient(90deg,#b8793d,#d39a52)}.player-hud__storage-track .stone{background:linear-gradient(90deg,#8c959e,#c1c9cf)}.player-hud__storage-track .food{background:linear-gradient(90deg,#78c96b,#d7c94f)}
+.player-hud__materials{display:grid;grid-template-columns:repeat(3,1fr);gap:6px;}.player-hud__material-chip{display:flex;align-items:center;gap:4px;justify-content:center;border-radius:999px;padding:5px 6px;background:rgba(255,255,255,.08);font-size:11px;}.player-hud__material-chip i{font-style:normal}.player-hud__material-chip b{font-weight:900}.player-hud__material-chip em{font-style:normal;opacity:.75;}
+.ui31-login-card{max-width:720px;margin-inline:auto;text-align:center;backdrop-filter:blur(18px);}.ui31-login-card h1{font-size:clamp(42px,7vw,84px);letter-spacing:-.055em;text-shadow:0 10px 24px rgba(0,0,0,.45);} .ui31-login-card h1 span{color:#ffb000;letter-spacing:-.04em}.ui31-login-copy{max-width:760px;margin-inline:auto;font-size:clamp(18px,2.2vw,27px);font-weight:800;line-height:1.45}.ui31-entry-fields{max-width:540px;margin-inline:auto}.ui31-play{font-size:clamp(18px,2.6vw,28px);border-radius:18px;padding:18px 30px;background:linear-gradient(180deg,#ffc247,#f0a318);color:#101628;box-shadow:0 18px 42px rgba(240,163,24,.35)}
+
 `;
 
 /* TradJS server page: one mount node, runtime config injected before the client boots. */

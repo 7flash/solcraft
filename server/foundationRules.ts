@@ -5,7 +5,7 @@ export const FOUNDATION_BUILD_KINDS = [
   "lumber",
   "quarry",
   "farm",
-  "market",
+  "warehouse",
 ] as const;
 
 export type FoundationBuildKind = (typeof FOUNDATION_BUILD_KINDS)[number];
@@ -18,8 +18,8 @@ export function foundationChoiceLabel(kind: any) {
   const k = String(kind || "");
   if (k === "cottage") return "House";
   if (k === "lumber") return "Lumber Camp";
-  if (k === "quarry") return "Mine";
+  if (k === "quarry") return "Quarry";
   if (k === "farm") return "Farm";
-  if (k === "market") return "Market";
+  if (k === "warehouse") return "Warehouse";
   return "Building";
 }

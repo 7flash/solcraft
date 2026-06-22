@@ -41,7 +41,7 @@ export const DEFAULT_REPUTATION_CONFIG: ReputationConfig = {
   underCapGraceTiles: 3,
   warehouseBaseStorage: 80,
   warehouseStoragePerLevel: 45,
-  baseStorage: { w: 120, p: 80, s: 120, f: 90, g: 999999, sh: 0, sc: 0 },
+  baseStorage: { w: 120, s: 120, f: 120, g: 999999, sh: 0, sc: 0 },
   deltas: {
     npcDonate: 7,
     npcKill: -8,
@@ -185,10 +185,9 @@ export function storageCapsForPlayer(p: any) {
       caps.w = Math.floor(Number(caps.w || 0) + add);
       caps.s = Math.floor(Number(caps.s || 0) + add);
       caps.f = Math.floor(Number(caps.f || 0) + add);
-      caps.p = Math.floor(Number(caps.p || 0) + Math.floor(add / 2));
     }
   } catch {}
-  caps.total = Math.floor(Number(caps.w || 0) + Number(caps.s || 0) + Number(caps.f || 0) + Number(caps.p || 0));
+  caps.total = Math.floor(Number(caps.w || 0) + Number(caps.s || 0) + Number(caps.f || 0));
   return caps;
 }
 

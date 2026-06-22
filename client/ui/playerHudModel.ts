@@ -19,12 +19,12 @@ export function pct(value: any, max: any): number {
 }
 
 export function storageUsed(inv: any = {}) {
-  return Math.max(0, Math.floor(Number(inv.w || 0) + Number(inv.s || 0) + Number(inv.f || 0) + Number(inv.p || 0)));
+  return Math.max(0, Math.floor(Number(inv.w || 0) + Number(inv.s || 0) + Number(inv.f || 0)));
 }
 export function storageLimit(cap: any = {}) {
   const explicit = Number(cap.total ?? cap.shared ?? 0);
   if (Number.isFinite(explicit) && explicit > 0) return Math.max(0, Math.floor(explicit));
-  const sum = Number(cap.w || 0) + Number(cap.s || 0) + Number(cap.f || 0) + Number(cap.p || 0);
+  const sum = Number(cap.w || 0) + Number(cap.s || 0) + Number(cap.f || 0);
   return Math.max(0, Math.floor(sum || 0));
 }
 export function reputationScore(m: any): number {
@@ -60,7 +60,7 @@ export function playerHudViewModel(input: PlayerHudInput) {
     storageUsed: usedStorage,
     storageLimit: maxStorage,
     storageFree: Math.max(0, maxStorage - usedStorage),
-    storageText: maxStorage ? `${usedStorage}/${maxStorage} shared materials · ${Math.max(0, maxStorage - usedStorage)} free` : `${usedStorage} materials · storage cap loading`,
+    storageText: maxStorage ? `${usedStorage}/${maxStorage} wood + stone + food · ${Math.max(0, maxStorage - usedStorage)} free` : `${usedStorage} materials · storage cap loading`,
     wondersBuilt: Math.max(0, Number(input.wondersBuilt ?? m.wondersBuilt ?? 0) || 0),
     energyNow: Math.floor(eNow),
     maxEnergy: Math.max(1, Number(m.maxE || 1)),
@@ -73,8 +73,8 @@ export function playerHudViewModel(input: PlayerHudInput) {
     wood: Math.floor(Number(m.inv?.w || 0)),
     stone: Math.floor(Number(m.inv?.s || 0)),
     food: Math.floor(Number(m.inv?.f || 0)),
-    woodCap: Math.floor(Number(m.storageCap?.w || 0)),
-    stoneCap: Math.floor(Number(m.storageCap?.s || 0)),
-    foodCap: Math.floor(Number(m.storageCap?.f || 0)),
+    woodPct: maxStorage ? Math.max(0, Math.min(100, 100 * Number(m.inv?.w || 0) / maxStorage)) : 0,
+    stonePct: maxStorage ? Math.max(0, Math.min(100, 100 * Number(m.inv?.s || 0) / maxStorage)) : 0,
+    foodPct: maxStorage ? Math.max(0, Math.min(100, 100 * Number(m.inv?.f || 0) / maxStorage)) : 0,
   };
 }
