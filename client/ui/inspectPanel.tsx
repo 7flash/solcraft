@@ -27,9 +27,19 @@ export function InspectPanelView(props: any) {
     estimatedBin = 0,
     costStr,
     foundationChoices = [],
+    bank = null,
   } = props;
 
   const vm = inspectPanelViewModel({ building: b, player, def, inspectUid, inspectDraft, faceImage });
+  const isFoundation = String(b.kind || "") === "foundation";
+  const finalChoices = Array.isArray(foundationChoices) ? foundationChoices : [];
+  const isBank = String(b.kind || "") === "vault";
+  const isCustomizer = String(b.kind || "") === "alchemy";
+  const tokenLabel = bank?.config?.tokenLabel || "$CRAFTS";
+  const inGameCoins = bank?.bankTokens?.amountUi ?? String(Math.floor(Number(player?.inv?.g || 0)));
+  const walletCoins = bank?.walletBalance?.amountUi || bank?.walletBalanceApproxUi || String(player?.tokenBalance || 0);
+  const walletText = player?.wallet ? String(player.wallet).slice(0, 4) + "…" + String(player.wallet).slice(-4) : "not connected";
+  const customizerCost = Math.max(0, Number(bank?.customizerCost || 1) || 1);
   const level = vm.level;
   const maxLvl = level >= MAX_LEVEL;
   const upCost = maxLvl ? {} : upgradeCost(def, level);
@@ -57,7 +67,7 @@ export function InspectPanelView(props: any) {
     </header>
 
     <section className="ui30-summary-card">
-      <p>{isFoundation ? "Choose what this prepared pad becomes. Basic settlements grow from foundations, not instant buildings." : (def?.blurb || "A settlement structure.")}</p>
+      <p>{isFoundation ? "Foundations were removed from the clean release." : (def?.blurb || "A settlement structure.")}</p>
     </section>
 
     <section className="ui30-stat-list" aria-label="Building stats">
@@ -67,7 +77,7 @@ export function InspectPanelView(props: any) {
         <StatRow label="Construction" value={`${Math.max(1, Math.round(construction.progress * 100))}% · ${Math.ceil(construction.left / 1000)}s`} />
         <div className="ui30-progress-track"><i style={{ width: `${Math.max(1, construction.progress * 100).toFixed(0)}%` }} /></div>
       </> : null}
-      {!isFoundation && Number(def?.regen || 0) > 0 ? <StatRow label="Output" value={`+${(Number(def?.regen || 0) * lvlMul(level)).toFixed(2)}/s`} /> : null}
+      {!isFoundation && ["lumber", "quarry", "farm"].includes(String(b.kind || "")) ? <StatRow label="Role" value="spawns gatherables" /> : null}
       {def?.maxE ? <StatRow label="Energy cap" value={`+${def.maxE}`} /> : null}
       {def?.prod ? <StatRow label="Stored cycle" value={`${Math.floor(estimatedBin)}/60`} /> : null}
       {vm.cdLeft ? <StatRow label="Cooldown" value={`${vm.cdLeft}s`} /> : null}
@@ -86,6 +96,27 @@ export function InspectPanelView(props: any) {
       </div>
     </section> : null}
 
+    {isBank ? <section className="ui27-service-card bank" aria-label="Bank building actions">
+      <div className="ui30-section-head"><b>Bank service</b><span>{walletText}</span></div>
+      <div className="ui27-bank-balances">
+        <span><small>In game</small><b>{inGameCoins}</b><em>{tokenLabel}</em></span>
+        <span><small>Wallet</small><b>{walletCoins}</b><em>{tokenLabel}</em></span>
+      </div>
+      <div className="ui27-service-actions">
+        <button className="ui30-btn primary" data-click="inspect-bank-open">Open bank</button>
+        <button className="ui30-btn" disabled data-click="inspect-bank-deposit-disabled">Deposit</button>
+        <button className="ui30-btn" disabled data-click="inspect-bank-withdraw-disabled">Withdraw</button>
+      </div>
+      <p className="ui30-muted">Deposit and Withdraw stay inside the bank screen so wallet, amount, and pending status are visible before signing.</p>
+    </section> : null}
+
+    {isCustomizer ? <section className="ui27-service-card tailor" aria-label="Character customizer actions">
+      <div className="ui30-section-head"><b>Customizer</b><span>{customizerCost}🪙 access</span></div>
+      <p className="ui30-muted">Change body, clothes, and hat from this building. The clean doll atlas uses one body layer with clothes and hat on top.</p>
+      <button className="ui30-btn primary" data-click="inspect-customizer-open">Customize character</button>
+    </section> : null}
+
+
     {isFoundation && vm.mine ? <section className="ui30-foundation-card" aria-label="Choose foundation building">
       <div className="ui30-section-head"><b>Choose building</b><span>One foundation becomes one structure.</span></div>
       <div className="ui30-foundation-grid">
@@ -98,7 +129,7 @@ export function InspectPanelView(props: any) {
     </section> : null}
 
     <section className="ui30-action-stack" aria-label="Building actions">
-      {!isFoundation && (b.kind === "worldwonder" ? <button className="ui30-btn primary" data-click="inspect-wonder-view">View 3D</button> : <button className="ui30-btn primary" data-click="inspect-use">Use</button>)}
+      {!isFoundation && !isBank && !isCustomizer && (b.kind === "worldwonder" ? <button className="ui30-btn primary" data-click="inspect-wonder-view">View 3D</button> : <button className="ui30-btn primary" data-click="inspect-use">Use</button>)}
       {!isFoundation ? <button className="ui30-btn" data-click="inspect-share">{b.kind === "keep" ? "Rally group" : "Share in chat"}</button> : null}
       {b.kind === "worldwonder" ? <button className="ui30-btn" data-click="inspect-walk-near">Walk near</button> : null}
       {vm.mine && !isFoundation && b.kind !== "worldwonder" ? <button className="ui30-btn" disabled={maxLvl} data-click="inspect-upgrade">{maxLvl ? "Max level" : `Upgrade · ${formatCost(upCost)}`}</button> : null}

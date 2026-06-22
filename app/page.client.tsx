@@ -2227,7 +2227,8 @@ export default function mount() {
     act("use", { uid }).then((r) => {
       if (!r || !r.ok) return;
       world.animateBuildingUse?.(uid);
-      if (r.openTrade) { ST.panel = "bank"; ST.tradeTab = "bank"; paint(true); return; }
+      if (r.openTrade || r.service === "bank") { openBankFromInspect(); return; }
+      if (r.service === "customizer") { openCustomizerFromInspect(uid); return; }
       sfx.saw();
     });
   }
@@ -3368,6 +3369,33 @@ export default function mount() {
     loadBankStatus();
     paint(true);
   }
+  function openBankFromInspect() {
+    ST.tradeTab = "bank";
+    ST.serviceAccess = "bank";
+    ST.panel = "bank";
+    ST.modal = null;
+    closeTools();
+    loadBankStatus();
+    paint(true);
+  }
+  function openCustomizerFromInspect(uid = ST.inspect) {
+    if (!uid) return;
+    act("customizerAccess", { uid }).then((r) => {
+      if (!r?.ok) { sfx.err(); say(r?.msg || "Customizer unavailable.", 2400); return; }
+      if (r.inv && ST.me) ST.me.inv = r.inv;
+      ST.serviceAccess = "tailor";
+      ST.panel = "char";
+      ST.modal = null;
+      ST.inspect = null;
+      markGuidePanelVisited("char");
+      advanceWalkthroughPanel("char");
+      sfx.coin();
+      say(r.note || "Customizer unlocked.", 1600);
+      pollSoon();
+      paint(true);
+    });
+  }
+
   function openTrade(fromCapital = false) {
     if (!fromCapital && !ST.serviceAccess) { directServiceHint("market"); return; }
     ST.tradeTab = "market";
@@ -3864,11 +3892,11 @@ export default function mount() {
       case "select-spawn-tool": return selectDeployTool();
       case "use-tool": advanceWalkthroughAction("use"); return doUseTool();
       case "select-building": return selectBuilding(readStr(el, "id"));
-      case "make-bomb": return act("makeBomb", { variant: readStr(el, "id") }).then((r) => { if (r?.ok) { sfx.equip(); pollSoon(); paint(true); } });
-      case "craft-recipe": return act("craft", { recipe: readStr(el, "id") }).then((r) => { if (r?.ok) { sfx.equip(); pollSoon(); paint(true); } });
+      case "make-bomb": return say("Bombs were removed from the clean release. Use Attack/Raid pressure instead.", 2400);
+      case "craft-recipe": return say("Crafting is removed from the client for this release.", 2200);
       case "select-spawn": return selectDeploy(readStr(el, "id"));
       case "home-cast": return startHomeCast();
-      case "use-pack-slot": return usePackSlot(readNum(el, "idx"));
+      case "use-pack-slot": return say("Packs are removed from the client for this release.", 2200);
       case "place-building": {
         const id = readStr(el, "id");
         if (id === "worldwonder") {
@@ -3891,25 +3919,29 @@ export default function mount() {
           if (r?.ok) { sfx.build(); world.shockwave(target.x, target.z, 0xffe2a8); ST.objectPreview = null; ST.panel = null; closeTools(); pollSoon(); paint(true); say(r.note || "Construction started.", 1800); }
         });
       }
-      case "unequip": return act("unequip", { slot: readStr(el, "slot") }).then((r) => r && r.ok && sfx.equip());
+      case "unequip": return say("Equipment is removed from the client for this release.", 2200);
       case "pack-trophy": return say(`${readStr(el, "name", "Trophy")} — a trophy of the frontier.`);
-      case "pack-drop": return act("drop", { idx: readNum(el, "idx") });
+      case "pack-drop": return say("Packs are removed from the client for this release.", 2200);
       case "pack-spawn-select": ST.destroying = readStr(el, "id"); return selectDeployTool();
-      case "pack-equip": return act("equip", { idx: readNum(el, "idx") }).then((r) => r && r.ok && sfx.equip());
-      case "learn-skill": return act("learn", { skill: readStr(el, "id") });
+      case "pack-equip": return say("Equipment is removed from the client for this release.", 2200);
+      case "learn-skill": return say("Skills are being rebuilt for the ECS release and are hidden for now.", 2200);
       case "player-walk": if (ST.inspectPlayer) { const q = ST.inspectPlayer; ST.modal = null; ST.inspectPlayer = null; paint(); world.pathTo(q.x, q.z); } return;
       case "player-close": ST.modal = null; ST.inspectPlayer = null; paint(); return;
       case "trade-tab": if (!ST.serviceAccess) return directServiceHint("market"); ST.tradeTab = readStr(el, "tab", "market"); if (ST.tradeTab === "bank") loadBankStatus(); paint(); return;
-      case "post-offer": { const v = (id) => (document.getElementById(id) || {}).value; return act("postOffer", { gRes: v("sc-o-gres"), gAmt: Number(v("sc-o-gamt")), wRes: v("sc-o-wres"), wAmt: Number(v("sc-o-wamt")) }); }
-      case "cancel-offer": return act("cancelOffer", { id: readNum(el, "id") });
-      case "accept-offer": return act("acceptOffer", { id: readNum(el, "id") }).then((r) => r && r.ok && sfx.coin());
-      case "withdraw-safe": return act("withdrawGold", { gold: Number((document.getElementById("sc-withdraw-safe") || {}).value) }).then((r) => r && r.ok && sfx.coin());
-      case "redeem-main": return startRedeemCast(Number((document.getElementById("sc-redeem") || {}).value));
+      case "post-offer": return say("Player escrow trading was removed from this release.", 2200);
+      case "cancel-offer": return say("Player escrow trading was removed from this release.", 2200);
+      case "accept-offer": return say("Player escrow trading was removed from this release.", 2200);
+      case "withdraw-safe": return say("Use the Bank building or Capital Bank for withdrawals.", 2200);
+      case "redeem-main": return say("Old redeem flow was removed. Use the Bank building instead.", 2200);
       case "inspect-close": return closeInspectPanel();
       case "inspect-rename": return customizeInspect({ nm: (document.getElementById("sc-rename") || {}).value || "" });
       case "inspect-wonder-view": { ST.wonderViewUid = ST.inspect; ST.wonderViewError = ""; ST.modal = "wonder-view"; ST.panel = null; paint(true); mountWonderViewerSoon(); return; }
       case "inspect-share": return shareInspectedBuildingInChat();
       case "inspect-use": return useBuildingClient(ST.inspect);
+      case "inspect-bank-open": return openBankFromInspect();
+      case "inspect-customizer-open": return openCustomizerFromInspect(ST.inspect);
+      case "inspect-bank-deposit-disabled": return say("Open the bank screen to prepare and copy your deposit address.", 2200);
+      case "inspect-bank-withdraw-disabled": return say("Open the bank screen to review amount, wallet, and withdrawal status.", 2200);
       case "inspect-raid": return doRaid(ST.inspect);
       case "inspect-donate-keep": return doDonateKeep(ST.inspect, 10);
       case "inspect-upgrade": return act("upgrade", { uid: ST.inspect });
@@ -4284,6 +4316,7 @@ export default function mount() {
       estimatedBin={estAcc(b)}
       costStr={costStr}
       foundationChoices={FOUNDATION_CHOICES}
+      bank={ST.bank || ST.me?.bank || {}}
     />;
   }
 
@@ -4481,7 +4514,7 @@ export default function mount() {
       <div className="grid" style={{ gridTemplateColumns: "repeat(auto-fit,minmax(240px,1fr))" }}>
         <div className="card source-card"><div className="card-title">Territory coins</div><div className="tiny">{territoryCoinStatusText()}</div><div className="usetag">{territoryCoinNextStep()}</div></div>
         <div className="card"><div className="card-title">Fixed mint</div><div className="tiny">Launch rate is {GOLD_PER_CRAFTS_FIXED}🪙 = 1 $CRAFTS. Coins must be in your purse and you must stand near an active Coin Mint.</div></div>
-        <div className="card"><div className="card-title">Siege rule</div><div className="tiny">Avatars explore and interact. They do not fight. Territory, buildings, vaults, mints, and tools are the targets.</div></div>
+        <div className="card"><div className="card-title">Siege rule</div><div className="tiny">PvP is intentionally weak: both players lose 1 HP. Keeps, NPCs, buildings, and reputation pressure are the real conflict loop.</div></div>
       </div>
       <h3>Guide cards</h3>
       <div className="guide-list">{visible.map((row) => <GuideCard key={row.id} row={row} compact={false} />)}</div>

@@ -125,3 +125,49 @@
 .ui26-build-flow-ribbon .build-tile {
   min-width: 230px;
 }
+
+/* Stage 27: clean capital/building service previews */
+.ui27-service-card {
+  border: 1px solid rgba(255,255,255,.13);
+  background: linear-gradient(180deg, rgba(255,255,255,.08), rgba(255,255,255,.035));
+  border-radius: 18px;
+  padding: 12px;
+  display: grid;
+  gap: 10px;
+}
+.ui27-service-card.bank { box-shadow: inset 0 0 0 1px rgba(20,241,149,.10); }
+.ui27-service-card.tailor { box-shadow: inset 0 0 0 1px rgba(153,69,255,.13); }
+.ui27-bank-balances {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+.ui27-bank-balances span {
+  border: 1px solid rgba(255,255,255,.11);
+  border-radius: 14px;
+  padding: 9px 10px;
+  background: rgba(0,0,0,.18);
+  min-width: 0;
+}
+.ui27-bank-balances small, .ui27-bank-balances em {
+  display: block;
+  color: rgba(255,255,255,.58);
+  font-size: 10px;
+  font-style: normal;
+}
+.ui27-bank-balances b {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 16px;
+}
+.ui27-service-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 8px;
+}
+.ui27-service-actions .ui30-btn[disabled] {
+  opacity: .45;
+  cursor: not-allowed;
+}

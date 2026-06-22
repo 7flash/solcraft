@@ -19,6 +19,7 @@ const DIRECT_ACTIONS = new Set([
   "harvestCancel",
   "repair",
   "customize",
+  "customizerAccess",
   "use",
   "talkNpc",
   "attackNpc",
@@ -114,6 +115,24 @@ function actionCustomize(p: PlayerRow, body: any) {
   }
   refreshBuilding(b); bump("customize");
   return ok({ note: "Building customized." });
+}
+
+function actionCustomizerAccess(p: PlayerRow, body: any) {
+  const uid = int(body.uid || body.target || 0);
+  const b = getBuilding(uid);
+  if (!b) return err("Customizer building not found.", "BUILDING_NOT_FOUND");
+  if (String(b.kind || "") !== "alchemy") return err("That building is not a character customizer.", "NOT_CUSTOMIZER");
+  if (Number(b.owner || 0) !== Number(p.id) && Number(b.owner || 0) !== 0) return err("Use your own customizer or a capital tailor.", "NOT_OWNER");
+  if (!playerNear(p, b.x, b.z, 1)) return err("Stand beside the customizer first.", "TOO_FAR");
+  const cost = Math.max(0, Math.floor(Number(process.env.SOLCRAFT_CUSTOMIZER_COIN_COST || 1) || 1));
+  if (cost > 0) {
+    if (have(p, "g") < cost) return err(`Customizer access costs ${cost}🪙.`, "CUSTOMIZER_NEEDS_COINS", { cost: { g: cost } });
+    spend(p, { g: cost });
+  }
+  const expiresAt = now() + 10 * 60_000;
+  try { metaSet(`solcraft:customizer:access:${p.id}`, JSON.stringify({ uid: b.id, at: now(), expiresAt, cost })); } catch {}
+  refreshPlayer(p); bump("customizer-access"); mirrorLegacyToEcsTables("customizer-access");
+  return ok({ service: "customizer", access: { uid: b.id, expiresAt, cost }, inv: p.inv, note: cost ? `Customizer unlocked for ${cost}🪙.` : "Customizer unlocked." });
 }
 
 function actionRepair(p: PlayerRow, body: any) {
@@ -341,6 +360,7 @@ export function dispatchEcsGameplayAction(playerLike: PlayerRow, body: any): Ecs
   try {
     if (type === "harvestCancel") return { handled: true, result: ok() };
     if (type === "customize") return { handled: true, result: actionCustomize(p, body) };
+    if (type === "customizerAccess") return { handled: true, result: actionCustomizerAccess(p, body) };
     if (type === "repair") return { handled: true, result: actionRepair(p, body) };
     if (type === "use") return { handled: true, result: actionUseBuilding(p, body) };
     if (type === "talkNpc") return { handled: true, result: actionTalkNpc(p, body) };

@@ -73,7 +73,7 @@ export const CLEAN_ACTION_SURFACE = [
   "talkNpc", "attackNpc", "donateNpc", "donateKeep", "raid", "attack", "fight",
   "home", "homeStart", "homeFinish", "homeCancel",
   "wonderStart", "wonderFinish", "wonderCancel", "placeWonder",
-  "profileAppearance", "profileFace", "setupProfile", "wallet", "chat",
+  "profileAppearance", "profileFace", "setupProfile", "customizerAccess", "wallet", "chat",
 ] as const;
 
 export function cleanActionSurface() {

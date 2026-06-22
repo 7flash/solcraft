@@ -4,7 +4,7 @@ const KNOWN_ACTIONS = new Set([
   "move", "movePath", "adminMapTeleport", "claim", "home", "homeStart", "homeFinish", "homeCancel",
   "wonderStart", "wonderFinish", "wonderCancel", "adminSpawnKeep", "adminDemolishAt", "place",
   "completeFoundation", "placeWonder", "makeBomb", "spawnBomb", "placeBomb", "demolish", "customize",
-  "profileFace", "profileAppearance", "setupProfile", "upgrade", "repair", "harvestStart", "harvestFinish",
+  "profileFace", "profileAppearance", "setupProfile", "customizerAccess", "upgrade", "repair", "harvestStart", "harvestFinish",
   "harvestCancel", "craft", "learn", "use", "trade", "usePack", "equip", "unequip", "drop", "fight",
   "attackNpc", "donateNpc", "donateKeep", "attack", "siege", "siegeSource", "raid", "collectGoldMine", "postOffer",
   "acceptOffer", "cancelOffer", "wallet", "withdrawGold", "redeem", "redeemStart", "redeemFinish", "redeemCancel",
