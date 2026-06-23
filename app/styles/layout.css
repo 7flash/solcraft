@@ -40,3 +40,11 @@
 .tip b{display:block;color:var(--sc-gold-2);font-weight:950;}
 .tip small{display:block;color:var(--sc-text);font-size:12px;line-height:1.28;}
 @media(max-width:760px){.sc-time-chip{right:12px;top:12px}.walkthrough-callout{top:auto!important;bottom:86px!important;left:12px!important;right:12px!important;width:auto}.minimap-info-card{top:178px}}
+
+/* Playability polish: lightweight always-on diagnostics and tighter top-right situation stack. */
+.sc-perf-mini{position:fixed;left:calc(10px + env(safe-area-inset-left));top:calc(10px + env(safe-area-inset-top));transform:none;z-index:var(--sc-layer-critical);pointer-events:none;border-radius:10px;border:1px solid rgba(20,241,149,.42);background:rgba(2,7,12,.86);box-shadow:0 10px 28px rgba(0,0,0,.35),0 0 0 1px rgba(255,255,255,.06) inset;padding:6px 9px;color:rgba(236,255,247,.95);font-size:11px;font-weight:850;font-variant-numeric:tabular-nums;letter-spacing:.01em;line-height:1.15;}
+.notice-rail{top:calc(36px + env(safe-area-inset-top));max-height:138px;gap:5px;}
+.walkthrough-callout{top:calc(14px + env(safe-area-inset-top))!important;right:calc(14px + env(safe-area-inset-right))!important;left:auto!important;width:min(360px,calc(100vw - 28px))!important;max-height:min(52vh,360px)!important;overflow:auto;overscroll-behavior:contain;}
+.minimap-info-card{top:calc(216px + env(safe-area-inset-top))!important;width:196px;line-height:1.22;}
+.minimap-info-card span{display:block;}
+@media(max-width:760px){.sc-perf-mini{left:8px;top:8px;bottom:auto;max-width:calc(100vw - 16px);font-size:10px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.notice-rail{top:10px}.walkthrough-callout{top:auto!important;left:12px!important;right:12px!important;bottom:88px!important;width:auto!important;max-height:40vh!important}.minimap-info-card{top:178px!important;right:12px;width:168px}}

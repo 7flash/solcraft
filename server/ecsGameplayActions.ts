@@ -28,6 +28,9 @@ import {
   upsertResidentLoot,
   removeResidentLoot,
   residentLandmarkBonusPct,
+  residentInventoryFor,
+  setResidentInventory,
+  patchResidentPlayer,
 } from "./residentWorld";
 
 export type EcsGameplayResult = { handled: boolean; result?: any };
@@ -78,7 +81,7 @@ function ok(extra: Record<string, any> = {}) { return { ok: true, ...extra, back
 function err(msg: string, reasonCode = "ECS_GAMEPLAY_FAILED", extra: Record<string, any> = {}) { return { ok: false, msg, reasonCode, ...extra, backend: "ecs" }; }
 function int(v: any, fallback = 0) { const n = Math.trunc(Number(v)); return Number.isFinite(n) ? n : fallback; }
 function cleanHex(v: any) { const s = String(v || "").trim(); return /^#[0-9a-fA-F]{6}$/.test(s) ? s : ""; }
-function invOf(p: PlayerRow): ResBag { const inv = p.inv && typeof p.inv === "object" ? p.inv : {}; p.inv = inv; return inv as ResBag; }
+function invOf(p: PlayerRow): ResBag { const inv = p.inv && typeof p.inv === "object" ? p.inv : residentInventoryFor(p); p.inv = inv; return inv as ResBag; }
 function have(p: PlayerRow, res: string) { return Math.max(0, Number(invOf(p)[res] || 0)); }
 function materialUsed(inv: any) { return Math.max(0, Math.floor(Number(inv?.w || 0) + Number(inv?.s || 0) + Number(inv?.f || 0))); }
 function materialCap(p: PlayerRow) { return Math.max(0, Math.floor(Number(storageCapsForPlayer(p)?.total || 0))); }
@@ -91,14 +94,16 @@ function addResource(p: PlayerRow, res: string, amount: any) {
   if (key === "w" || key === "s" || key === "f") {
     const add = Math.min(want, materialFree(p));
     if (add > 0) inv[key] = Math.max(0, Number(inv[key] || 0) + add);
+    setResidentInventory(p, inv, "inventory-gain");
     return { added: add, rejected: want - add, inv };
   }
   inv[key] = Math.max(0, Number(inv[key] || 0) + want);
+  setResidentInventory(p, inv, "inventory-gain");
   return { added: want, rejected: 0, inv };
 }
-function gain(p: PlayerRow, bag: Record<string, any>) { for (const [k, v] of Object.entries(bag || {})) addResource(p, k, v); return invOf(p); }
+function gain(p: PlayerRow, bag: Record<string, any>) { for (const [k, v] of Object.entries(bag || {})) addResource(p, k, v); return setResidentInventory(p, invOf(p), "inventory-gain"); }
 function missing(p: PlayerRow, bag: Record<string, any>) { return Object.entries(bag || {}).filter(([k, v]) => RESOURCE_KEYS.has(k) && have(p, k) < Number(v || 0)).map(([k, v]) => `${Math.ceil(Number(v || 0))}${String((RES_NAMES as any)[k] || k)}`); }
-function spend(p: PlayerRow, bag: Record<string, any>) { const miss = missing(p, bag); if (miss.length) return miss; const inv = invOf(p); for (const [k, v] of Object.entries(bag || {})) if (RESOURCE_KEYS.has(k)) inv[k] = Math.max(0, Number(inv[k] || 0) - Number(v || 0)); return [] as string[]; }
+function spend(p: PlayerRow, bag: Record<string, any>) { const miss = missing(p, bag); if (miss.length) return miss; const inv = invOf(p); for (const [k, v] of Object.entries(bag || {})) if (RESOURCE_KEYS.has(k)) inv[k] = Math.max(0, Number(inv[k] || 0) - Number(v || 0)); setResidentInventory(p, inv, "inventory-spend"); return [] as string[]; }
 function spendEnergy(p: PlayerRow, amount: number) { const n = Math.max(0, Number(amount || 0)); p.energy = Math.max(0, Number(p.energy ?? BASE_MAX) - n); p.energyAt = now(); }
 function addXp(p: PlayerRow, amount: number) {
   const n = Math.max(0, Math.floor(Number(amount || 0)));
@@ -174,9 +179,9 @@ function actionPlaceBuilding(p: PlayerRow, body: any) {
   } catch {}
   if (kind === "worldwonder") updateLandmarkCoinBonus();
   addXp(p, Number((XP as any).build || 6));
-  refreshPlayer(p);
+  refreshPlayer(p); patchResidentPlayer(p, "place-player");
   bump("place-building", x, z);
-  return ok({ uid: Number(row?.id || 0), x, z, kind, inv: p.inv, buildMs, note: kind === "worldwonder" ? `${def.name || "Landmark"} founded. Coin production will rise for everyone when the landmark is active.` : `${def.name || "Building"} construction started.` });
+  return ok({ uid: Number(row?.id || 0), x, z, kind, inv: residentInventoryFor(p), buildMs, note: kind === "worldwonder" ? `${def.name || "Landmark"} founded. Coin production will rise for everyone when the landmark is active.` : `${def.name || "Building"} construction started.` });
 }
 function isUnderConstruction(b: BuildingRow) { return Number(b?.cdUntil || 0) > now(); }
 function markUsed(b: BuildingRow) { b.usedAt = now(); refreshBuilding(b); }
@@ -330,8 +335,8 @@ function actionHarvestFinish(p: PlayerRow, body: any) {
     addXp(p, 4);
     note = `Harvested crops: +${amount} food 🌾.`;
   }
-  refreshPlayer(p); bump("harvest-channel");
-  return ok({ note, inv: p.inv, kind, x, z });
+  refreshPlayer(p); patchResidentPlayer(p, "harvest-player"); bump("harvest-channel");
+  return ok({ note, inv: residentInventoryFor(p), kind, x, z });
 }
 function actionHarvestCancel(p: PlayerRow) { channels.delete(Number(p.id)); return ok(); }
 function keepChatCard(b: any) {
@@ -395,8 +400,8 @@ function actionPickupLoot(p: PlayerRow, body: any) {
     note = `Picked up +${amount} coins 🪙.`;
   }
   addXp(p, 1);
-  refreshPlayer(p); bump("pickup");
-  return ok({ note, lootGone: Number(l.id || 0), inv: p.inv, xp: p.xp, level: p.level });
+  refreshPlayer(p); patchResidentPlayer(p, "pickup-player"); bump("pickup");
+  return ok({ note, lootGone: Number(l.id || 0), inv: residentInventoryFor(p), xp: p.xp, level: p.level });
 }
 
 function actionCustomize(p: PlayerRow, body: any) {

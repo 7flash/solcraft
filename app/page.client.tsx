@@ -263,6 +263,24 @@ export default function mount() {
     consoleBudgetMs: 24,
   });
 
+  const perfMini = (() => {
+    const el = document.createElement("div");
+    el.className = "sc-perf-mini";
+    el.setAttribute("aria-label", "Performance diagnostics");
+    el.textContent = "perf starting…";
+    root.appendChild(el);
+    const data = { ping: 0, paint: 0, frame: 0, cells: 0, chunks: 0, last: 0 };
+    function update(partial: any = {}) {
+      Object.assign(data, partial || {});
+      const now = performance.now();
+      if (now - data.last < 180) return;
+      data.last = now;
+      const ping = data.ping ? `${Math.round(data.ping)}ms` : "—";
+      el.textContent = `ping ${ping} · frame ${Math.round(data.frame || 0)}ms · ui ${Math.round(data.paint || 0)}ms · cells ${Math.round(data.cells || 0)}`;
+    }
+    return { update };
+  })();
+
   const sfx = makeSfx();
 
   const ST = {
@@ -826,7 +844,9 @@ export default function mount() {
     if (!ST.auth || pollBusy || (!force && ST.screen !== "playing")) return false;
     const a = { ...ST.auth };
     pollBusy = true;
+    const pollStartedAt = performance.now();
     const r = await perf.measureAsync("net.state", () => api(`/api/state?pid=${a.pid}&secret=${encodeURIComponent(a.secret)}&rev=${ST.rev}&ax=${ST.ax}&az=${ST.az}&chat=${ST.chatId}&mapRev=${ST.mapRev ?? -1}`), { rev: ST.rev, mapRev: ST.mapRev ?? -1 });
+    perfMini.update({ ping: performance.now() - pollStartedAt });
     pollBusy = false;
     if (!r || !r.ok) {
       if (r && r.msg === "auth") {
@@ -2351,7 +2371,9 @@ export default function mount() {
       const renderStart = performance.now();
       renderer.render(scene, camera);
       perf.record("webgl.render", performance.now() - renderStart);
-      perf.record("frame.total", performance.now() - frameStart, { rawDtMs: rawDt * 1000, anims: anims.length, rigs: rigPool.size, builds: buildPool.size, cells: cells.size });
+      const frameMs = performance.now() - frameStart;
+      perf.record("frame.total", frameMs, { rawDtMs: rawDt * 1000, anims: anims.length, rigs: rigPool.size, builds: buildPool.size, cells: cells.size });
+      perfMini.update({ frame: frameMs, cells: cells.size });
     });
 
     function drawMinimap() {
@@ -2371,11 +2393,15 @@ export default function mount() {
         info.className = "minimap-info-card";
         minimapEl.insertAdjacentElement("afterend", info);
       }
-      const show = ST.screen === "playing" && !ST.modal && !ST.panel;
+      const show = ST.screen === "playing" && !ST.modal;
       info.style.display = show ? "grid" : "none";
       if (!show) return;
       const bonus = Math.max(0, Number(ST.landmarkBonusPct || 0) || 0);
-      info.innerHTML = `<b>Landmark Bonus: +${bonus}% coins</b><span>Coins come from Keeps and NPCs.</span>`;
+      const hour = currentWorldHour(ST, Number(ST.now || Date.now()));
+      const label = hour < 5 ? "Night" : hour < 8 ? "Dawn" : hour < 18 ? "Day" : hour < 21 ? "Dusk" : "Night";
+      const x = Math.trunc(Number(ST.me?.x || 0));
+      const z = Math.trunc(Number(ST.me?.z || 0));
+      info.innerHTML = `<b>${label} · ${String(hour).padStart(2, "0")}:00</b><span>You ${x}, ${z}</span><span>Landmark Bonus: +${bonus}% coins</span><span>Coins come from Keeps and NPCs.</span>`;
     }
 
     function onResize() { renderer.setSize(W(), H()); setFrustum(); }
@@ -2518,7 +2544,7 @@ export default function mount() {
     act("wonderStart", { uid }).then((r) => {
       if (!r || !r.ok) return;
       ST.channel = { x, z, until: performance.now() + r.ms, ms: r.ms, kind: "wonder", uid };
-      showChannel("Travelling to Wonder…");
+      showChannel("Travelling to Landmark…");
     });
   }
   function startHouseCast(uid) {
@@ -2642,7 +2668,9 @@ export default function mount() {
             world.burst(x, 0.4, z, kind === "tree" ? 0x52ad58 : kind === "food" ? 0xffd76e : 0xaaa69a, 12, 0.45);
             const gainText = String(r.note || "").match(/(?:\+\d+[^.]*|\d+\s+(?:wood|stone|food)[^.]*)/i)?.[0] || (kind === "tree" ? "+wood dropped" : kind === "rock" ? "+stone dropped" : "+food");
             world.floatText?.(x, z, gainText, kind === "tree" ? "#14f195" : kind === "food" ? "#ffd76e" : "#d7dde7");
+            if (r.inv && ST.me) ST.me.inv = { ...(ST.me.inv || {}), ...r.inv };
             completeWalkthroughAction(kind === "tree" ? "chop" : kind === "food" ? "farm" : "mine");
+            paint(true);
             pollSoon();
           }
         });
@@ -2740,17 +2768,24 @@ export default function mount() {
   let lastPickupAt = 0;
   function localLootAt(x = world?.me?.x, z = world?.me?.z) {
     if (!world?.lootPool) return null;
+    const tx = Math.trunc(Number(x));
+    const tz = Math.trunc(Number(z));
+    let nearest = null;
+    let best = 99;
     for (const l of world.lootPool.values()) {
-      if (Math.trunc(Number(l.x)) === Math.trunc(Number(x)) && Math.trunc(Number(l.z)) === Math.trunc(Number(z))) return l;
+      const lx = Math.trunc(Number(l.x));
+      const lz = Math.trunc(Number(l.z));
+      const d = Math.max(Math.abs(lx - tx), Math.abs(lz - tz));
+      if (d < best && d <= 1) { nearest = l; best = d; }
     }
-    return null;
+    return nearest;
   }
   function tryPickupAt(x = world?.me?.x, z = world?.me?.z) {
     if (pickupBusy || ST.spectator || !ST.auth) return;
     const l = localLootAt(x, z);
     if (!l) return;
     const now = performance.now();
-    if (now - lastPickupAt < 180) return;
+    if (now - lastPickupAt < 70) return;
     lastPickupAt = now;
     pickupBusy = true;
     act("pickup", { id: l.id, x: l.x, z: l.z }).then((r) => {
@@ -4781,45 +4816,18 @@ export default function mount() {
     return score;
   }
   function walkthroughPlacement(panel) {
-    const vw = Math.max(1, window.innerWidth || 1024);
-    const vh = Math.max(1, window.innerHeight || 768);
-    const compact = vw < 520 || vh < 520;
-    const safe = compact ? 8 : 12;
-    const w = Math.min(vw - safe * 2, compact ? 268 : vw < 720 || vh < 560 ? 300 : 326);
-    const h = compact ? 112 : vw < 720 || vh < 560 ? 142 : 164;
-    const gap = compact ? 10 : 14;
-    const r = walkthroughTargetRect(panel);
-    const avoid = walkthroughAvoidRects(panel);
-    const candidates = [];
-    function add(left, top, prefer = 0) {
-      const rect = rectFromStyle(clampPx(left, safe, vw - w - safe), clampPx(top, safe, vh - h - safe), w, h);
-      const score = placementPenalty(rect, avoid, safe, vw, vh) + prefer;
-      candidates.push({ ...rect, score });
-    }
-    if (r) {
-      const centeredLeft = r.left + r.width / 2 - w / 2;
-      add(r.right + gap, r.top - 8, 1);
-      add(r.left - w - gap, r.top - 8, 2);
-      add(centeredLeft, r.bottom + gap, 3);
-      add(centeredLeft, r.top - h - gap, 4);
-    }
-    add(vw - w - safe, safe, 20);
-    add(safe, vh - h - Math.max(74, safe), 22);
-    add((vw - w) / 2, safe, 24);
-    add((vw - w) / 2, vh - h - Math.max(74, safe), 26);
-    add((vw - w) / 2, (vh - h) / 2, 40);
-    const best = candidates.sort((a, b) => a.score - b.score)[0] || { left: safe, top: safe };
-    let nub = null;
-    if (r) {
-      const nubSize = compact ? 46 : 54;
-      nub = {
-        left: `${Math.round(clampPx(r.left + r.width / 2 - nubSize / 2, safe, vw - nubSize - safe))}px`,
-        top: `${Math.round(clampPx(r.top + r.height / 2 - nubSize / 2, safe, vh - nubSize - safe))}px`,
-      };
-    }
+    const safe = 14;
+    const narrow = window.innerWidth < 720;
+    const w = narrow ? Math.min(window.innerWidth - safe * 2, 340) : 340;
     return {
-      card: { left: `${Math.round(best.left)}px`, top: `${Math.round(best.top)}px`, width: `${Math.round(w)}px`, maxHeight: `${Math.round(Math.max(96, vh - safe * 2))}px` },
-      nub,
+      card: {
+        right: `${safe}px`,
+        top: `calc(${safe}px + env(safe-area-inset-top))`,
+        left: "auto",
+        width: `${Math.round(w)}px`,
+        maxHeight: `min(52vh, 360px)`,
+      },
+      nub: null,
     };
   }
 
@@ -4829,8 +4837,8 @@ export default function mount() {
     const meta = {
       chop: { panel: "chop", title: t("walkthrough.chop.title", "Step 1: Axe"), text: t("walkthrough.chop.text", "Select the axe and click a tree. Wood drops as pickups on the map."), btn: t("walkthrough.chop.button", "Select axe"), click: "gather-wood" },
       mine: { panel: "mine", title: t("walkthrough.mine.title", "Step 2: Pickaxe"), text: t("walkthrough.mine.text", "Select the pickaxe and click stone. The cursor tells you what can be worked."), btn: t("walkthrough.mine.button", "Select pickaxe"), click: "gather-stone" },
-      claim: { panel: "claim", title: t("walkthrough.claim.title", "Step 3: Capture"), text: t("walkthrough.claim.text", "Select capture, stand on any open tile outside the capital, and claim it."), btn: t("walkthrough.claim.button", "Select capture"), click: "claim" },
-      build: { panel: "build", title: t("walkthrough.build.title", "Step 4: Build"), text: t("walkthrough.build.text", "Select the hammer, click an empty captured tile, then choose a building in the right panel."), btn: t("walkthrough.build.button", "Open build"), click: "select-build" },
+      claim: { panel: "claim", title: t("walkthrough.claim.title", "Step 3: Capture"), text: t("walkthrough.claim.text", "Select capture and claim any free tile inside your territory capacity. Claims are free; $CRAFTS holding sets the limit."), btn: t("walkthrough.claim.button", "Select capture"), click: "claim" },
+      build: { panel: "build", title: t("walkthrough.build.title", "Step 4: Build"), text: t("walkthrough.build.text", "Select the hammer, click an empty captured tile, then choose House. Red highlights explain blocked tiles before you click."), btn: t("walkthrough.build.button", "Open build"), click: "select-build" },
     }[step] || { panel: "chop", title: t("walkthrough.fallback.title", "Step 1: Axe"), text: t("walkthrough.fallback.text", "Start by gathering wood."), btn: t("walkthrough.fallback.button", "Select axe"), click: "gather-wood" };
     const place = walkthroughPlacement(meta.panel);
     return <div className="walkthrough-layer">
@@ -4840,7 +4848,6 @@ export default function mount() {
         <div className="walkthrough-progress">{Math.max(1, WALK_STEPS.indexOf(step) + 1)} / {WALK_STEPS.length}</div>
         <h3>{meta.title}</h3>
         <p>{meta.text}</p>
-        <div className="tiny">{t("walkthrough.note", "Basics stay here while you play. Skip anytime.")}</div>
         <div className="walkthrough-actions"><button className="btn primary" data-click={meta.click} data-panel={meta.panel}>{meta.btn}</button><button className="btn" data-click="guide-skip">{t("walkthrough.skip", "Skip")}</button></div>
       </div>
     </div>;
@@ -4933,7 +4940,7 @@ export default function mount() {
     /* chat panel visibility is imperative */
     perf.measure("ui.hints", () => updateHints());
     chatEl.style.display = ST.screen === "playing" ? "flex" : "none";
-    minimapEl.style.display = (ST.screen === "playing" && !ST.panel && !ST.modal) ? "block" : "none";
+    minimapEl.style.display = (ST.screen === "playing" && !ST.modal) ? "block" : "none";
     try { world?.updateMinimapInfo?.(); } catch {}
     vignetteEl.style.display = ST.screen === "playing" ? "block" : "none";
     if (ST.screen !== "playing" || ST.modal) hideCtx();
@@ -4958,7 +4965,9 @@ export default function mount() {
     if (ST.screen === "playing" && (ST.mode === "build" || ST.mode === "place")) syncBuildScrollSoon();
     mountWonderViewerSoon();
     if ((force && (!forceSet || forceSet.has("utility"))) || utilityRendered) syncMiniPreviewPanels(utilityRoot);
-    perf.record("ui.paint", performance.now() - paintStart, { force, only, changed });
+    const paintMs = performance.now() - paintStart;
+    perf.record("ui.paint", paintMs, { force, only, changed });
+    perfMini.update({ paint: paintMs });
   }
 
   /* ---------- imperative energy/bin ticker: NO vdom ---------- */

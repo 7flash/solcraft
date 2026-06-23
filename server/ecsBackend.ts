@@ -13,7 +13,7 @@ import { cleanBuildKindResponse } from "./cleanRelease";
 import { recordActivity, logError } from "./activityLog";
 import { withImmediateTx } from "./dbTx";
 import { applyReferralCodeForNewProfile } from "./referralProgram";
-import { residentPlayerRow, residentPlayerRows, residentWorldRows, residentWorldStatus, ensureResidentWorldStarted, checkpointResidentWorld, residentWorldRev, upsertResidentPlayer, residentOwnedTileCount, residentBuildings } from "./residentWorld";
+import { residentPlayerRow, residentPlayerRows, residentWorldRows, residentWorldStatus, ensureResidentWorldStarted, checkpointResidentWorld, residentWorldRev, upsertResidentPlayer, residentOwnedTileCount, residentBuildings, patchResidentPlayer } from "./residentWorld";
 
 export type EcsPlayerRow = any;
 export type WalletAuthInput = { wallet?: string; message?: string; signature?: string } | null | undefined;
@@ -306,6 +306,7 @@ function dispatchUnlocked(p: EcsPlayerRow, body: any) {
     applyInviteCharacterGift(row, referral);
     row.profileDone = 1;
     refreshPlayer(row);
+    patchResidentPlayer(row, "profile-setup");
     try { db.chat.insert({ name: "", msg: `${row.name || "A new settler"} joined the world.`, sys: 1 }); } catch {}
     return { ok: true, backend: "ecs", landmarkBonusPct: landmarkBonusPct(), referral: referral || null, note: referral?.note || "Character ready." };
   }
@@ -314,6 +315,7 @@ function dispatchUnlocked(p: EcsPlayerRow, body: any) {
     if (!row) return { ok: false, msg: "Unknown player", reasonCode: "PLAYER_NOT_FOUND" };
     row.appearance = body.appearance == null ? null : JSON.stringify(body.appearance).slice(0, 12000);
     refreshPlayer(row);
+    patchResidentPlayer(row, "profile-appearance");
     return { ok: true, backend: "ecs" };
   }
   if (type === "profileFace") {

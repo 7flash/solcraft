@@ -199,10 +199,63 @@ export function upsertResidentPlayer(rowLike: any) {
   ensureResidentWorldLoaded();
   if (!rowLike) return null;
   const row = clone(rowLike);
-  const live = liveMoves.get(Number(row.id || 0));
+  const id = Number(row.id || 0);
+  const cached = id ? world.players.get(id) : null;
+  // Resident inventory is live gameplay state. Auth/touch calls may pass an old DB row,
+  // so do not let that overwrite materials/coins earned in the running ECS world.
+  if (cached?.inv && !row.__replaceResidentInventory) row.inv = clone(cached.inv);
+  const live = liveMoves.get(id);
   if (live) { row.x = live.x; row.z = live.z; if (live.energy !== undefined) row.energy = live.energy; if (live.energyAt !== undefined) row.energyAt = live.energyAt; row.moveSeq = live.lastSeq; }
-  world.players.set(Number(row.id || 0), cleanPlayerRow(row));
+  world.players.set(id, cleanPlayerRow(row));
   setPlayerDirty("player");
+  return row;
+}
+
+
+function normalizeInv(invLike: any) {
+  const inv = invLike && typeof invLike === "object" ? invLike : {};
+  return {
+    w: Math.max(0, Number(inv.w || 0)),
+    p: Math.max(0, Number(inv.p || 0)),
+    s: Math.max(0, Number(inv.s || 0)),
+    f: Math.max(0, Number(inv.f || 0)),
+    g: Math.max(0, Number(inv.g || 0)),
+    sh: Math.max(0, Number(inv.sh || 0)),
+    sc: Math.max(0, Number(inv.sc || 0)),
+  } as Record<string, number>;
+}
+function playerIdFrom(rowOrId: any) { return typeof rowOrId === "object" ? idOf(rowOrId?.id) : idOf(rowOrId); }
+export function residentInventoryFor(rowOrId: any) {
+  ensureResidentWorldLoaded();
+  const id = playerIdFrom(rowOrId);
+  const cached = id ? world.players.get(id) : null;
+  const source = cached?.inv || (typeof rowOrId === "object" ? rowOrId?.inv : null);
+  return normalizeInv(source);
+}
+export function setResidentInventory(rowOrId: any, invLike: any, reason = "inventory") {
+  ensureResidentWorldLoaded();
+  const id = playerIdFrom(rowOrId);
+  const inv = normalizeInv(invLike);
+  if (id) {
+    const cached = world.players.get(id) || (typeof rowOrId === "object" ? clone(rowOrId) : { id });
+    cached.inv = inv;
+    cached.updatedAt = Math.max(num(cached.updatedAt, 0), now());
+    world.players.set(id, cleanPlayerRow(cached));
+    setPlayerDirty(reason);
+  }
+  if (rowOrId && typeof rowOrId === "object") rowOrId.inv = inv;
+  return inv;
+}
+export function patchResidentPlayer(rowLike: any, reason = "player") {
+  ensureResidentWorldLoaded();
+  if (!rowLike) return null;
+  const id = idOf(rowLike.id);
+  if (!id) return null;
+  const row = cleanPlayerRow(clone(rowLike));
+  const live = liveMoves.get(id);
+  if (live) { row.x = live.x; row.z = live.z; row.energy = live.energy ?? row.energy; row.energyAt = live.energyAt ?? row.energyAt; row.moveSeq = live.lastSeq; }
+  world.players.set(id, row);
+  setPlayerDirty(reason);
   return row;
 }
 
