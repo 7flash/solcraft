@@ -22,7 +22,8 @@
     "test:backend-consistency": "bun scripts/audit-backend-consistency.ts",
     "world:migrate": "bun scripts/migrate-production-to-resident-world.ts",
     "world:migrate:recenter": "bun scripts/migrate-production-to-resident-world.ts --recenter",
-    "audit:resident-world": "bun scripts/audit-resident-world.ts"
+    "audit:resident-world": "bun scripts/audit-resident-world.ts && bun scripts/audit-resident-purity.ts",
+    "audit:resident-purity": "bun scripts/audit-resident-purity.ts"
   },
   "dependencies": {
     "measure-fn": "4.0.4",

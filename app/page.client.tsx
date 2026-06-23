@@ -24,7 +24,7 @@ import {
   skillLvl, tradePostAt, upgradeCost, xpForLevel,
 } from "@server/shared";
 import {
-  M, ME, buildBanner, buildRock, buildTree, lootMesh,
+  M, ME, buildBanner, lootMesh,
   makeBuildingGroup, makeLabel, makeSfx,
 } from "../client/meshes";
 import { loadAtlasRuntimeConfig, terrainMats, tickVisualTextures, setTerrainVisualPrefs } from "../client/textures";
@@ -269,14 +269,14 @@ export default function mount() {
     el.setAttribute("aria-label", "Performance diagnostics");
     el.textContent = "perf starting…";
     root.appendChild(el);
-    const data = { ping: 0, paint: 0, frame: 0, cells: 0, chunks: 0, last: 0 };
+    const data = { ping: 0, paint: 0, frame: 0, cells: 0, chunks: 0, draws: 0, tris: 0, resources: 0, last: 0 };
     function update(partial: any = {}) {
       Object.assign(data, partial || {});
       const now = performance.now();
       if (now - data.last < 180) return;
       data.last = now;
       const ping = data.ping ? `${Math.round(data.ping)}ms` : "—";
-      el.textContent = `ping ${ping} · frame ${Math.round(data.frame || 0)}ms · ui ${Math.round(data.paint || 0)}ms · cells ${Math.round(data.cells || 0)}`;
+      el.textContent = `ping ${ping} · frame ${Math.round(data.frame || 0)}ms · ui ${Math.round(data.paint || 0)}ms · draw ${Math.round(data.draws || 0)} · tri ${Math.round(data.tris || 0)} · res ${Math.round(data.resources || 0)} · cells ${Math.round(data.cells || 0)}`;
     }
     return { update };
   })();
@@ -1434,7 +1434,16 @@ export default function mount() {
       c.userData.v = 0.2 + Math.random() * 0.25; scene.add(c); clouds.push(c);
     }
 
-    const tileGeo = new THREE.BoxGeometry(1.006, 1, 1.006);
+    // Fixed-camera render budget: terrain is batched. The old per-cell BoxGeometry
+    // used a six-material cube per tile, which created thousands of draw calls when
+    // zoomed out. Cells remain logical for hit tests/pathing, but visuals are drawn
+    // as a handful of instanced flat layers.
+    const tileGeo = new THREE.PlaneGeometry(1.006, 1.006);
+    tileGeo.rotateX(-Math.PI / 2);
+    const terrainBatchRoot = new THREE.Group(); scene.add(terrainBatchRoot);
+    const terrainBatchMeshes = new Map(), terrainBatchMatCache = new Map();
+    const batchDummy = new THREE.Object3D();
+    let terrainBatchSig = "";
     const neutralMats = () => terrainMats("sand");
     const ownerMatCache = new Map();
     function territoryTopHex(color, mine) {
@@ -1451,10 +1460,148 @@ export default function mount() {
       ownerMatCache.set(ck, arr);
       return arr;
     }
+    function terrainBatchKeyForCell(k) {
+      const t = tileOwner.get(k);
+      if (!t) return "neutral";
+      const mine = ST.me && Number(t.owner) === Number(ST.me.id);
+      return `owned:${mine ? 1 : 0}:${Math.trunc(Number(t.body) || 0)}`;
+    }
+    function terrainBatchMat(batchKey) {
+      if (terrainBatchMatCache.has(batchKey)) return terrainBatchMatCache.get(batchKey);
+      let mat;
+      if (batchKey === "neutral") {
+        mat = new THREE.MeshLambertMaterial({ color: 0x3f3120 });
+      } else {
+        const [, mine, body] = String(batchKey).split(":");
+        mat = new THREE.MeshLambertMaterial({ color: territoryTopHex(Number(body) || 0x14f195, mine === "1") });
+      }
+      mat.depthWrite = true;
+      terrainBatchMatCache.set(batchKey, mat);
+      return mat;
+    }
+    function rebuildTerrainBatches(force = false) {
+      const buckets = new Map();
+      for (const [k, c] of cells) {
+        const bk = terrainBatchKeyForCell(k);
+        if (!buckets.has(bk)) buckets.set(bk, []);
+        buckets.get(bk).push(c);
+      }
+      const sig = [...buckets.entries()].sort(([a], [b]) => String(a).localeCompare(String(b))).map(([bk, rows]) => {
+        const first = rows[0], last = rows[rows.length - 1];
+        return `${bk}:${rows.length}:${first?.cx},${first?.cz}:${last?.cx},${last?.cz}`;
+      }).join("|");
+      if (!force && sig === terrainBatchSig) return;
+      terrainBatchSig = sig;
+      for (const mesh of terrainBatchMeshes.values()) terrainBatchRoot.remove(mesh);
+      terrainBatchMeshes.clear();
+      for (const [bk, rows] of buckets) {
+        const mesh = new THREE.InstancedMesh(tileGeo, terrainBatchMat(bk), rows.length);
+        mesh.frustumCulled = false;
+        mesh.receiveShadow = false;
+        mesh.renderOrder = 0;
+        for (let i = 0; i < rows.length; i++) {
+          const c = rows[i];
+          batchDummy.position.set(c.cx, 0.055, c.cz);
+          batchDummy.rotation.set(0, 0, 0);
+          batchDummy.scale.set(1, 1, 1);
+          batchDummy.updateMatrix();
+          mesh.setMatrixAt(i, batchDummy.matrix);
+        }
+        mesh.instanceMatrix.needsUpdate = true;
+        terrainBatchRoot.add(mesh);
+        terrainBatchMeshes.set(bk, mesh);
+      }
+    }
 
     const cells = new Map(), doodadPool = new Map(), buildPool = new Map(), buildAt = new Map(), npcPool = new Map();
     const lootPool = new Map(), rigPool = new Map(), tradePostPool = new Map(), exceptions = new Map(), tileOwner = new Map();
     const roadPool = new Map(), districtPool = new Map();
+    const resourceSpriteMats = new Map(), resourceBatchMats = new Map();
+    function resourceSpriteTexture(type) {
+      const c = document.createElement("canvas"); c.width = 96; c.height = 128;
+      const g = c.getContext("2d");
+      if (!g) return null;
+      g.clearRect(0, 0, c.width, c.height);
+      g.shadowColor = "rgba(0,0,0,.28)"; g.shadowBlur = 8;
+      g.fillStyle = "rgba(0,0,0,.24)"; g.beginPath(); g.ellipse(48, 114, 28, 8, 0, 0, Math.PI * 2); g.fill();
+      g.shadowBlur = 0;
+      if (type === "tree") {
+        g.fillStyle = "#7a4b22"; g.fillRect(43, 66, 10, 42);
+        const grd = g.createLinearGradient(24, 18, 72, 84); grd.addColorStop(0, "#8be06e"); grd.addColorStop(1, "#176b39");
+        g.fillStyle = grd;
+        for (const [x,y,r] of [[48,34,24],[32,56,22],[62,58,24],[48,70,25]]) { g.beginPath(); g.arc(x,y,r,0,Math.PI*2); g.fill(); }
+        g.strokeStyle = "rgba(255,255,255,.18)"; g.lineWidth = 2; g.beginPath(); g.arc(40,42,17,0,Math.PI*2); g.stroke();
+      } else if (type === "rock") {
+        const grd = g.createLinearGradient(24, 54, 72, 102); grd.addColorStop(0, "#d6dde2"); grd.addColorStop(1, "#66717d");
+        g.fillStyle = grd; g.beginPath(); g.moveTo(20,94); g.lineTo(34,54); g.lineTo(62,42); g.lineTo(82,78); g.lineTo(70,102); g.lineTo(31,104); g.closePath(); g.fill();
+        g.strokeStyle = "rgba(0,0,0,.24)"; g.stroke();
+        g.strokeStyle = "rgba(255,255,255,.32)"; g.beginPath(); g.moveTo(38,62); g.lineTo(52,80); g.lineTo(72,76); g.stroke();
+      } else {
+        g.strokeStyle = "#2f6b46"; g.lineWidth = 4;
+        for (let i=0;i<7;i++){ const x=25+i*8; g.beginPath(); g.moveTo(x,104); g.lineTo(x+4,60+(i%3)*5); g.stroke(); }
+        g.fillStyle = "#ffd76e"; for (let i=0;i<7;i++){ const x=29+i*8,y=58+(i%3)*5; g.beginPath(); g.ellipse(x,y,5,10,0,0,Math.PI*2); g.fill(); }
+      }
+      const tex = new THREE.CanvasTexture(c); tex.colorSpace = THREE.SRGBColorSpace; tex.needsUpdate = true; return tex;
+    }
+    function resourceSpriteMat(type) {
+      if (!resourceSpriteMats.has(type)) {
+        const tex = resourceSpriteTexture(type);
+        resourceSpriteMats.set(type, new THREE.SpriteMaterial({ map: tex || undefined, transparent: true, depthWrite: false, depthTest: true }));
+      }
+      return resourceSpriteMats.get(type);
+    }
+    function makeResourceSprite(type, x, z) {
+      const sprite = new THREE.Sprite(resourceSpriteMat(type));
+      const scale = type === "tree" ? 1.16 : type === "rock" ? 0.92 : 0.78;
+      sprite.scale.set(scale, scale * 1.24, 1);
+      sprite.position.set(x + (hrand(x, z, 5) - 0.5) * 0.18, 0.72, z + (hrand(x, z, 6) - 0.5) * 0.18);
+      sprite.userData.resourceSprite = true;
+      return sprite;
+    }
+    const resourceBatchRoot = new THREE.Group(); scene.add(resourceBatchRoot);
+    const resourceQuadGeo = new THREE.PlaneGeometry(1, 1);
+    const resourceBatchMeshes = new Map();
+    let resourceBatchSig = "";
+    function resourceBatchMat(type) {
+      if (!resourceBatchMats.has(type)) {
+        const tex = resourceSpriteTexture(type);
+        resourceBatchMats.set(type, new THREE.MeshBasicMaterial({ map: tex || undefined, transparent: true, depthWrite: false, depthTest: true, side: THREE.DoubleSide }));
+      }
+      return resourceBatchMats.get(type);
+    }
+    function rebuildResourceBatches(force = false) {
+      const buckets = new Map();
+      for (const [k, d] of doodadPool) {
+        if (!d || !d.type || !cells.has(k)) continue;
+        if (!buckets.has(d.type)) buckets.set(d.type, []);
+        buckets.get(d.type).push(d);
+      }
+      const sig = [...buckets.entries()].sort(([a], [b]) => String(a).localeCompare(String(b))).map(([type, rows]) => {
+        const first = rows[0], last = rows[rows.length - 1];
+        return `${type}:${rows.length}:${first?.x},${first?.z}:${last?.x},${last?.z}`;
+      }).join("|");
+      if (!force && sig === resourceBatchSig) return;
+      resourceBatchSig = sig;
+      for (const mesh of resourceBatchMeshes.values()) resourceBatchRoot.remove(mesh);
+      resourceBatchMeshes.clear();
+      for (const [type, rows] of buckets) {
+        const mesh = new THREE.InstancedMesh(resourceQuadGeo, resourceBatchMat(type), rows.length);
+        mesh.frustumCulled = false;
+        mesh.renderOrder = 2;
+        for (let i = 0; i < rows.length; i++) {
+          const d = rows[i];
+          const scale = type === "tree" ? 1.16 : type === "rock" ? 0.92 : 0.78;
+          batchDummy.position.set(d.x + (hrand(d.x, d.z, 5) - 0.5) * 0.18, 0.72, d.z + (hrand(d.x, d.z, 6) - 0.5) * 0.18);
+          batchDummy.quaternion.copy(camera.quaternion);
+          batchDummy.scale.set(scale, scale * 1.24, 1);
+          batchDummy.updateMatrix();
+          mesh.setMatrixAt(i, batchDummy.matrix);
+        }
+        mesh.instanceMatrix.needsUpdate = true;
+        resourceBatchRoot.add(mesh);
+        resourceBatchMeshes.set(type, mesh);
+      }
+    }
     const roadGeo = new THREE.PlaneGeometry(0.70, 0.70);
     const roadMat = new THREE.MeshBasicMaterial({ color: 0xb98c55, transparent: true, opacity: 0.58, depthWrite: false, side: THREE.DoubleSide });
     const roadMatMine = new THREE.MeshBasicMaterial({ color: 0xd8b66e, transparent: true, opacity: 0.66, depthWrite: false, side: THREE.DoubleSide });
@@ -1578,7 +1725,7 @@ export default function mount() {
       scene.add(group);
       // Trade posts stay visually calm; use-trigger animation handles feedback.
       tradePostPool.set(k, { group, x, z });
-      const dd = doodadPool.get(k); if (dd) { scene.remove(dd.group); doodadPool.delete(k); }
+      const dd = doodadPool.get(k); if (dd) { doodadPool.delete(k); rebuildResourceBatches(true); }
     }
     function ensureNpcCamp(x, z) {
       const k = key(x, z);
@@ -1620,28 +1767,10 @@ export default function mount() {
       const k = key(x, z);
       const want = tradePostAt(x, z) ? null : doodadVisible(x, z);
       const have = doodadPool.get(k);
-      if (have && have.type === want) return;
-      if (have) { scene.remove(have.group); doodadPool.delete(k); }
+      if (have && have.type === want && have.x === x && have.z === z) return;
+      if (have) doodadPool.delete(k);
       if (!want || buildPoolAt(x, z)) return;
-      const g = new THREE.Group();
-      if (want === "tree") buildTree(g, 0, 0, 0.9 + hrand(x, z, 11) * 0.5);
-      else if (want === "food") {
-        const stemMat = M(0x2f6b46);
-        const grainMat = M(0xffd76e);
-        for (let i = 0; i < 7; i++) {
-          const a = (i / 7) * Math.PI * 2;
-          const r = 0.12 + 0.08 * hrand(x + i, z, 17);
-          const stalk = new THREE.Mesh(new THREE.BoxGeometry(0.025, 0.28 + 0.1 * hrand(x, z + i, 19), 0.025), stemMat);
-          stalk.position.set(Math.cos(a) * r, 0.16, Math.sin(a) * r);
-          g.add(stalk);
-          const head = new THREE.Mesh(new THREE.SphereGeometry(0.045, 8, 6), grainMat);
-          head.position.set(stalk.position.x, 0.34, stalk.position.z);
-          g.add(head);
-        }
-      } else buildRock(g);
-      g.position.set(x + (hrand(x, z, 5) - 0.5) * 0.3, 0.14, z + (hrand(x, z, 6) - 0.5) * 0.3);
-      g.rotation.y = hrand(x, z, 7) * Math.PI * 2; scene.add(g);
-      doodadPool.set(k, { group: g, type: want });
+      doodadPool.set(k, { x, z, type: want, batched: true });
     }
     function wonderFootprintRadiusForBuild(have) {
       if (!have || have.kind !== "worldwonder") return 0;
@@ -1741,22 +1870,14 @@ export default function mount() {
     function refreshCell(x, z) {
       const k = key(x, z), t = tileOwner.get(k);
       let cell = cells.get(k);
-      // Biomes affect discovery/resources/keeps, but neutral ground stays visually calm.
-      // Loud per-tile biome materials made player territory harder to read.
-      const wantMats = t ? ownerMats(t.body, ST.me && t.owner === ST.me.id) : neutralMats();
-      const wantH = t ? 0.18 : 0.11;
       if (!cell) {
-        const mesh = new THREE.Mesh(tileGeo, wantMats);
-        mesh.scale.y = wantH; mesh.position.set(x, wantH / 2, z);
-        mesh.castShadow = false; mesh.receiveShadow = true; mesh.userData = { x, z };
-        scene.add(mesh); cell = { mesh, owner: (t && t.owner) || 0, body: (t && t.body) || 0, cx: x, cz: z }; cells.set(k, cell);
+        cell = { owner: (t && t.owner) || 0, body: (t && t.body) || 0, cx: x, cz: z };
+        cells.set(k, cell);
       } else {
         cell.cx = x; cell.cz = z;
       }
-      if (cell.owner !== ((t && t.owner) || 0) || cell.body !== ((t && t.body) || 0)) {
-        cell.mesh.material = wantMats; cell.mesh.scale.y = wantH; cell.mesh.position.y = wantH / 2;
-        cell.owner = (t && t.owner) || 0; cell.body = (t && t.body) || 0;
-      }
+      cell.owner = (t && t.owner) || 0;
+      cell.body = (t && t.body) || 0;
       ensureTradePost(x, z);
       ensureNpcCamp(x, z);
       ensureDoodad(x, z);
@@ -1782,17 +1903,19 @@ export default function mount() {
         const cx = Number.isFinite(c.cx) ? c.cx : Number(String(k).split(",")[0]);
         const cz = Number.isFinite(c.cz) ? c.cz : Number(String(k).split(",")[1]);
         if (cheb(cx, cz, px, pz) > r + 2) {
-          scene.remove(c.mesh); cells.delete(k);
-          const d = doodadPool.get(k); if (d) { scene.remove(d.group); doodadPool.delete(k); }
+          cells.delete(k);
+          const d = doodadPool.get(k); if (d) doodadPool.delete(k);
           const tp = tradePostPool.get(k); if (tp) { scene.remove(tp.group); tradePostPool.delete(k); } const npc = npcPool.get(k); if (npc) { scene.remove(npc.group); npcPool.delete(k); }
           const rd = roadPool.get(k); if (rd) { scene.remove(rd); roadPool.delete(k); }
         }
       }
       for (let x = px - r; x <= px + r; x++)
         for (let z = pz - r; z <= pz + r; z++) refreshCell(x, z);
+      rebuildTerrainBatches(force);
+      rebuildResourceBatches(force);
       syncWorldVisibility();
     }
-    loadAtlasRuntimeConfig().then(() => { ownerMatCache.clear(); for (const [, c] of cells) c.owner = -1; refreshWindow(true); }).catch(() => {});
+    loadAtlasRuntimeConfig().then(() => { ownerMatCache.clear(); terrainBatchMatCache.clear(); terrainBatchSig = ""; for (const [, c] of cells) c.owner = -1; refreshWindow(true); }).catch(() => {});
 
     function hardSnapMe(x, z) {
       walkQueue.length = 0; netMoveQueue.length = 0; walking = false; moveBusy = false; pendingWalk = null; inFlightMoveBatches = 0; lastAckMoveSeq = moveSeq; activeMoveToken = ++moveToken;
@@ -1867,7 +1990,7 @@ export default function mount() {
           buildPool.set(b.uid, have);
           indexBuildAt(have);
           const dd = doodadPool.get(key(b.x, b.z));
-          if (dd) { scene.remove(dd.group); doodadPool.delete(key(b.x, b.z)); }
+          if (dd) { doodadPool.delete(key(b.x, b.z)); rebuildResourceBatches(true); }
         }
         have.uid = b.uid; indexBuildAt(have);
         if (have.usedAt && Number(b.usedAt || 0) > Number(have.usedAt || 0)) animateBuildingUse(b.uid);
@@ -2270,9 +2393,7 @@ export default function mount() {
         const x = Math.round(hit.x), z = Math.round(hit.z);
         if (cells.has(key(x, z))) return { x, z };
       }
-      const hits = raycaster.intersectObjects([...cells.values()].map((c) => c.mesh), false);
-      if (!hits.length) return null;
-      const u = hits[0].object.userData; return { x: u.x, z: u.z };
+      return null;
     }
     function buildingFromEvent(ev) {
       const c = cellFromEvent(ev); if (!c) return null;
@@ -2373,7 +2494,7 @@ export default function mount() {
       perf.record("webgl.render", performance.now() - renderStart);
       const frameMs = performance.now() - frameStart;
       perf.record("frame.total", frameMs, { rawDtMs: rawDt * 1000, anims: anims.length, rigs: rigPool.size, builds: buildPool.size, cells: cells.size });
-      perfMini.update({ frame: frameMs, cells: cells.size });
+      perfMini.update({ frame: frameMs, cells: cells.size, resources: doodadPool.size + lootPool.size, draws: renderer.info?.render?.calls || 0, tris: renderer.info?.render?.triangles || 0 });
     });
 
     function drawMinimap() {
@@ -2411,8 +2532,9 @@ export default function mount() {
       const k = key(x, z);
       exceptions.set(k, "gone");
       const dd = doodadPool.get(k);
-      if (dd) { scene.remove(dd.group); doodadPool.delete(k); }
+      if (dd) doodadPool.delete(k);
       refreshCell(Math.trunc(Number(x || 0)), Math.trunc(Number(z || 0)));
+      rebuildResourceBatches(true);
     }
 
     return {
@@ -2425,8 +2547,8 @@ export default function mount() {
       tileOwner, buildPool, buildAt, lootPool, rigPool, tradePostPool, cells,
       updateMinimapInfo,
       rotateCam: (delta = CAMERA_ROTATION_STEP) => stepCameraYaw(delta),
-      refreshCameraRotation: () => {},
-      refreshCameraZoom: () => setFrustum(),
+      refreshCameraRotation: () => { rebuildResourceBatches(true); },
+      refreshCameraZoom: () => { setFrustum(); refreshWindow(true); },
       refreshEnvironment: () => updateEnvironment(clock?.elapsedTime || 0),
       zoom: (delta = 0) => setCameraZoom((ST.visual?.cameraZoom || 1) + Number(delta || 0), false),
       walkQueueClear: () => { walkQueue.length = 0; pendingWalk = null; },

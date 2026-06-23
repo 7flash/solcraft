@@ -348,7 +348,8 @@ export function upsertResidentTile(rowLike: any, reason = "tile") {
   const row = clone(rowLike || {});
   row.x = int(row.x); row.z = int(row.z); row.owner = int(row.owner);
   world.tiles.set(key(row.x, row.z), row);
-  return setStructuralDirty(reason, row.x, row.z);
+  setStructuralDirty(reason, row.x, row.z);
+  return clone(row);
 }
 export function residentOwnedTileCount(ownerLike: any) {
   ensureResidentWorldLoaded();
@@ -375,7 +376,8 @@ export function upsertResidentBuilding(rowLike: any, reason = "building") {
   row.id = int(row.id || row.uid || 0) || nextEntityId(world.buildings);
   row.x = int(row.x); row.z = int(row.z); row.owner = int(row.owner);
   world.buildings.set(Number(row.id), row);
-  return setStructuralDirty(reason, row.x, row.z);
+  setStructuralDirty(reason, row.x, row.z);
+  return clone(row);
 }
 export function removeResidentBuilding(idLike: any, reason = "building-remove") {
   ensureResidentWorldLoaded();
@@ -393,7 +395,17 @@ export function upsertResidentDoodad(rowLike: any, reason = "doodad") {
   const row = clone(rowLike || {});
   row.x = int(row.x); row.z = int(row.z); row.state = String(row.state || "gone");
   world.doodads.set(key(row.x, row.z), row);
-  return setStructuralDirty(reason, row.x, row.z);
+  setStructuralDirty(reason, row.x, row.z);
+  return clone(row);
+}
+export function removeResidentDoodad(xLike: any, zLike: any, reason = "doodad-remove") {
+  ensureResidentWorldLoaded();
+  const x = int(xLike), z = int(zLike);
+  const row = world.doodads.get(key(x, z));
+  if (!row) return false;
+  world.doodads.delete(key(x, z));
+  setStructuralDirty(reason, x, z);
+  return true;
 }
 
 export function residentLootAt(x: any, z: any) {
@@ -408,7 +420,8 @@ export function upsertResidentLoot(rowLike: any, reason = "loot") {
   row.id = int(row.id || row.uid || 0) || nextEntityId(world.loot);
   row.x = int(row.x); row.z = int(row.z);
   world.loot.set(Number(row.id), row);
-  return setStructuralDirty(reason, row.x, row.z);
+  setStructuralDirty(reason, row.x, row.z);
+  return clone(row);
 }
 export function removeResidentLoot(idLike: any, reason = "loot-remove") {
   ensureResidentWorldLoaded();

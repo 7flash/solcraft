@@ -1,5 +1,4 @@
-// Movement facade. Movement state is owned by the resident ECS world,
-// not by a separate database overlay.
+// Thin movement adapter. Movement state is owned by ResidentWorld.
 import {
   commitResidentMovement,
   residentMovementFor,
@@ -13,7 +12,7 @@ export type LiveMovementState = ReturnType<typeof residentMovementFor> extends i
 
 export function liveMovementStats() {
   const s = residentWorldStatus() as any;
-  return { live: s.players || 0, dirty: s.dirtyMoves || 0, resident: true, worldRev: s.rev || 0 };
+  return { live: s.players || 0, dirty: s.dirtyMoves || 0, resident: true, worldRev: s.rev || 0, playerRev: s.playerRev || 0 };
 }
 
 export function liveMovementFor(playerIdLike: any) { return residentMovementFor(playerIdLike); }
@@ -22,13 +21,9 @@ export function liveMovementRows<T extends Record<string, any>>(rows: T[]): T[] 
 export function commitLiveMovement(rowLike: Record<string, any>, next: { x: number; z: number; energy?: number; energyAt?: number; seq?: number; at?: number }) { return commitResidentMovement(rowLike, next); }
 
 export function flushLiveMovementForPlayer(_playerIdLike: any) {
-  // No per-move DB write. Non-movement actions should read through
-  // residentPlayerRow() so they see the current in-memory position.
   return false;
 }
 
 export function flushLiveMovementToDb(_limit = 500) {
-  // Keep old call sites harmless: save a whole resident world snapshot instead
-  // of syncing movement rows to sqlite.
-  return checkpointResidentWorld("movement-compat-flush");
+  return checkpointResidentWorld("movement-save");
 }
