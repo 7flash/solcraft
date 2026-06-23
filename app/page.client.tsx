@@ -3592,34 +3592,34 @@ export default function mount() {
     const gateProblem = gate?.enabled && !gate?.configured;
     const canJoin = hasPhantom && !gateProblem && !ST.joining;
     return (
-      <div className="menu ui31-menu">
-        <div className="login-scene ui31-login-scene">
+      <div className="menu landing-page">
+        <div className="login-scene landing-scene">
           <div className="login-glow a" /><div className="login-glow b" /><div className="login-glow c" />
           {LoginIso()}<div className="login-grain" />{LoginMotes()}
         </div>
-        <main className="ui31-login-shell">
-          <section className="ui31-login-card">
-            <p className="ui31-kicker"><span className="login-pulse" /> {t("login.kicker", "Shared frontier")}</p>
+        <main className="landing-shell">
+          <section className="landing-card">
+            <p className="landing-kicker"><span className="login-pulse" /> {t("login.kicker", "Shared frontier")}</p>
             <h1>{t("login.titlePrefix", "World of")} <span>{t("login.titleAccent", "SolCrafts")}</span></h1>
-            <p className="ui31-login-copy">{t("login.copy", "Capture land, gather resources, build your first House, and expand through reputation in a shared Solana world.")}</p>
-            <div className="ui31-login-loop" aria-label={t("login.coreLoopAria", "Core loop")}>
+            <p className="landing-copy">{t("login.copy", "Capture land, gather resources, build your first House, and expand through reputation in a shared Solana world.")}</p>
+            <div className="landing-loop" aria-label={t("login.coreLoopAria", "Core loop")}>
               {tArray("login.loop", ["Gather resources", "Capture 3 tiles", "Build a House", "Grow reputation"]).map((label, i) => <div><b>{String(i + 1).padStart(2, "0")}</b><span>{label}</span></div>)}
             </div>
-            <p className="ui31-profile-after-wallet">New settlers choose their character name and optional invite code after Phantom connects.</p>
-            <div className="ui31-login-actions">
-              <button className="ui31-play" data-click="join-game" disabled={!canJoin}>{ST.joining ? t("login.checking", "Checking…") : !hasPhantom ? t("login.installPhantom", "Install Phantom") : t("login.connectWallet", "Connect Wallet to Play")}</button>
-              <button className="ui31-secondary" data-click="spectate-game" disabled={ST.joining}>{t("login.spectate", "Spectate")}</button>
-              {ST.auth ? <button className="ui31-secondary" data-click="forget-session" disabled={ST.joining}>{t("login.forgetSession", "Forget session")}</button> : null}
+            <p className="landing-after-wallet">New settlers choose their character name and optional invite code after Phantom connects.</p>
+            <div className="landing-actions">
+              <button className="landing-primary" data-click="join-game" disabled={!canJoin}>{ST.joining ? t("login.checking", "Checking…") : !hasPhantom ? t("login.installPhantom", "Install Phantom") : t("login.connectWallet", "Connect Wallet to Play")}</button>
+              <button className="landing-secondary" data-click="spectate-game" disabled={ST.joining}>{t("login.spectate", "Spectate")}</button>
+              {ST.auth ? <button className="landing-secondary" data-click="forget-session" disabled={ST.joining}>{t("login.forgetSession", "Forget session")}</button> : null}
             </div>
-            <div className={"ui31-login-status" + (!hasPhantom || gateProblem ? " bad" : "") }>
+            <div className={"landing-status" + (!hasPhantom || gateProblem ? " bad" : "") }>
               <b>{!hasPhantom ? t("login.phantomRequiredTitle", "Phantom wallet required") : gate?.enabled ? t("login.walletCheckedTitle", "Wallet checked by server") : t("login.walletLoginTitle", "Wallet login")}</b>
               <span>{!hasPhantom ? t("login.phantomRequiredBody", "Install or enable Phantom to play. Spectate remains available without a wallet.") : loginGateText(gate)}</span>
             </div>
-            {ST.loginMsg ? <div className="ui31-login-message">{ST.loginMsg}</div> : null}
+            {ST.loginMsg ? <div className="landing-message">{ST.loginMsg}</div> : null}
           </section>
-          <aside className="ui31-capital-card">
-            <div className="ui31-capital-mini"><div className="pad" /><div className="flag" /><div className="roof" /></div>
-            <p className="ui31-kicker">{t("login.capitalKicker", "Capital services")}</p>
+          <aside className="landing-capital-card">
+            <div className="landing-capital-mini"><div className="pad" /><div className="flag" /><div className="roof" /></div>
+            <p className="landing-kicker">{t("login.capitalKicker", "Capital services")}</p>
             <h2>{t("login.capitalTitle", "Start near the capital")}</h2>
             <p>{t("login.capitalText", "Capture land first, then use capital services for banking, appearance, guide rewards, and production systems once the core loop is clear.")}</p>
           </aside>

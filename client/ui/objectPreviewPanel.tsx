@@ -38,34 +38,34 @@ export function ObjectPreviewPanelView({ preview }: any) {
   return <div className="utility-pop object-preview-pop" data-stop-pointerdown="1" data-service-preview={service ? "1" : "0"} data-kind={String(p.kind || "")}> 
     <button className="utility-close" data-click="object-preview-close" aria-label="Close preview">×</button>
     <div className="mini3d-preview object-preview-stage" data-mini3d-preview="1" data-preview-kind={p.kind} aria-label={`${title} 3D preview`}><span>{glyph}</span></div>
-    {service ? <div className="owner-card ui45-preview-summary service-preview-card"><b>{glyph} {title}</b><small>Capital service building</small></div> : null}
+    {service ? <div className="owner-card object-preview-summary service-preview-card"><b>{glyph} {title}</b><small>Capital service building</small></div> : null}
     <div className="inspect-head">
       <span className="accent-orb" />
       <div className="inspect-name">{title}</div>
       {hasCoords(p) ? <span className="stat">{Math.trunc(Number(p.x))},{Math.trunc(Number(p.z))}</span> : null}
     </div>
-    <div className="owner-card ui45-preview-summary">
+    <div className="owner-card object-preview-summary">
       <div>
         <div className="card-title">{p.kind === "npc" ? (p.title || "Wanderer") : p.kind === "food" ? "Farm crop" : p.kind === "tile" ? "Walkable ground" : service ? "World service" : "World object"}</div>
         <div className="tiny">{desc}</div>
       </div>
     </div>
     {p.kind === "buildTile" ? <div className="build-first-rule"><b>Build here</b><span>Choose a starter building for this empty captured tile. Warehouses increase shared storage; Houses become travel points.</span></div> : null}
-    {p.kind === "keep" && (p.maxHp || p.coins) ? <div className="ui35-rally-strip" aria-label="Shared keep rally details">
+    {p.kind === "keep" && (p.maxHp || p.coins) ? <div className="keep-rally-strip" aria-label="Shared keep rally details">
       {p.maxHp ? <span><b>{Math.max(0, Math.floor(Number(p.hp || 0)))}/{Math.floor(Number(p.maxHp || 0))}</b><em>HP when shared</em></span> : null}
       {p.coins ? <span><b>{Math.floor(Number(p.coins || 0))}🪙</b><em>reported inside</em></span> : null}
     </div> : null}
-    {p.kind === "buildTile" ? <div className="ui44-build-choices" aria-label="Choose building for selected tile">
+    {p.kind === "buildTile" ? <div className="build-choice-list" aria-label="Choose building for selected tile">
       {BUILD_CHOICE_IDS.map((id) => {
         const { name, icon, cost, info } = buildChoice(id);
-        return <button className="ui44-build-choice production-build-choice" data-click="build-tile-choice" data-id={id} data-tip-title={`${icon} ${name}`} data-tip-body={`${info.purpose || "City infrastructure"} Cost: ${costLine(cost)}. Requires: ${info.requires || "captured tile"}.`}>
+        return <button className="build-choice-card production-build-choice" data-click="build-tile-choice" data-id={id} data-tip-title={`${icon} ${name}`} data-tip-body={`${info.purpose || "City infrastructure"} Cost: ${costLine(cost)}. Requires: ${info.requires || "captured tile"}.`}>
           <b><span>{icon}</span>{name}</b>
           <small>{info.purpose || "City infrastructure."}</small>
           <em>Cost: {costLine(cost)}</em>
         </button>;
       })}
     </div> : null}
-    <div className="inspect-actions ui45-object-actions">
+    <div className="inspect-actions object-preview-actions">
       {hasCoords(p) ? <button className="btn" data-click="object-preview-share">Share location</button> : null}
       {p.kind === "npc" ? <>
         <button className="btn" data-click="object-preview-action" data-object-action="walk-near">Walk near</button>

@@ -113,7 +113,7 @@ export function ActionRibbon(props: any) {
     </div>;
   }
 
-  if (buildOpen) return <div className="build-ribbon ui26-build-flow-ribbon">
+  if (buildOpen) return <div className="build-ribbon build-flow-ribbon">
     <div className="build-sep"><b>{t("ribbon.buildFlowTitle", "Hammer selected")}</b><small>{t("ribbon.buildFlowText", "Click an empty owned tile. The right-side build panel opens there.")}</small></div>
     <button className="build-tile on" disabled aria-label={t("ribbon.buildFlowAria", "Choose an owned empty tile to build") }>
       <span className="bg">▦</span><span className="bn">{t("ribbon.buildFlowTile", "Owned empty tile")}</span><span className="bc">{t("ribbon.buildFlowDirect", "Direct construction · no foundations")}</span>

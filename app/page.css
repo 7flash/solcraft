@@ -1,6 +1,9 @@
 @import "./styles/layers.css";
 @import "./styles/base.css";
 @import "./styles/hud.css";
-@import "./styles/settings.css";
 @import "./styles/landing.css";
 @import "./styles/panels.css";
+@import "./styles/object-preview.css";
+@import "./styles/inspect.css";
+@import "./styles/settings.css";
+@import "./styles/cursors.css";
