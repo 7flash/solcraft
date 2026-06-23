@@ -14,7 +14,7 @@ export const CLEAN_BUILDING_IDS = [
   "quarry",       // spawns rocks nearby; no passive credit
   "farm",         // spawns crops nearby; crops must be harvested
   "warehouse",    // the only normal storage-cap building
-  "worldwonder",  // coin sink, reputation landmark, prestige teleport
+  "worldwonder",  // shared wood/stone landmark; global coin production bonus
 ] as const;
 
 export type CleanBuildingId = (typeof CLEAN_BUILDING_IDS)[number];

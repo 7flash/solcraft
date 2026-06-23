@@ -8,7 +8,7 @@
    ============================================================ */
 
 export const SOLCRAFT_ECONOMY = {
-  version: "backend-consistency-rc2",
+  version: "economy-rules-alignment-rc1",
 
   resources: {
     sharedMaterialKeys: ["w", "s", "f"] as const,
@@ -23,6 +23,32 @@ export const SOLCRAFT_ECONOMY = {
     firstMinuteBuilding: "cottage",
     starterBuildKinds: ["cottage", "lumber", "quarry", "farm", "warehouse"] as const,
     houseIsTravelPoint: true,
+  },
+
+  tiles: {
+    claimCost: {} as const,
+    requiresConnectedTiles: false,
+    capacitySource: "craftsHolding" as const,
+    baseTileCapacity: 6,
+    craftsPerExtraTile: 1000,
+    maxTileCapacity: 900,
+  },
+
+  resourceNodes: {
+    naturalNodesRegenerate: false,
+    lumberCampSpawnsWood: true,
+    quarrySpawnsStone: true,
+    farmSpawnsFood: true,
+    campSpawnRadius: 6,
+  },
+
+  worldWonder: {
+    cost: { w: 300, s: 220 } as const,
+    consumesCoins: false,
+    requiresPersonalTile: false,
+    globalCoinProductionBonusPct: 3,
+    maxGlobalCoinProductionBonusPct: 30,
+    minDistanceFromOtherWonders: 9,
   },
 
   economyRules: {
@@ -59,13 +85,13 @@ export const SOLCRAFT_ECONOMY = {
     leaderboardWeightPower: 0.70,
     buildingScoreTiles: 9,
 
-    // Tiles are reputation-gated. Stone remains the early claim cost/sink.
-    tileBaseCapacity: 18,
+    // Tile capture is free. Capacity comes from the $CRAFTS holder profile.
+    tileBaseCapacity: 6,
     tileCapacityPerBuilding: 0,
-    tileDecayPerCycle: 6,
+    tileDecayPerCycle: 0,
     claimEnergy: 0,
     claimWood: 0,
-    claimStone: 2,
+    claimStone: 0,
 
     moveEnergy: 1,
     chopEnergy: 5,
@@ -95,12 +121,12 @@ export const SOLCRAFT_ECONOMY = {
 
   buildCosts: {
     road: { w: 1 },
-    cottage: { w: 30 },
-    lumber: { w: 32 },
-    quarry: { w: 36 },
-    farm: { w: 24 },
-    warehouse: { w: 80 },
-    worldwonder: {},
+    cottage: { w: 6 },
+    lumber: { w: 12 },
+    quarry: { w: 12, s: 4 },
+    farm: { w: 14 },
+    warehouse: { w: 30, s: 12 },
+    worldwonder: { w: 300, s: 220 },
   } as const,
 
   money: {

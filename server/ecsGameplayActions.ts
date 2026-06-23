@@ -2,10 +2,10 @@ import { db, metaGet, metaSet } from "./db";
 import { getPlayer, refreshPlayer } from "./playerStore";
 import { deleteBuilding, getBuilding, insertBuilding, refreshBuilding } from "./buildingStore";
 import { deleteLoot, insertLoot, lootAt } from "./lootStore";
-import { adjustReputation, reputationDeltaFor, reputationDeltaText, reputationSummaryForWire, storageCapsForPlayer } from "./reputationRules";
+import { adjustReputation, reputationDeltaFor, reputationDeltaText, reputationSummaryForWire, storageCapsForPlayer, tileCapacityForPlayer, ownedTileCount } from "./reputationRules";
 import { removedFeatureResponse } from "./removedFeatures";
 import { bumpEcsWorldRev, mirrorLegacyToEcsTables } from "./ecsDbAdapter";
-import { BASE_MAX, ECONOMY_RULES, GOLD_MINE_KIND, LIBRARY, MAX_HP, NORMAL_BUILDING_BUILD_MS, DECOR_BUILDING_BUILD_MS, RAID_COST, RES_KEYS, RES_NAMES, TELEPORT_COST, TELEPORT_MS, XP, biomeAt, cheb, harvestMs, naturalDoodad, proceduralNpcAt } from "./shared";
+import { BASE_MAX, ECONOMY_RULES, GOLD_MINE_KIND, LIBRARY, MAX_HP, NORMAL_BUILDING_BUILD_MS, DECOR_BUILDING_BUILD_MS, RAID_COST, RES_KEYS, RES_NAMES, TELEPORT_COST, TELEPORT_MS, XP, biomeAt, cheb, harvestMs, naturalDoodad, proceduralNpcAt, hrand, WORLD_WONDER_GLOBAL_COIN_BONUS_PCT, WORLD_WONDER_MAX_GLOBAL_COIN_BONUS_PCT, WORLD_WONDER_PLAZA_RADIUS } from "./shared";
 import { cleanBuildKindResponse } from "./cleanRelease";
 
 export type EcsGameplayResult = { handled: boolean; result?: any };
@@ -108,12 +108,28 @@ function actionPlaceBuilding(p: PlayerRow, body: any) {
   const def = libById(kind);
   if (!def) return err("Unknown building.", "UNKNOWN_BUILDING");
   const x = int(body.x), z = int(body.z);
-  if (capitalReserved(x, z)) return err("Build outside the capital plaza.", "CAPITAL_RESERVED");
-  const tile = (db.tiles.select().where({ x, z }).first() as any) || null;
-  if (!tile || Number(tile.owner || 0) !== Number(p.id)) return err("Choose an empty captured tile you own.", "NEED_CAPTURED_TILE");
+  const isWonder = kind === "worldwonder";
+  if (capitalReserved(x, z)) return err(isWonder ? "Found the World Wonder outside the capital plaza." : "Build outside the capital plaza.", "CAPITAL_RESERVED");
+  if (!isWonder) {
+    const tile = (db.tiles.select().where({ x, z }).first() as any) || null;
+    if (!tile || Number(tile.owner || 0) !== Number(p.id)) return err("Choose an empty captured tile you own.", "NEED_CAPTURED_TILE");
+  }
   const existing = (db.buildings.select().where({ x, z }).first() as any) || null;
   if (existing) return err("That tile already has a building.", "BUILD_TILE_OCCUPIED");
   if (int(p.x) === x && int(p.z) === z) return err("Step aside first, then place the building.", "STEP_ASIDE");
+  if (isWonder) {
+    const minDist = 9;
+    const nearWonder = (db.buildings.select().where({ kind: "worldwonder" }).all() as any[]).find((b) => cheb(Number(b.x), Number(b.z), x, z) < minDist);
+    if (nearWonder) return err(`World Wonders need more space. Place at least ${minDist} tiles from another Wonder.`, "WONDER_TOO_CLOSE");
+    const r = Math.max(1, Math.floor(Number(WORLD_WONDER_PLAZA_RADIUS || 4)));
+    for (let dx = -r; dx <= r; dx++) for (let dz = -r; dz <= r; dz++) {
+      const sx = x + dx, sz = z + dz;
+      const other = (db.buildings.select().where({ x: sx, z: sz }).first() as any) || null;
+      if (other) return err("The Wonder plaza is blocked by another building.", "WONDER_PLAZA_BLOCKED");
+      const tile = (db.tiles.select().where({ x: sx, z: sz }).first() as any) || null;
+      if (tile && Number(tile.owner || 0) && Number(tile.owner || 0) !== Number(p.id)) return err("The Wonder plaza cannot cover another player's land.", "WONDER_PLAZA_OWNED");
+    }
+  }
   const miss = missing(p, def.cost || {});
   if (miss.length) return err(`${def.name || "Building"} needs ${costShort(def.cost || {})}. Missing ${missingText(p, def.cost || {})}.`, "NOT_ENOUGH_RESOURCES", { cost: def.cost, inv: p.inv });
   spend(p, def.cost || {});
@@ -129,11 +145,12 @@ function actionPlaceBuilding(p: PlayerRow, body: any) {
     const l = lootAt(x, z) as any;
     if (l) deleteLoot(l);
   } catch {}
+  if (kind === "worldwonder") updateWorldWonderCoinBonus();
   addXp(p, Number((XP as any).build || 6));
   refreshPlayer(p);
   bump("place-building");
   mirrorLegacyToEcsTables("place-building");
-  return ok({ uid: Number(row?.id || 0), x, z, kind, inv: p.inv, buildMs, note: `${def.name || "Building"} construction started.` });
+  return ok({ uid: Number(row?.id || 0), x, z, kind, inv: p.inv, buildMs, note: kind === "worldwonder" ? `${def.name || "World Wonder"} founded. Coin production will rise for everyone when the landmark is active.` : `${def.name || "Building"} construction started.` });
 }
 function isUnderConstruction(b: BuildingRow) { return Number(b?.cdUntil || 0) > now(); }
 function markUsed(b: BuildingRow) { b.usedAt = now(); refreshBuilding(b); }
@@ -180,7 +197,8 @@ function doodadAt(x: number, z: number): "tree" | "rock" | "food" | "" {
   if (state === "gone") return "";
   if (state === "tree" || state === "rock" || state === "food") return state as any;
   const nat = String(naturalDoodad(x, z) || "");
-  return nat === "tree" || nat === "rock" || nat === "food" ? nat as any : "";
+  if (nat === "tree" || nat === "rock" || nat === "food") return nat as any;
+  return infrastructureDoodadAt(x, z) as any;
 }
 function markDoodadGone(x: number, z: number) {
   const row = (db.doodads.select().where({ x, z }).first() as any) || null;
@@ -202,12 +220,39 @@ function dropHarvestLoot(x: number, z: number, kind: "wood" | "stone", amount: n
   return dropped;
 }
 function capitalReserved(x: number, z: number) { return Math.max(Math.abs(x), Math.abs(z)) <= 6; }
+function updateWorldWonderCoinBonus() {
+  try {
+    const count = Number(db.buildings.select().where({ kind: "worldwonder" }).count() || 0);
+    const pct = Math.max(0, Math.min(WORLD_WONDER_MAX_GLOBAL_COIN_BONUS_PCT, count * WORLD_WONDER_GLOBAL_COIN_BONUS_PCT));
+    metaSet("solcraft:wonders:globalCoinBonusPct:v1", String(pct));
+    return pct;
+  } catch { return 0; }
+}
+function infrastructureDoodadAt(x: number, z: number): "tree" | "rock" | "food" | "" {
+  try {
+    const rows = (db.buildings.select().all() as any[]).filter((b) => b && ["lumber", "quarry", "farm"].includes(String(b.kind || "")) && cheb(Number(b.x), Number(b.z), x, z) <= 6 && cheb(Number(b.x), Number(b.z), x, z) >= 2);
+    if (!rows.length) return "";
+    rows.sort((a, b) => cheb(Number(a.x), Number(a.z), x, z) - cheb(Number(b.x), Number(b.z), x, z));
+    for (const b of rows.slice(0, 3)) {
+      const lvl = Math.max(1, Math.floor(Number(b.level || 1)));
+      const chance = Math.min(0.42, 0.16 + 0.04 * (lvl - 1));
+      if (hrand(x, z, Number(b.id || 0) + 71) > chance) continue;
+      if (String(b.kind) === "lumber") return "tree";
+      if (String(b.kind) === "quarry") return "rock";
+      if (String(b.kind) === "farm") return "food";
+    }
+  } catch {}
+  return "";
+}
 function actionClaimAnyFreeTile(p: PlayerRow, body: any) {
   const x = int(body.x), z = int(body.z);
   if (capitalReserved(x, z)) return err("The capital plaza is public land. Claim outside the service ring.", "CAPITAL_RESERVED");
   const existing = (db.tiles.select().where({ x, z }).first() as any) || null;
   if (existing && Number(existing.owner || 0) === Number(p.id)) return ok({ note: `Already yours: ${x},${z}.` });
   if (existing && Number(existing.owner || 0)) return err("That tile is already claimed.", "TILE_TAKEN");
+  const cap = tileCapacityForPlayer(p);
+  const owned = ownedTileCount(Number(p.id));
+  if (owned >= cap) return err(`Tile limit reached: ${owned}/${cap}. Hold more $CRAFTS to expand your land capacity.`, "TILE_CAP_REACHED", { owned, cap });
   if (existing) existing.owner = Number(p.id); else db.tiles.insert({ x, z, owner: Number(p.id) });
   addXp(p, 4); refreshPlayer(p); bump("claim-any-free"); mirrorLegacyToEcsTables("claim-any-free");
   return ok({ note: `Claimed ${x},${z}.`, x, z });

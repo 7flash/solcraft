@@ -36,17 +36,17 @@ export function PlayerHudView(props: any) {
   return <aside className="scv-hud player-hud" aria-label="Player status">
     <header className="player-hud__header">
       <b className="player-hud__name" title={vm.name}>{vm.name}</b>
-      <span className="player-hud__territory" title={vm.captureLimitText}>Tiles {vm.territory}/{vm.tileCap || "?"} · {vm.tileFree} left · Rep {vm.reputation}</span>
+      <span className="player-hud__territory" title={vm.captureLimitText}>Tiles {vm.territory}/{vm.tileCap || "?"} · {vm.tileFree} claimable · $CRAFTS cap</span>
     </header>
 
     <section className="player-hud__bars">
-      <StatusBar icon="⚡" label="Energy" now={vm.energyNow} max={vm.maxEnergy} pct={vm.energyPct} id="sc-e-now" tip="Energy limits gathering, claiming, building, and attacks." />
+      <StatusBar icon="⚡" label="Energy" now={vm.energyNow} max={vm.maxEnergy} pct={vm.energyPct} id="sc-e-now" tip="Energy limits movement, gathering, building, and attacks. Tile capture is free." />
       <StatusBar icon="♥" label="Health" now={vm.hpNow} max={vm.maxHp} pct={vm.hpPct} id="sc-hp-now" tip="Food helps health recover after fights and raids." />
     </section>
 
     <SharedStorageBar vm={vm} />
 
-    <section className="player-hud__row player-hud__money" title="Coins are separate from resource storage and have no cap." data-tip-title="Coins" data-tip-body="Coins have no storage limit. Deposit at the Bank to speed progress, donate for reputation, or spend on World Wonders.">
+    <section className="player-hud__row player-hud__money" title="Coins are separate from resource storage and have no cap." data-tip-title="Coins" data-tip-body="Coins have no storage limit. Use the Bank for SOL exchange. World Wonders increase coin production for everyone.">
       <b>🪙 Coins</b><span>{vm.gold}</span><em>no cap · Wonders {vm.wondersBuilt}</em>
     </section>
 

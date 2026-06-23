@@ -17,7 +17,7 @@
 import { render } from "tradjs/client";
 import * as THREE from "three";
 import {
-  BOMB_ITEM_COST, BODY_COLORS, COLOR_CHOICES, COSTI, DESTROY_BY_ID, DESTROY_TOOLS, ECONOMY, FINAL_TEXT, GEAR_BY_ID, HAT_COLORS, GOLD_MINE_KIND, GOLD_PER_CRAFTS_FIXED, WORLD_WONDER_GOLD_COST, WORLD_WONDER_PLAZA_RADIUS, WORLD_WONDER_PLAZA_SIZE as SHARED_WONDER_PLAZA_SIZE, WORLD_WONDER_PLAZA_TILES as SHARED_WONDER_PLAZA_TILES, WORLD_WONDER_BUILD_MS, NORMAL_BUILDING_BUILD_MS, DECOR_BUILDING_BUILD_MS,
+  BOMB_ITEM_COST, BODY_COLORS, COLOR_CHOICES, COSTI, DESTROY_BY_ID, DESTROY_TOOLS, ECONOMY, FINAL_TEXT, GEAR_BY_ID, HAT_COLORS, GOLD_MINE_KIND, GOLD_PER_CRAFTS_FIXED, WORLD_WONDER_COST, WORLD_WONDER_GLOBAL_COIN_BONUS_PCT, WORLD_WONDER_PLAZA_RADIUS, WORLD_WONDER_PLAZA_SIZE as SHARED_WONDER_PLAZA_SIZE, WORLD_WONDER_PLAZA_TILES as SHARED_WONDER_PLAZA_TILES, WORLD_WONDER_BUILD_MS, NORMAL_BUILDING_BUILD_MS, DECOR_BUILDING_BUILD_MS,
   LIBRARY, LIB_BY_ID, MAX_HP, MAX_LEVEL, MILESTONES, MOVE_COST, N4, N8, NPC_TRADES, PACK_SIZE,
   RECIPES, REDEEM_MIN_GOLD, RES_KEYS, RES_NAMES, SKILLS, SLOTS, SLOT_LABEL, USE_ITEMS,
   biomeAt, biomeTerrainAt, cheb, gearStat, harvestMs, hrand, key, lvlMul, naturalDoodad, proceduralNpcAt, repairCost,
@@ -478,8 +478,8 @@ export default function mount() {
   }
   function completeWalkthroughAction(kind) {
     if (!ST.walkthrough?.active) return;
-    if (ST.walkthrough.step === "chop" && kind === "chop") return advanceWalkthroughTo("mine", t("toast.treeChoppedNext", "Tree chopped. Next try Mine (3) on stone."));
-    if (ST.walkthrough.step === "mine" && kind === "mine") return advanceWalkthroughTo("claim", t("toast.stoneMinedNext", "Stone mined. Next select Capture (4) to expand connected territory."));
+    if (ST.walkthrough.step === "chop" && kind === "chop") return advanceWalkthroughTo("mine", t("toast.treeChoppedNext", "Tree chopped. Next mine stone, then build with wood and stone."));
+    if (ST.walkthrough.step === "mine" && kind === "mine") return advanceWalkthroughTo("claim", t("toast.stoneMinedNext", "Stone mined. Next select Capture (4) to claim free nearby land within your $CRAFTS capacity."));
     if (ST.walkthrough.step === "claim" && kind === "claim") return advanceWalkthroughTo("build", t("toast.landCapturedNext", "Land captured. Build next to raise limits and make the camp useful."));
   }
   function syncWalkthroughFromGuideRows() {
@@ -2663,7 +2663,7 @@ export default function mount() {
     if (ST.tool === "claim") { closeTools(); say(t("toast.capturePacked", "Capture flag tucked away."), 1100); paint(); return; }
     ST.tool = "claim"; ST.mode = "explore"; ST.placing = null; ST.modal = null; ST.panel = null;
     updateHints();
-    say(t("toast.captureSelected", "Capture selected — click any free non-capital tile. Each tile costs stone."), 1500);
+    say(t("toast.captureSelected", "Capture selected — click any free non-capital tile. Claiming is free; your $CRAFTS holder capacity sets the limit."), 1500);
     paint();
   }
   function doClaim() { return selectCaptureTool(); }
@@ -2701,7 +2701,7 @@ export default function mount() {
     return out;
   }
   function padRequirementLine(def) {
-    if (def?.id === "worldwonder") return `Costs ${WORLD_WONDER_GOLD_COST}🪙. Needs a clear ${currentWonderSize()}×${currentWonderSize()} plaza (${wonderTilesClient(currentWonderSize())} tiles): center plus ${wonderTilesClient(currentWonderSize()) - 1} surrounding cells. ${wonderFactsLine()}.`;
+    if (def?.id === "worldwonder") return `Costs ${polishCostLine(WORLD_WONDER_COST)}. Needs a clear ${currentWonderSize()}×${currentWonderSize()} plaza (${wonderTilesClient(currentWonderSize())} tiles): center plus ${wonderTilesClient(currentWonderSize()) - 1} surrounding cells. ${wonderFactsLine()}.`;
     return "Needs a clear claimed 3×3 street ring: the eight surrounding tiles must be yours and empty.";
   }
   function canPlaceAt(x, z) {
@@ -2711,7 +2711,6 @@ export default function mount() {
     if (def?.id === "worldwonder") {
       if (!ST.me) return "No settler loaded.";
       if (!cleanWonderPromptClient(ST.wonderPrompt)) return "Type one Wonder prompt first.";
-      if ((ST.me?.inv?.g || 0) < WORLD_WONDER_GOLD_COST) return `Need ${WORLD_WONDER_GOLD_COST}🪙 to found a World Wonder.`;
       const size = currentWonderSize();
       const r = wonderRadiusClient(size);
       for (let dx = -r; dx <= r; dx++) for (let dz = -r; dz <= r; dz++) {
@@ -3601,9 +3600,9 @@ export default function mount() {
           <section className="landing-card">
             <p className="landing-kicker"><span className="login-pulse" /> {t("login.kicker", "Shared frontier")}</p>
             <h1>{t("login.titlePrefix", "World of")} <span>{t("login.titleAccent", "SolCrafts")}</span></h1>
-            <p className="landing-copy">{t("login.copy", "Capture land, gather resources, build your first House, and expand through reputation in a shared Solana world.")}</p>
+            <p className="landing-copy">{t("login.copy", "Capture free land within your $CRAFTS capacity, gather resources, build your first House, and grow a shared Solana world.")}</p>
             <div className="landing-loop" aria-label={t("login.coreLoopAria", "Core loop")}>
-              {tArray("login.loop", ["Gather resources", "Capture 3 tiles", "Build a House", "Grow reputation"]).map((label, i) => <div><b>{String(i + 1).padStart(2, "0")}</b><span>{label}</span></div>)}
+              {tArray("login.loop", ["Gather resources", "Capture 3 tiles", "Build a House", "Fund Wonders"]).map((label, i) => <div><b>{String(i + 1).padStart(2, "0")}</b><span>{label}</span></div>)}
             </div>
             <p className="landing-after-wallet">New settlers choose their character name and optional invite code after Phantom connects.</p>
             <div className="landing-actions">
@@ -3621,7 +3620,7 @@ export default function mount() {
             <div className="landing-capital-mini"><div className="pad" /><div className="flag" /><div className="roof" /></div>
             <p className="landing-kicker">{t("login.capitalKicker", "Capital services")}</p>
             <h2>{t("login.capitalTitle", "Start near the capital")}</h2>
-            <p>{t("login.capitalText", "Capture land first, then use capital services for banking, appearance, guide rewards, and production systems once the core loop is clear.")}</p>
+            <p>{t("login.capitalText", "Capture land first, then use capital services for banking, appearance, guide rewards, and World Wonder funding once the core loop is clear.")}</p>
           </aside>
         </main>
       </div>
@@ -3635,7 +3634,7 @@ export default function mount() {
     return `${tiles} claimed tiles · territory coins spawn over time and are picked up by walking over them`;
   }
   function territoryCoinNextStep() {
-    return "Claim connected land, collect loose tokens, and return to the capital bank for token services.";
+    return "Claim free land within your $CRAFTS capacity, build resource sources, and use the capital bank for coin/SOL services.";
   }
 
   function capRatio(value, cap) {
@@ -3655,7 +3654,7 @@ export default function mount() {
         key: "tiles", glyph: "◇", cls: tileRatio >= 0.96 ? "bad" : "warn",
         title: `Tile limit ${m.territory || 0}/${tileCap}`,
         short: tileRatio >= 0.96 ? "Tile limit full" : "Near tile limit",
-        body: "Build any normal building for more tile capacity. At 24 claimed tiles build Town Hall (+75). At 100 tiles build World Wonder (+250).",
+        body: "Hold more $CRAFTS to raise land capacity. Houses are travel points; they do not increase the tile limit.",
       });
     }
     const resourceRows = [
@@ -3742,7 +3741,7 @@ export default function mount() {
     return buildingPurposeLine(b);
   }
   function buildingStatsLine(b) {
-    const cost = b?.id === "worldwonder" ? `${WORLD_WONDER_GOLD_COST}🪙` : (polishCostLine(b.cost) || "Free");
+    const cost = polishCostLine(b.cost) || "Free";
     return `Cost: ${cost} · Requires: ${buildingRequirementLine(b)} · Produces: ${buildingProductionLine(b)} · Best near: ${buildingBestNearLine(b)}`;
   }
   function missingCostLine(cost, m = ST.me) {
@@ -3753,8 +3752,7 @@ export default function mount() {
     const b = LIB_BY_ID[id];
     const m = ST.me;
     if (!b || !m) return "No settler loaded.";
-    if ((m.territory || 0) < (b.unlock || 0)) return `${b.name} unlocks at ${b.unlock} claimed tiles. You have ${m.territory || 0}. Capture more tiles as reputation allows.`;
-    if (id === "worldwonder" && (m?.inv?.g || 0) < WORLD_WONDER_GOLD_COST) return `World Wonder needs ${WORLD_WONDER_GOLD_COST}🪙. Collect territory coins or breach neutral Keeps.`;
+    if ((m.territory || 0) < (b.unlock || 0)) return `${b.name} unlocks at ${b.unlock} claimed tiles. You have ${m.territory || 0}. Capture more tiles as your $CRAFTS holder capacity allows.`;
     const missing = missingCostLine(b.cost, m);
     if (missing) return `${b.name}: ${missing}.`;
     return "";
@@ -3784,7 +3782,7 @@ export default function mount() {
   }
   function selectWonderTool() {
     if (ST.mode === "wonder" || ST.tool === "wonder") { ST.wonderMsg = ""; closeTools(); }
-    else openWonderPlanner("Describe a World Wonder, generate the AI plan, then found it in the wild.");
+    else openWonderPlanner("Describe a World Wonder, generate the AI plan, then found it on a clear frontier site.");
   }
   function selectBuilding(id) {
     const reason = buildingUnavailableReason(id);
@@ -4052,7 +4050,7 @@ export default function mount() {
     const status = ST.wonderPlacing ? "Founding on map…" : ST.wonderBusy ? "Generating real AI plan…" : planReady ? "Plan ready — choose placement" : "Needs AI plan";
     return <div className="modal" style={{ width: "min(760px,96vw)", maxHeight: "92vh", overflow: "auto" }}>
       <h2>★ World Wonder Planner</h2>
-      <p className="tiny">No browser popups. Pick the name, prompt, footprint, layout mode, and color scheme here. Coins spend only after the server validates the AI recipe and open space.</p>
+      <p className="tiny">No browser popups. Pick the name, prompt, footprint, layout mode, and color scheme here. Wood and stone spend only after the server validates the AI recipe and open space.</p>
       <div className="recipe-req"><b>Status:</b> {status}</div>
       <div className="grid" style={{ gridTemplateColumns: "repeat(auto-fit,minmax(230px,1fr))", gap: 10 }}>
         <div className="card">
@@ -4078,7 +4076,7 @@ export default function mount() {
           <div className="recipe-req">
             <b>Selected:</b> {size}×{size} plaza · {wonderTilesClient(size)} tiles · {mode === "single" ? "big single landmark" : "multi-tile district"} · {palette.name}.
             <br/><b>Timing:</b> AI plan {WONDER_AI_TIME_HINT}; construction about {Math.round(buildMs / 1000)}s after placement.
-            <br/><b>Cost:</b> {WORLD_WONDER_GOLD_COST}🪙, spent only when founding succeeds. You have {m.inv?.g || 0}🪙.
+            <br/><b>Cost:</b> {polishCostLine(WORLD_WONDER_COST)}, spent only when founding succeeds. Benefit: +{WORLD_WONDER_GLOBAL_COIN_BONUS_PCT}% global coin production.
           </div>
           <div className="row" style={{ gap: 8, flexWrap: "wrap", marginTop: 8 }}>
             {palette.colors.map((c) => <i title={c} style={{ width: 26, height: 26, borderRadius: 999, display: "inline-block", background: c, border: "1px solid rgba(255,255,255,.4)", boxShadow: "0 2px 10px rgba(0,0,0,.28)" }} />)}
@@ -4089,7 +4087,7 @@ export default function mount() {
         <div className="card-title">Plan + placement</div>
         <div className="tiny">Generate the AI plan first. Then the map ghost shows the exact {size}×{size} footprint; click a valid center tile to spawn the foundation instantly and watch construction progress.</div>
         <div className="row" style={{ gap: 8, flexWrap: "wrap", marginTop: 10 }}>
-          <div className="tiny"><b>Flow:</b> close this and click the map. The server generates the AI design, charges coins, places the foundation, and starts construction in one step.</div>
+          <div className="tiny"><b>Flow:</b> close this and click the map. The server generates the AI design, spends wood and stone, places the landmark, and starts construction in one step.</div>
           <button className="btn" data-click="modal-close">Close</button>
         </div>
         {planReady ? <div className="recipe-req" style={{ marginTop: 8 }}>Plan ready: <b>{ST.wonderRecipe.name || currentWonderNameFallback()}</b> · {ST.wonderRecipe.footprint || size}×{ST.wonderRecipe.footprint || size} · {ST.wonderRecipe.mode || mode} · {ST.wonderRecipe.paletteId || palette.id}</div> : null}
@@ -4106,8 +4104,8 @@ export default function mount() {
     return (
       <div className="modal">
         <h2>⌂ Build</h2>
-        <p className="tiny">Capture 3 tiles, gather resources, then place a useful building on an empty captured tile.</p>
-        <div className="recipe-req">{captureLimitLine(m)}. Claiming uses stone; reputation raises your tile limit.</div>
+        <p className="tiny">Capture 3 nearby tiles for free, gather resources, then place your first House on an empty captured tile.</p>
+        <div className="recipe-req">{captureLimitLine(m)}. Claiming is free; $CRAFTS holder capacity raises your tile limit.</div>
         {houses.length ? <div className="card" style={{ marginBottom: 10 }}>
           <div className="card-title">House travel</div>
           <div className="tiny">Houses are your normal settlement travel points. Cast briefly, then jump between them.</div>
@@ -4117,7 +4115,7 @@ export default function mount() {
         </div> : null}
         {wonders.length ? <div className="card" style={{ marginBottom: 10 }}>
           <div className="card-title">World Wonder scrolls</div>
-          <div className="tiny">World Wonders are coin sinks, reputation landmarks, and prestige travel points.</div>
+          <div className="tiny">World Wonders are shared wood-and-stone landmarks that increase coin production for everyone.</div>
           <div className="row" style={{ gap: 8, flexWrap: "wrap", marginTop: 8 }}>
             {wonders.map((w) => <button className="btn" data-click="wonder-teleport" data-uid={w.uid}>Wonder · {w.name || `${w.x},${w.z}`}</button>)}
           </div>
@@ -4127,10 +4125,9 @@ export default function mount() {
             const isWonder = b.id === "worldwonder";
             const isAdminKeep = b.id === "admin_keep";
             const locked = !isWonder && !isAdminKeep && (m?.territory || 0) < (b.unlock || 0);
-            const miss = (isWonder || isAdminKeep) ? [] : Object.entries(b.cost || {}).filter(([res, amt]) => (res === "e" ? liveE() : (m?.inv?.[res] || 0)) < amt);
-            const needsGold = isWonder && (m?.inv?.g || 0) < WORLD_WONDER_GOLD_COST;
-            const disabled = locked || miss.length > 0 || needsGold;
-            const costLabel = isAdminKeep ? "admin" : isWonder ? `${WORLD_WONDER_GOLD_COST}🪙` : (polishCostLine(b.cost) || "Free");
+            const miss = isAdminKeep ? [] : Object.entries(b.cost || {}).filter(([res, amt]) => (res === "e" ? liveE() : (m?.inv?.[res] || 0)) < amt);
+            const disabled = locked || miss.length > 0;
+            const costLabel = isAdminKeep ? "admin" : (polishCostLine(b.cost) || "Free");
             return (
               <div className={"card" + (locked ? " locked" : "") }>
                 <div className="row" style={{ justifyContent: "space-between" }}><span className="glyph">{b.glyph}</span><span className="cost">{costLabel}</span></div>
@@ -4146,7 +4143,7 @@ export default function mount() {
                 {isWonder ? <div className="space-req wonder-quick-plan">
                   <div className="recipe-req"><b>World Wonder:</b> one prompt → real AI plan → visible construction → completion progress.</div>
                   <input className="wonder-prompt-line" maxlength="180" placeholder="Describe the landmark: school, dish, observatory, market..." value={ST.wonderPrompt || ""} data-input="wonder-prompt" />
-                  <div className="tiny">Auto name: <b>{currentWonderNameFallback()}</b> · Cost {WORLD_WONDER_GOLD_COST}🪙 · Plan {WONDER_AI_TIME_HINT} · Build ~{Math.round(wonderBuildMsClient(currentWonderSize(), currentWonderMode()) / 1000)}s</div>
+                  <div className="tiny">Auto name: <b>{currentWonderNameFallback()}</b> · Cost {polishCostLine(WORLD_WONDER_COST)} · +{WORLD_WONDER_GLOBAL_COIN_BONUS_PCT}% global coin production · Plan {WONDER_AI_TIME_HINT} · Build ~{Math.round(wonderBuildMsClient(currentWonderSize(), currentWonderMode()) / 1000)}s</div>
                   <div className="row wonder-mini-controls" style={{ gap: 6, flexWrap: "wrap", marginTop: 8 }}>
                     <span className="usetag">Size</span>{WONDER_FOOTPRINT_CHOICES.map((sz) => <button className={"btn mini" + (currentWonderSize() === sz ? " primary" : "")} data-click="wonder-footprint" data-size={sz}>{sz}×{sz}</button>)}
                     <span className="usetag">Mode</span>{WONDER_MODE_CHOICES.map((mo) => <button className={"btn mini" + (currentWonderMode() === mo.id ? " primary" : "")} data-click="wonder-mode" data-mode={mo.id}>{mo.id === "single" ? "Single" : "District"}</button>)}
@@ -4162,15 +4159,14 @@ export default function mount() {
                   </div>
                   {ST.wonderMsg ? <div className="tiny">{ST.wonderMsg}</div> : null}
                 </div> : null}
-                {locked ? <div className="recipe-req">Unlocks at {b.unlock} claimed tiles. Capture more territory as reputation allows.</div> : null}
+                {locked ? <div className="recipe-req">Unlocks at {b.unlock} claimed tiles. Capture more territory as your $CRAFTS holder capacity allows.</div> : null}
                 {miss.length ? <div className="recipe-req">{missingCostLine(b.cost, m)}</div> : null}
-                {needsGold ? <div className="recipe-req">Need {WORLD_WONDER_GOLD_COST}🪙</div> : null}
                 {isAdminKeep ? <div className="row" style={{ gap: 8, flexWrap: "wrap", marginTop: 8 }}>
                   <button className="btn primary" data-click="admin-spawn-keep" data-mode="here">Spawn here</button>
                   <button className="btn" data-click="admin-spawn-keep" data-mode="ring">4 around me</button>
                   <button className="btn" data-click="admin-spawn-keep" data-mode="line">3 east</button>
                 </div> : <button className="btn primary" disabled={disabled || (isWonder && (ST.wonderBusy || ST.wonderPlacing))} data-click="place-building" data-id={b.id}>
-                  {locked ? "Locked" : needsGold ? "Need coins" : miss.length ? "Missing resources" : isWonder ? (ST.wonderPlacing ? "Founding…" : ST.wonderBusy ? "Generating…" : ST.wonderRecipe ? "Place planned Wonder" : "Plan / place Wonder") : "Place on click"}
+                  {locked ? "Locked" : miss.length ? "Missing resources" : isWonder ? (ST.wonderPlacing ? "Founding…" : ST.wonderBusy ? "Generating…" : ST.wonderRecipe ? "Place planned Wonder" : "Plan / place Wonder") : "Place on click"}
                 </button>}
               </div>
             );
@@ -4233,7 +4229,7 @@ export default function mount() {
   }
 
   function CraftModal() {
-    return <div className="modal"><h2>Unavailable</h2><p className="tiny">Crafting, bombs, packs, and deployables are unavailable. Gather, capture tiles, build starter buildings, donate coins for reputation, raid carefully, and found World Wonders.</p><div className="row" style={{ marginTop: 12 }}><button className="btn" data-click="modal-close">Close</button></div></div>;
+    return <div className="modal"><h2>Unavailable</h2><p className="tiny">Crafting, bombs, packs, and deployables are unavailable. Gather, capture free tiles within your $CRAFTS capacity, build starter buildings, raid carefully, and fund World Wonders with wood and stone.</p><div className="row" style={{ marginTop: 12 }}><button className="btn" data-click="modal-close">Close</button></div></div>;
   }
 
   function submitIntroName() {

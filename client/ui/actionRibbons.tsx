@@ -1,7 +1,8 @@
 // @ts-nocheck
 /** @jsxImportSource tradjs/client */
 import {
-  WORLD_WONDER_GOLD_COST,
+  WORLD_WONDER_COST,
+  WORLD_WONDER_GLOBAL_COIN_BONUS_PCT,
 } from "@server/shared";
 import { buildChoiceState } from "./actionRibbonModel";
 import { t } from "../i18n";
@@ -54,7 +55,7 @@ export function ActionRibbon(props: any) {
       <span className="usetag">{t("ribbon.mode", "Mode")}</span>{wonderModeChoices.map((mo) => <button className={"btn mini" + (currentWonderMode() === mo.id ? " primary" : "")} data-click="wonder-mode" data-mode={mo.id}>{mo.id === "single" ? t("ribbon.single", "Single") : t("ribbon.district", "District")}</button>)}
       <span className="usetag">{t("ribbon.colors", "Colors")}</span>{wonderPalettes.map((pal) => <button className={"btn mini swatch-btn" + (currentWonderPalette().id === pal.id ? " primary" : "")} data-click="wonder-palette" data-palette={pal.id} title={pal.name}>{pal.name.replace(/ .*/, "")}</button>)}
     </div>
-    <div className="tiny"><b>{currentWonderNameFallback()}</b> · {WORLD_WONDER_GOLD_COST}🪙 · {t("ribbon.foundValidTile", "click a valid tile to found.")} {state.wonderMsg ? ` ${state.wonderMsg}` : ""}</div>
+    <div className="tiny"><b>{currentWonderNameFallback()}</b> · {costStr(WORLD_WONDER_COST)} · +{WORLD_WONDER_GLOBAL_COIN_BONUS_PCT}% global coin production · {t("ribbon.foundValidTile", "click a valid frontier site to found.")} {state.wonderMsg ? ` ${state.wonderMsg}` : ""}</div>
   </div> : null;
 
   if (adminOpen) return <div className="build-ribbon admin-ribbon">

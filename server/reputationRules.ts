@@ -1,4 +1,5 @@
 import { db, metaGet, metaSet } from "./db";
+import { SOLCRAFT_ECONOMY } from "./economyConfig";
 
 export type ReputationReason =
   | "npcDonate"
@@ -19,6 +20,7 @@ export type ReputationConfig = {
   tileBase: number;
   tilePerLevel: number;
   tilePerReputation: number;
+  craftsPerExtraTile: number;
   tileCapHardMax: number;
   underCapGraceTiles: number;
   warehouseBaseStorage: number;
@@ -34,10 +36,11 @@ export const DEFAULT_REPUTATION_CONFIG: ReputationConfig = {
   min: -500,
   max: 500,
   start: 0,
-  tileBase: 18,
-  tilePerLevel: 3,
-  tilePerReputation: 0.12,
-  tileCapHardMax: 900,
+  tileBase: SOLCRAFT_ECONOMY.tiles.baseTileCapacity,
+  tilePerLevel: 0,
+  tilePerReputation: 0,
+  craftsPerExtraTile: SOLCRAFT_ECONOMY.tiles.craftsPerExtraTile,
+  tileCapHardMax: SOLCRAFT_ECONOMY.tiles.maxTileCapacity,
   underCapGraceTiles: 3,
   warehouseBaseStorage: 80,
   warehouseStoragePerLevel: 45,
@@ -81,6 +84,7 @@ function mergeConfig(raw: any): ReputationConfig {
     tileBase: Math.max(1, Math.floor(finite(obj.tileBase, base.tileBase))),
     tilePerLevel: Math.max(0, finite(obj.tilePerLevel, base.tilePerLevel)),
     tilePerReputation: Math.max(0, finite(obj.tilePerReputation, base.tilePerReputation)),
+    craftsPerExtraTile: Math.max(1, Math.floor(finite(obj.craftsPerExtraTile, base.craftsPerExtraTile))),
     tileCapHardMax: Math.max(1, Math.floor(finite(obj.tileCapHardMax, base.tileCapHardMax))),
     underCapGraceTiles: Math.max(0, Math.floor(finite(obj.underCapGraceTiles, base.underCapGraceTiles))),
     warehouseBaseStorage: Math.max(0, Math.floor(finite(obj.warehouseBaseStorage, base.warehouseBaseStorage))),
@@ -156,11 +160,17 @@ export function reputationTileBonus(value: number) {
   return Math.max(0, Math.floor(Math.max(0, Number(value || 0)) * cfg.tilePerReputation));
 }
 
+export function craftsHeldForCapacity(p: any) {
+  return Math.max(0, Number(p?.tokenBalance || p?.craftsBalance || p?.craftsHeld || 0));
+}
+
 export function tileCapacityForPlayer(p: any) {
   const cfg = readReputationConfig();
-  const level = Math.max(1, Math.floor(Number(p?.level || 1)));
-  const rep = readReputation(Number(p?.id || 0));
-  return Math.max(1, Math.min(cfg.tileCapHardMax, Math.floor(cfg.tileBase + (level - 1) * cfg.tilePerLevel + reputationTileBonus(rep))));
+  const crafts = craftsHeldForCapacity(p);
+  const craftsBonus = Math.floor(crafts / Math.max(1, cfg.craftsPerExtraTile));
+  // Tile capture is free; capacity comes from $CRAFTS held in the connected wallet.
+  // Reputation is still tracked for social consequences, but it does not grant land capacity by default.
+  return Math.max(1, Math.min(cfg.tileCapHardMax, Math.floor(cfg.tileBase + craftsBonus)));
 }
 
 export function ownedTileCount(playerId: number) {
@@ -209,6 +219,8 @@ export function publicReputationConfig() {
     tileBase: cfg.tileBase,
     tilePerLevel: cfg.tilePerLevel,
     tilePerReputation: cfg.tilePerReputation,
+    craftsPerExtraTile: cfg.craftsPerExtraTile,
+    capacitySource: SOLCRAFT_ECONOMY.tiles.capacitySource,
     warehouseBaseStorage: cfg.warehouseBaseStorage,
     warehouseStoragePerLevel: cfg.warehouseStoragePerLevel,
     deltas: cfg.deltas,

@@ -37,43 +37,43 @@ export const BUILDING_POLISH: Record<string, BuildingPolish> = {
   cottage: {
     id: "cottage",
     purpose: "House · first settlement anchor and travel point between your homes.",
-    requires: "3 captured tiles and an empty captured tile.",
+    requires: "An empty captured tile you own.",
     produces: "Teleport access from the minimap/build panel; settlement identity.",
     bestNear: "Where you want a fast-travel stop.",
   },
   warehouse: {
     id: "warehouse",
     purpose: "Warehouse · the only normal building that raises shared wood/stone/food storage.",
-    requires: "3 captured tiles and an empty captured tile.",
+    requires: "An empty captured tile you own.",
     produces: "More total material capacity. Coins stay unlimited and separate.",
     bestNear: "Near camps, quarries, farms, and your most-used House.",
   },
   lumber: {
     id: "lumber",
     purpose: "Lumber Camp · creates renewable tree work nearby; chop and collect for wood.",
-    requires: "3 captured tiles and an empty captured tile.",
+    requires: "An empty captured tile you own.",
     produces: "Nearby tree nodes for wood gathering.",
     bestNear: "Forest edges and owned tiles you can patrol quickly.",
   },
   quarry: {
     id: "quarry",
     purpose: "Quarry · creates renewable rock work nearby; mine and collect for stone.",
-    requires: "3 captured tiles and an empty captured tile.",
-    produces: "Nearby rock nodes for stone used in tile capture.",
+    requires: "An empty captured tile you own.",
+    produces: "Nearby rock nodes for stone used in construction and Wonders.",
     bestNear: "Open land close to storage and expansion routes.",
   },
   farm: {
     id: "farm",
     purpose: "Farm · grows food patches nearby; harvest them before fights and raids.",
-    requires: "3 captured tiles and an empty captured tile.",
+    requires: "An empty captured tile you own.",
     produces: "Nearby crop nodes for food gathering.",
     bestNear: "Open land close to a Warehouse.",
   },
   worldwonder: {
     id: "worldwonder",
-    purpose: "World Wonder · expensive coin sink, permanent landmark, reputation boost, and prestige teleport destination.",
-    requires: "A clear frontier plaza. It is founded outside normal building pads and does not consume your normal captured tiles.",
-    produces: "Reputation, identity, and a visible world landmark.",
+    purpose: "World Wonder · shared landmark funded with wood and stone that boosts coin production for everyone.",
+    requires: "A clear frontier plaza. It does not require your personal captured tiles.",
+    produces: "Global coin-production bonus, identity, and a visible world landmark.",
     bestNear: "A planned open district with room around the plaza.",
   },
   keep: {
@@ -144,9 +144,9 @@ export function captureLimitLine(player: any) {
   const territory = Math.max(0, Number(player?.territory || 0));
   const cap = Math.max(0, Number(player?.tileCap || 0));
   const rep = Math.floor(Number(player?.reputation?.score ?? player?.rep ?? 0) || 0);
-  if (!cap) return `Reputation ${rep} · tile limit loading`;
+  if (!cap) return `$CRAFTS capacity loading`;
   const left = Math.max(0, cap - territory);
-  return `Reputation ${rep} allows ${cap} captured tiles · ${left} left`;
+  return `$CRAFTS land capacity ${territory}/${cap} · ${left} claimable`;
 }
 
 export function firstStepsGuideRows(player: any = {}) {
@@ -171,8 +171,8 @@ export function firstStepsGuideRows(player: any = {}) {
       category: "actions",
       glyph: "▦",
       title: "Capture 3 tiles",
-      text: "Your first building needs an owned pad. Capture three tiles, then build your first House within the first minute.",
-      detail: `${Math.min(territory, 3)}/3 captured · ${captureLimitLine(player)} · claiming uses stone`,
+      text: "Your first building needs owned land. Capture three nearby tiles for free, then build your first House within the first minute.",
+      detail: `${Math.min(territory, 3)}/3 captured · ${captureLimitLine(player)} · claiming is free`,
       rewardText: "Starter settlement space",
       done: territory >= 3,
       claimed: false,
@@ -193,7 +193,7 @@ export function firstStepsGuideRows(player: any = {}) {
       category: "buildings",
       glyph: "🧭",
       title: "Add one resource building",
-      text: "Lumber Camps, Quarries, and Farms create nearby work you still gather manually.",
+      text: "Natural nodes do not regenerate on the same harvested tile. Camps, Quarries, and Farms create nearby work you still gather manually.",
       detail: "Choose what your next bottleneck needs: wood from Lumber Camp, stone from Quarry, food from Farm.",
       rewardText: "Repeatable resource loop",
       done: buildKinds.has("lumber") || buildKinds.has("quarry") || buildKinds.has("farm"),
