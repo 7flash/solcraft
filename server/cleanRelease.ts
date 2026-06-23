@@ -51,7 +51,7 @@ export function cleanBuildKindResponse(kind: any) {
     ok: false,
     reasonCode: "BUILDING_REMOVED",
     msg: isRemovedBuildKind(k)
-      ? "That building is unavailable. Use House, Lumber Camp, Quarry, Farm, Warehouse, or World Wonder."
+      ? "That building is unavailable. Use House, Lumber Camp, Quarry, Farm, Warehouse, or Landmark."
       : "That building is unavailable right now.",
     kind: k,
   };

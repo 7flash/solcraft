@@ -1,1 +1,13 @@
 .settings-panel.pause-panel{width:min(980px,96vw);max-height:min(90vh,860px);overflow:auto;border-radius:26px;}.sc-settings-tabs{position:sticky;top:0;z-index:2;display:flex;gap:8px;flex-wrap:wrap;padding:8px 0 12px;background:linear-gradient(180deg,rgba(12,16,28,.98),rgba(12,16,28,.76));backdrop-filter:blur(12px);}.sc-settings-tabs a{border:1px solid rgba(255,255,255,.13);background:rgba(255,255,255,.06);color:inherit;text-decoration:none;border-radius:999px;padding:8px 12px;font-size:12px;font-weight:900;}.settings-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:12px;}.settings-card{border:1px solid rgba(255,255,255,.12);background:rgba(255,255,255,.055);border-radius:18px;padding:14px;display:grid;gap:10px;}.settings-card-head{display:flex;justify-content:space-between;gap:10px;}.settings-scale-row,.settings-presets{display:flex;align-items:center;gap:8px;flex-wrap:wrap;}.settings-scale-row input{flex:1;min-width:130px;}
+
+/* Settings is a real modal layer, not a loose panel in the HUD flow. */
+.settings-layer.pause-layer{position:fixed!important;inset:0!important;z-index:var(--sc-layer-modal)!important;display:grid;place-items:center;padding:24px;pointer-events:auto;}
+.settings-scrim{position:absolute;inset:0;border:0;background:rgba(2,4,9,.62);backdrop-filter:blur(8px);cursor:pointer;}
+.settings-panel.pause-panel{position:relative;width:min(860px,calc(100vw - 36px));max-height:min(78vh,720px);overflow:auto;border-radius:26px;padding:20px;background:linear-gradient(180deg,rgba(17,21,36,.97),rgba(8,11,20,.99));border:1px solid rgba(255,255,255,.16);box-shadow:0 30px 90px rgba(0,0,0,.64);}
+.settings-close{position:absolute;top:12px;right:12px;z-index:3;}
+.settings-top{padding-right:48px;}
+.settings-top p{max-width:620px;color:var(--sc-muted);}
+.settings-grid.pause-grid{grid-template-columns:repeat(auto-fit,minmax(230px,1fr));}
+.settings-card.wide{grid-column:auto;}
+.settings-danger{margin-top:12px;}
+@media(max-width:760px){.settings-layer.pause-layer{padding:12px}.settings-panel.pause-panel{width:calc(100vw - 20px);max-height:calc(100vh - 24px);border-radius:20px}.settings-grid.pause-grid{grid-template-columns:1fr}}

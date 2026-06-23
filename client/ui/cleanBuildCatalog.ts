@@ -20,10 +20,10 @@ export const CLEAN_BUILDING_IDS = [
 const FALLBACK_CLEAN_BUILD_CHOICES: CleanBuildChoice[] = [
   { id: "cottage", name: "House", icon: "🏠", role: "settlement", text: "First settlement anchor and teleport point between your homes." },
   { id: "lumber", name: "Lumber Camp", icon: "🪓", role: "resource", text: "Creates nearby tree work. Trees still need to be chopped and collected." },
-  { id: "quarry", name: "Quarry", icon: "⛏", role: "resource", text: "Creates nearby rock work. Stone is used for buildings and World Wonders." },
+  { id: "quarry", name: "Quarry", icon: "⛏", role: "resource", text: "Creates nearby rock work. Stone is used for buildings and Landmarks." },
   { id: "farm", name: "Farm", icon: "🌾", role: "resource", text: "Creates crop patches. Harvest food before fights and raids." },
   { id: "warehouse", name: "Warehouse", icon: "▤", role: "storage", text: "Only normal building that increases shared wood/stone/food storage." },
-  { id: "worldwonder", name: "World Wonder", icon: "★", role: "wonder", text: "Shared landmark built from wood and stone that boosts coin production for everyone." },
+  { id: "worldwonder", name: "Landmark", icon: "★", role: "wonder", text: "Shared landmark built from wood and stone that boosts coin production for everyone." },
 ];
 
 export function cleanBuildChoices(): CleanBuildChoice[] {

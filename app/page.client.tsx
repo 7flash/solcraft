@@ -92,9 +92,9 @@ import {
 
 const AUTH_KEY = "solcraft:auth";
 const FACE_KEY = "solcraft:face.v1";
-const RENDER_R = 48;
-const TILE_LOAD_R = RENDER_R + 18;
-const TILE_LOAD_R_MAX = 92;
+const RENDER_R = 34;
+const TILE_LOAD_R = RENDER_R + 10;
+const TILE_LOAD_R_MAX = 52;
 const TILE_WINDOW_HYSTERESIS = 9;
 const PATH_R = 112;
 const MOVE_BATCH_MAX = 18;
@@ -685,8 +685,7 @@ export default function mount() {
     if (shouldSuppressNotice(msg)) return;
     const text = String(msg || "").trim();
     if (!text) return;
-    // Keep only the stackable notification rail. The legacy single toast caused
-    // duplicate messages and was especially noisy for camera/zoom controls.
+    // Keep only important system messages in the rail. Small world rewards use floating text.
     toastEl.textContent = "";
     toastEl.classList.remove("show");
     clearTimeout(toastT);
@@ -1082,7 +1081,8 @@ export default function mount() {
       return { ok: false, msg: "spectator" };
     }
     const r = await api("/api/action", { pid: ST.auth.pid, secret: ST.auth.secret, type, ...payload });
-    if (r && r.note) say(r.note, 2600);
+    const quietWorldFeedback = type === "pickup" || type === "harvestFinish" || type === "harvestStart";
+    if (r && r.note && !quietWorldFeedback) say(r.note, 2600);
     else if (r && !r.ok && r.msg) { sfx.err(); say(r.msg, 2400); }
     if (r && r.ok && type !== "move" && type !== "movePath") pollSoon();
     return r;
@@ -1330,7 +1330,7 @@ export default function mount() {
       // Keep the 3D world light. The expanded minimap gives global overview without
       // streaming/rendering the entire infinite world into Three.js.
       const needed = Math.ceil(view * Math.max(1, aspect) + 12);
-      return Math.max(TILE_LOAD_R, Math.min(Math.min(TILE_LOAD_R_MAX, 44), needed));
+      return Math.max(22, Math.min(TILE_LOAD_R_MAX, needed));
     }
     function applyFogDistance(day: any = null) {
       const zoom = clampCameraZoom(ST.visual?.cameraZoom, 1);
@@ -1459,6 +1459,12 @@ export default function mount() {
         scene.add(m); items.push({ m, v: new THREE.Vector3((Math.random()-0.5)*2.2, 2.2+Math.random()*2, (Math.random()-0.5)*2.2) });
       }
       bursts.push({ mat, items, life: 0.75, max: 0.75 });
+    }
+    function floatText(x, z, text, color = "#ffd76e") {
+      const label = makeLabel(String(text || ""), color);
+      label.position.set(Number(x || 0), 1.24, Number(z || 0));
+      scene.add(label);
+      anims.push({ kind: "float", t: 0, dur: 0.9, obj: label, fromY: label.position.y, done: () => { scene.remove(label); try { label.material?.map?.dispose?.(); label.material?.dispose?.(); } catch {} } });
     }
     const ringGeo = new THREE.RingGeometry(0.42, 0.5, 32);
     function shockwave(x, z, color = 0x14f195) {
@@ -2187,7 +2193,7 @@ export default function mount() {
         ST.me.energyAt = performance.now();
       }
       anims.push({ kind: "hop", t: 0, dur: hopDur, from, to: { x, z }, done: () => {
-        walking = false; sfx.hop(); queueServerMove(x, z, from); advanceLocalWalk();
+        walking = false; sfx.hop(); tryPickupAt(x, z); queueServerMove(x, z, from); advanceLocalWalk();
       } });
       return true;
     }
@@ -2294,6 +2300,7 @@ export default function mount() {
         } else if (a.kind === "in") { if (a.obj) a.obj.scale.setScalar(0.01 + 0.99 * k); }
         else if (a.kind === "up") { if (a.obj) { a.obj.position.y = 0.52 + k * 0.7; a.obj.scale.setScalar(1 - k * 0.9); } }
         else if (a.kind === "pulse") { if (a.obj) { const p = 1 + Math.sin(k * Math.PI) * 0.09; const b = a.base || { x: 1, y: 1, z: 1 }; a.obj.scale.set(b.x * p, b.y * (1 + Math.sin(k * Math.PI) * 0.04), b.z * p); } }
+        else if (a.kind === "float") { if (a.obj) { a.obj.position.y = (a.fromY || 1.2) + k * 0.72; if (a.obj.material) a.obj.material.opacity = Math.max(0, 1 - k); } }
         if (k >= 1) { if (a.kind === "pulse" && a.obj && a.base) a.obj.scale.copy(a.base); anims.splice(i, 1); a.done && a.done(); }
       }
       if (!anims.some((a) => a.kind === "hop" || a.kind === "correct")) player.position.set(me.x, 0.22, me.z);
@@ -2384,7 +2391,7 @@ export default function mount() {
 
     return {
       applyWorld, applyPlayers, applyMe, me, cellFromEvent, buildingFromEvent, pathTo, pathToNear, tryMoveDelta,
-      blocked, buildPoolAt, doodadVisible, burst, shockwave, hoverMarker, hardSnapMe, markDoodadGone,
+      blocked, buildPoolAt, doodadVisible, burst, floatText, shockwave, hoverMarker, hardSnapMe, markDoodadGone,
       setHintCells, hideBuildGhost, showBuildGhost, refreshWindow, rebuildBuilding, animateBuildingUse, refreshConstructionProgress,
       refreshOwnRig: () => ensureRig(true),
       applyVisualQuality,
@@ -2633,6 +2640,8 @@ export default function mount() {
           if (r && r.ok) {
             world.markDoodadGone?.(x, z);
             world.burst(x, 0.4, z, kind === "tree" ? 0x52ad58 : kind === "food" ? 0xffd76e : 0xaaa69a, 12, 0.45);
+            const gainText = String(r.note || "").match(/(?:\+\d+[^.]*|\d+\s+(?:wood|stone|food)[^.]*)/i)?.[0] || (kind === "tree" ? "+wood dropped" : kind === "rock" ? "+stone dropped" : "+food");
+            world.floatText?.(x, z, gainText, kind === "tree" ? "#14f195" : kind === "food" ? "#ffd76e" : "#d7dde7");
             completeWalkthroughAction(kind === "tree" ? "chop" : kind === "food" ? "farm" : "mine");
             pollSoon();
           }
@@ -2745,7 +2754,19 @@ export default function mount() {
     lastPickupAt = now;
     pickupBusy = true;
     act("pickup", { id: l.id, x: l.x, z: l.z }).then((r) => {
-      if (r?.ok) { sfx.coin?.(); pollSoon(); }
+      if (r?.ok) {
+        sfx.coin?.();
+        if (r.lootGone && world.lootPool?.has?.(Number(r.lootGone))) {
+          const gone = world.lootPool.get(Number(r.lootGone));
+          if (gone?.group) { try { gone.group.parent?.remove?.(gone.group); } catch {} }
+          world.lootPool.delete(Number(r.lootGone));
+        }
+        const note = String(r.note || "Picked up.").replace(/^Picked up\s*/i, "").replace(/\.$/, "");
+        world.floatText?.(l.x, l.z, note || "+loot", String(l.kind || "") === "gold" ? "#ffd76e" : "#14f195");
+        if (r.inv && ST.me) ST.me.inv = { ...(ST.me.inv || {}), ...r.inv };
+        paint(true);
+        pollSoon();
+      }
     }).finally(() => { pickupBusy = false; });
   }
   function selectCaptureTool() {
@@ -2779,7 +2800,7 @@ export default function mount() {
   function touchesOwnLand(x, z) {
     return N4.some(([dx, dz]) => world.tileOwner.get(key(x + dx, z + dz))?.owner === ST.me?.id);
   }
-  function padRadiusForDef(def) { return def?.id === "worldwonder" ? wonderRadiusClient(currentWonderSize()) : 1; }
+  function padRadiusForDef(def) { return def?.id === "worldwonder" ? wonderRadiusClient(currentWonderSize()) : 0; }
   function padNameForDef(def) { return def?.id === "worldwonder" ? `${currentWonderSize()}×${currentWonderSize()} Wonder plaza` : "direct construction site"; }
   function padOffsetsForDef(def) {
     const r = padRadiusForDef(def);
@@ -2791,7 +2812,7 @@ export default function mount() {
   }
   function padRequirementLine(def) {
     if (def?.id === "worldwonder") return `Costs ${polishCostLine(WORLD_WONDER_COST)}. Needs a clear ${currentWonderSize()}×${currentWonderSize()} plaza (${wonderTilesClient(currentWonderSize())} tiles): center plus ${wonderTilesClient(currentWonderSize()) - 1} surrounding cells. ${wonderFactsLine()}.`;
-    return "Needs a clear claimed 3×3 street ring: the eight surrounding tiles must be yours and empty.";
+    return "Needs one empty captured tile. Step aside and clear any tree or rock on the tile first.";
   }
   function canPlaceAt(x, z) {
     const t = world.tileOwner.get(key(x, z));
@@ -2811,7 +2832,7 @@ export default function mount() {
       }
       return null;
     }
-    if (!t || !ST.me || t.owner !== ST.me.id) return "Build on YOUR claimed land.";
+    if (!t || !ST.me || t.owner !== ST.me.id) return "Build on an empty tile you captured.";
     if (def?.id === "road") return "Road building is disabled in this build.";
     if (tradePostAt(x, z)) return "A trade post occupies this tile.";
     if (world.buildPoolAt(x, z)) return "Occupied.";
@@ -3825,7 +3846,7 @@ export default function mount() {
     if (ST.screen !== "playing" || !m) return <div />;
     const visiblePlayers = Array.isArray(ST.players) ? ST.players.length : 0;
     const activePlayers = Array.isArray(ST.map?.players) ? ST.map.players.length : visiblePlayers;
-    const hint = ST.channel ? (ST.channel.kind === "home" ? "Returning to flag" : ST.channel.kind === "house" ? "Travelling to House" : ST.channel.kind === "wonder" ? "Travelling to Wonder" : ST.channel.kind === "redeem" ? "Withdrawing coins" : ST.channel.kind === "combat" ? "Attacking" : ST.channel.kind === "tree" ? "Chopping wood" : ST.channel.kind === "food" ? "Harvesting food" : "Mining stone") : "";
+    const hint = ST.channel ? (ST.channel.kind === "home" ? "Returning to flag" : ST.channel.kind === "house" ? "Travelling to House" : ST.channel.kind === "wonder" ? "Travelling to Landmark" : ST.channel.kind === "redeem" ? "Withdrawing coins" : ST.channel.kind === "combat" ? "Attacking" : ST.channel.kind === "tree" ? "Chopping wood" : ST.channel.kind === "food" ? "Harvesting food" : "Mining stone") : "";
     const wondersBuilt = (ST.map?.buildings || []).filter((b) => b && b.kind === "worldwonder" && Number(b.owner || 0) === Number(m.id || 0)).length;
     return <><PlayerHudView
       player={m}
@@ -4561,7 +4582,7 @@ export default function mount() {
       <div className="grid" style={{ gridTemplateColumns: "repeat(auto-fit,minmax(240px,1fr))" }}>
         <div className="card source-card"><div className="card-title">Territory coins</div><div className="tiny">{territoryCoinStatusText()}</div><div className="usetag">{territoryCoinNextStep()}</div></div>
         <div className="card"><div className="card-title">Fixed mint</div><div className="tiny">Launch rate is {GOLD_PER_CRAFTS_FIXED}🪙 = 1 $CRAFTS. Coins must be in your purse and you must stand near an active Coin Mint.</div></div>
-        <div className="card"><div className="card-title">Siege rule</div><div className="tiny">PvP is intentionally weak: both players lose 1 HP. Keeps, NPCs, buildings, and reputation pressure are the real conflict loop.</div></div>
+        <div className="card"><div className="card-title">Siege rule</div><div className="tiny">PvP is intentionally light. Keeps and NPCs are coin targets; territory size comes from your connected $CRAFTS holding.</div></div>
       </div>
       <h3>Guide cards</h3>
       <div className="guide-list">{visible.map((row) => <GuideCard key={row.id} row={row} compact={false} />)}</div>
@@ -4575,6 +4596,14 @@ export default function mount() {
 
   function HelpModal() {
     return <HelpModalView />;
+  }
+
+  function WorldMapModal() {
+    return <WorldMapModalView
+      map={ST.map}
+      admin={isAdminPlayer()}
+      onDraw={(cv) => drawKnownWorldMap(cv, true)}
+    />;
   }
 
   function MorePanel() {

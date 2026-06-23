@@ -10,3 +10,6 @@
 .player-hud__row,.player-hud__money{margin-top:9px;border-radius:17px;background:rgba(255,255,255,.055);border:1px solid rgba(255,255,255,.08);padding:11px 12px;}.player-hud__money b{font-size:16px;}.player-hud__money em{font-style:italic;color:rgba(255,255,255,.76);white-space:nowrap;}.player-hud__notice{display:grid;gap:2px;margin-top:8px;border-radius:15px;background:rgba(20,241,149,.10);border:1px solid rgba(20,241,149,.16);padding:9px 10px;}
 .minimap-bonus{position:fixed;right:calc(14px + env(safe-area-inset-right));top:calc(214px + env(safe-area-inset-top));z-index:var(--sc-layer-hud);width:min(220px,calc(100vw - 28px));border-radius:16px;padding:9px 11px;background:rgba(7,10,20,.76);border:1px solid rgba(255,255,255,.13);box-shadow:0 14px 42px rgba(0,0,0,.35);backdrop-filter:var(--sc-glass);color:#fff;font-size:12px;line-height:1.25;display:grid;gap:3px;}
 .minimap-bonus b{color:#ffd76e;font-size:13px;}.minimap-bonus span{color:rgba(255,255,255,.78);}
+
+.player-hud__money em{color:var(--sc-muted);}
+.player-hud__money em::after{content:"";}

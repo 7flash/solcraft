@@ -1,5 +1,5 @@
-// Compatibility shim for older imports. Live movement now lives inside the
-// resident ECS world runtime, not in a separate database overlay.
+// Movement facade. Movement state is owned by the resident ECS world,
+// not by a separate database overlay.
 import {
   commitResidentMovement,
   residentMovementFor,

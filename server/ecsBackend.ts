@@ -258,7 +258,7 @@ export function snapshot(p: EcsPlayerRow, q: { rev: number; ax: number; az: numb
   const ownedBuildings = (db.buildings.select().where({ owner: fresh.id }).all() as any[]);
   const energyWire = energyNowForWire(fresh);
   const houses = ownedBuildings.filter((b) => String(b.kind || "") === "cottage" || String(b.kind || "") === "house").map((b) => ({ uid: Number(b.id), x: Number(b.x), z: Number(b.z), name: b.nm || "House" }));
-  const wonders = ownedBuildings.filter((b) => String(b.kind || "") === "worldwonder").map((b) => ({ uid: Number(b.id), x: Number(b.x), z: Number(b.z), name: b.nm || "World Wonder" }));
+  const wonders = ownedBuildings.filter((b) => String(b.kind || "") === "worldwonder").map((b) => ({ uid: Number(b.id), x: Number(b.x), z: Number(b.z), name: b.nm || "Landmark" }));
   const me = {
     id: fresh.id, name: fresh.name, body: fresh.body, hat: fresh.hat, x: fresh.x, z: fresh.z, spawnX: fresh.spawnX, spawnZ: fresh.spawnZ,
     appearance: safeJson(fresh.appearance, null), energy: energyWire.energy, maxE: energyWire.maxE, regen: energyWire.regen, hp: fresh.hp ?? MAX_HP,

@@ -46,8 +46,8 @@ export function PlayerHudView(props: any) {
 
     <SharedStorageBar vm={vm} />
 
-    <section className="player-hud__row player-hud__money" title="Coins are separate from resource storage and have no cap." data-tip-title="Coins" data-tip-body="Coins have no storage limit. Use the Bank for SOL exchange. World Wonders increase coin production for everyone.">
-      <b>🪙 Coins</b><span>{vm.gold}</span><em>no cap · Wonders {vm.wondersBuilt}</em>
+    <section className="player-hud__row player-hud__money" title="Coins are separate from resource storage and have no cap." data-tip-title="Coins" data-tip-body="Coins have no storage limit. Use the Bank for SOL exchange. Landmarks increase coin production for everyone.">
+      <b>🪙 Coins</b><span>{vm.gold}</span><em>no cap · Landmarks {vm.wondersBuilt}</em>
     </section>
 
     {vm.hint.lead ? <footer className="player-hud__notice"><b>{vm.hint.lead}</b>{vm.hint.rest ? <span>{vm.hint.rest}</span> : null}</footer> : null}

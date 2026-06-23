@@ -51,7 +51,7 @@ export const SCIENCE_BASE_CAP = 20;
 export const SCIENCE_CAP_PER_ACADEMY = 80;
 export const ACADEMY_SCIENCE_RATE = 0.025; // points / second at level 1
 export const BOMB_ITEM_COST = { sc: 2 } as const;
-export const WORLD_WONDER_GOLD_COST = 0; // legacy alias: Wonders no longer cost coins
+export const WORLD_WONDER_GOLD_COST = 0; // Landmarks no longer cost coins
 export const WORLD_WONDER_COST = SOLCRAFT_ECONOMY.worldWonder.cost;
 export const WORLD_WONDER_GLOBAL_COIN_BONUS_PCT = SOLCRAFT_ECONOMY.worldWonder.globalCoinProductionBonusPct;
 export const WORLD_WONDER_MAX_GLOBAL_COIN_BONUS_PCT = SOLCRAFT_ECONOMY.worldWonder.maxGlobalCoinProductionBonusPct;
@@ -73,7 +73,7 @@ export const DESTROY_TOOLS = [
   { id: "cutter", name: "Line Cutter", glyph: "✦", cost: { sc: 5 }, fuseMs: 15000, radius: 1, hp: 220, buildingDmg: 45, target: "territory lines", blurb: "Science-only line breaker for long territory routes and disconnected recapture chances." },
   { id: "sapper", name: "Sapper Cart", glyph: "▣", cost: { sc: 7 }, fuseMs: 16000, radius: 1, hp: 260, buildingDmg: 180, target: "nearby building", blurb: "Focused science siege tool. Small blast ring, high damage to adjacent buildings." },
   { id: "breacher", name: "Breacher", glyph: "✷", cost: { sc: 10 }, fuseMs: 18000, radius: 2, hp: 380, buildingDmg: 130, target: "tiles/buildings", blurb: "Expensive science charge for Keep fights. Clears a wide claim ring and mauls structures." },
-  { id: "quake", name: "Quake Engine", glyph: "✹", cost: { sc: 18 }, fuseMs: 26000, radius: 2, hp: 520, buildingDmg: 260, target: "city core", blurb: "Late-game science siege engine for heavy buildings and Wonders. Slow, loud, and visible." },
+  { id: "quake", name: "Quake Engine", glyph: "✹", cost: { sc: 18 }, fuseMs: 26000, radius: 2, hp: 520, buildingDmg: 260, target: "city core", blurb: "Late-game science siege engine for heavy buildings and Landmarks. Slow, loud, and visible." },
 ] as const;
 export type DestroyToolId = typeof DESTROY_TOOLS[number]["id"];
 export const DESTROY_BY_ID = Object.fromEntries(DESTROY_TOOLS.map((b) => [b.id, b])) as Record<string, typeof DESTROY_TOOLS[number]>;
@@ -206,7 +206,7 @@ export const LIBRARY: BuildingDef[] = [
   { id: "lumber", name: "Lumber Camp", glyph: "🪓", baseC: 0xb0793f, cost: { w: 12 }, regen: 0.08, unlock: 0,
     prod: { w: 0.06 }, blurb: "Creates tree work nearby. Chop and collect manually for wood.", effect: "Creates wood work nearby." },
   { id: "quarry", name: "Quarry", glyph: "⛏", baseC: 0x8d897f, cost: { w: 12, s: 4 }, regen: 0.06, unlock: 0,
-    prod: { s: 0.05 }, blurb: "Opens fresh stone work nearby. Stone is used for construction, Warehouses, and World Wonders.", effect: "Creates stone work nearby." },
+    prod: { s: 0.05 }, blurb: "Opens fresh stone work nearby. Stone is used for construction, Warehouses, and Landmarks.", effect: "Creates stone work nearby." },
   { id: "sawmill", name: "Sawmill", glyph: "🪚", baseC: 0xc97a3d, cost: { w: 12, s: 4 }, regen: 0.08, unlock: 0,
     use: { k: "convert", inp: { w: 4 }, out: { p: 1 }, e: 1, label: "Saw 4🪵 → 1📦" }, blurb: "Turns raw wood into planks for crafting and city upgrades.", effect: "Converts wood into planks." },
   { id: "market", name: "Market", glyph: "᯼", baseC: 0xe8b94e, cost: { w: 24, s: 12 }, regen: 0.2, unlock: 0,
@@ -265,8 +265,8 @@ export const LIBRARY: BuildingDef[] = [
     blurb: "A defensive district that trains your towers to hit destroy tools harder and farther.", effect: "Boosts Watchtower range, damage, and bomb resistance." },
   { id: "townhall", name: "Town Hall", glyph: "🏛", baseC: 0xf3ead7, cost: { w: 140, s: 120 }, regen: 0, unlock: 24, hp: 420, tileCapBonus: TOWNHALL_TILE_CAP_BONUS, storageBonus: TOWNHALL_STORAGE_BONUS,
     blurb: "Settlement core. Expands your city capacity and storage while making the city feel official.", effect: `+${TOWNHALL_TILE_CAP_BONUS} tile capacity and +${TOWNHALL_STORAGE_BONUS} storage.` },
-  { id: "worldwonder", name: "World Wonder", glyph: "★", baseC: 0xfff0a8, cost: { ...WORLD_WONDER_COST }, regen: 0, unlock: 0, hp: 5000, tileCapBonus: 0, storageBonus: 0,
-    blurb: "A permanent AI-shaped landmark built from wood and stone. Wonders do not require personal tiles and increase coin production for everyone.", effect: `+${WORLD_WONDER_GLOBAL_COIN_BONUS_PCT}% global coin production for everyone.` },
+  { id: "worldwonder", name: "Landmark", glyph: "★", baseC: 0xfff0a8, cost: { ...WORLD_WONDER_COST }, regen: 0, unlock: 0, hp: 5000, tileCapBonus: 0, storageBonus: 0,
+    blurb: "A permanent AI-shaped landmark built from wood and stone. Landmarks do not require personal tiles and increase coin production for everyone.", effect: `+${WORLD_WONDER_GLOBAL_COIN_BONUS_PCT}% global coin production for everyone.` },
   { id: "goldmine", name: "Coin Mint", glyph: "⛏", baseC: 0xffd76e, cost: { ...GOLD_MINE_BASE_COST }, regen: 0, unlock: 0, hp: GOLD_MINE_BASE_HP, storage: true,
     blurb: "City mint and redemption office. Territory coins spawn on claimed land; upgrades improve coins from owned-territory pickups and taxes.", effect: "Enables redemption; upgrades increase territory coin and tax income." },
   { id: "barbcamp", name: "Deprecated Coin Ruin", glyph: "⚔", baseC: 0x7b4a35, cost: {}, regen: 0, unlock: 0, hp: GOLD_SOURCE_CAMP_HP, decor: true,
@@ -291,7 +291,7 @@ const SIMPLE_BUILDING_COSTS: Record<string, Partial<Record<ResKey | "e", number>
 const DECOR_COST = { w: 24, s: 12 } as const;
 for (const b of LIBRARY) {
   // Player-facing construction reads exact wood/stone costs from economyConfig.ts.
-  // Tile capture is free; materials are spent on buildings and World Wonders.
+  // Tile capture is free; materials are spent on buildings and Landmarks.
   const baseBuildCost = SIMPLE_BUILDING_COSTS[b.id] || (b.decor ? { w: 12 } : { w: 40 });
   b.cost = { ...baseBuildCost };
   b.regen = 0;
@@ -429,7 +429,7 @@ const SCIENCE_ONLY_RECIPE_COSTS: Record<string, number> = {
 };
 for (const r of RECIPES as any[]) {
   // Crafting is intentionally science-only: Academy produces science, science crafts tools/supplies.
-  // Buildings remain wood-only, while coins are for Wonders/Keep rewards.
+  // Buildings use configured wood/stone costs; coins come from Keeps/NPCs and are affected by Landmarks.
   r.cost = { sc: Math.max(1, Number(SCIENCE_ONLY_RECIPE_COSTS[r.id] || 1)) };
   delete r.needForge;
   delete r.needWorkshop;
@@ -611,17 +611,17 @@ export const MILESTONES: { text: string; done: (s: MsState) => boolean }[] = [
   { text: "Build a House as your first travel point", done: (s) => s.buildIds.includes("cottage") },
   { text: "Build a Lumber Camp or Quarry to create more nearby resource nodes", done: (s) => s.buildIds.includes("lumber") || s.buildIds.includes("quarry") },
   { text: "Build a Warehouse when shared material storage fills", done: (s) => s.buildIds.includes("warehouse") },
-  { text: "Fund a World Wonder with wood and stone to increase coin production for everyone", done: (s) => s.buildIds.includes("worldwonder") },
+  { text: "Fund a Landmark with wood and stone to increase coin production for everyone", done: (s) => s.buildIds.includes("worldwonder") },
 ];
 export const FINAL_TEXT = "World of SolCrafts: claim territory, gather resources, build settlements, earn coins, and grow your reputation.";
 
 /* ---------- the economy loop, single source of copy ---------- */
 export const ECONOMY = {
-  intro: "World of SolCrafts is a shared world economy: Energy, Wood, Stone, Food, Coins, Territory, Reputation, and Wonders all connect.",
+  intro: "World of SolCrafts is a shared world economy: Energy, Wood, Stone, Food, Coins, Territory, Reputation, and Landmarks all connect.",
   energy: `Energy fuels movement, gathering, claiming, sieging, and destroying. Movement costs ${ECONOMY_RULES.moveEnergy}⚡ per tile and refills quickly, while the Return Scroll is infinite with a cast delay. Everyone has a ${ECONOMY_RULES.energyCap} energy bar. Refills use a concave $CRAFTS holding curve: citizens get a real floor, committed holders get more throughput, and whales hit a hard cap.`,
   crafts: `The refill curve is absolute, not rank-griefable: ${ECONOMY_RULES.energyRegenBasePerMinute}⚡/min floor plus a capped ${ECONOMY_RULES.energyRegenBonusPerMinute}⚡/min bonus at ${ECONOMY_RULES.energyRefHold.toLocaleString()} $CRAFTS.`,
   resources: `Wood, stone, and food are gathered from the world and share one material storage pool. Natural nodes do not regenerate on the same harvested tile; Lumber Camps, Quarries, and Farms create more nearby work. Warehouses increase shared storage.`,
-  gold: `Coins are separate from material storage. World Wonders increase global coin production for everyone, and the capital bank can exchange gameplay coins with SOL when enabled by the operator.`,
+  gold: `Coins are separate from material storage. Landmarks increase global coin production for everyone, and the capital bank can exchange gameplay coins with SOL when enabled by the operator.`,
   redeem: `Gameplay coins can be exchanged through the capital Bank. $CRAFTS stays in your connected wallet and is read for holder buffs such as tile capacity.`,
   land: "Tile capture is free and does not require connected borders. Your $CRAFTS holder profile sets how much land you can own; Houses are your travel points.",
 } as const;

@@ -33,9 +33,9 @@ export const MORE_MENU_GROUPS: MoreMenuGroup[] = [
   {
     id: "advanced",
     title: t("moreMenu.groups.advanced.title", "World tools"),
-    text: t("moreMenu.groups.advanced.text", "Map and Wonder planning."),
+    text: t("moreMenu.groups.advanced.text", "Map and Landmark planning."),
     items: [
-      { id: "wonder", glyph: "★", label: t("moreMenu.items.wonder.label", "Wonder"), text: t("moreMenu.items.wonder.text", "AI World Wonder planning."), click: "select-wonder" },
+      { id: "wonder", glyph: "★", label: t("moreMenu.items.wonder.label", "Landmark"), text: t("moreMenu.items.wonder.text", "AI World Landmark planning."), click: "select-wonder" },
       { id: "map", glyph: "🗺", label: t("moreMenu.items.map.label", "World Map"), text: t("moreMenu.items.map.text", "Overview and admin jump tools."), click: "open-world-map" },
     ],
   },

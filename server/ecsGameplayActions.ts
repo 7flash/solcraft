@@ -462,14 +462,13 @@ function actionDonateNpc(p: PlayerRow, body: any) {
   if (!npc || npcAlreadyGone(x, z)) return err("Nobody is there anymore.", "NPC_GONE");
   if (!playerNear(p, x, z)) return err("Stand beside the traveler first.", "TOO_FAR");
   const coinCost = 5;
-  if (have(p, "g") < coinCost) return err(`Donate ${coinCost}🪙 to earn reputation. Coins are separate from storage.`, "DONATION_NEEDS_COINS");
+  if (have(p, "g") < coinCost) return err(`Donate ${coinCost}🪙 to help the traveler. Coins are separate from storage.`, "DONATION_NEEDS_COINS");
   spend(p, { g: coinCost });
   p.hp = Math.min(MAX_HP, Math.max(1, Number(p.hp || MAX_HP)) + 3);
   addXp(p, 8);
   markNpcGone(x, z);
-  const rep = adjustReputation(Number(p.id), reputationDeltaFor("npcDonate"), "npcDonate");
   refreshPlayer(p); bump("donate-npc"); mirrorLegacyToEcsTables("donate-npc");
-  return ok({ note: `Donated ${coinCost}🪙 to ${npc.title || "traveler"}. +3♥ goodwill, +8 XP. ${reputationDeltaText(rep)}`, player: { hp: p.hp, maxHp: MAX_HP }, inv: p.inv, reputation: reputationSummaryForWire(Number(p.id)) });
+  return ok({ note: `Donated ${coinCost}🪙 to ${npc.title || "traveler"}. +3♥ goodwill, +8 XP.`, player: { hp: p.hp, maxHp: MAX_HP }, inv: p.inv });
 }
 
 function actionAttackNpc(p: PlayerRow, body: any) {
@@ -488,9 +487,8 @@ function actionAttackNpc(p: PlayerRow, body: any) {
   const resKind = npc.resource === "s" ? "stone" : npc.resource === "f" ? "food" : "wood";
   const resources = scatterLoot(x, z, resKind, carried);
   addXp(p, XP.fight || 4);
-  const rep = adjustReputation(Number(p.id), reputationDeltaFor("npcKill"), "npcKill");
   refreshPlayer(p); bump("attack-npc"); mirrorLegacyToEcsTables("attack-npc");
-  return ok({ note: `${npc.title || "Traveler"} defeated. Loot dropped nearby${bonus.bonus ? ` from ${bonus.source}` : ""}. ${reputationDeltaText(rep)}`, player: { hp: p.hp, maxHp: MAX_HP }, dropped: { coins, resources, kind: resKind }, npc: { id: npc.id, x, z }, reputation: reputationSummaryForWire(Number(p.id)) });
+  return ok({ note: `${npc.title || "Traveler"} defeated. Loot dropped nearby${bonus.bonus ? ` from ${bonus.source}` : ""}.`, player: { hp: p.hp, maxHp: MAX_HP }, dropped: { coins, resources, kind: resKind }, npc: { id: npc.id, x, z } });
 }
 
 function actionDonateKeep(p: PlayerRow, body: any) {
@@ -504,9 +502,8 @@ function actionDonateKeep(p: PlayerRow, body: any) {
   b.maxHp = maxHpFor(b);
   b.hp = Math.min(Number(b.maxHp || b.hp || 1), Math.max(1, Number(b.hp || 1)) + Math.max(1, Math.floor(amount / 2)));
   b.accAt = now(); markUsed(b); addXp(p, Math.max(4, Math.floor(amount / 2)));
-  const rep = adjustReputation(Number(p.id), Math.max(1, reputationDeltaFor("keepDonate", Math.ceil(amount / 10))), "keepDonate");
   refreshPlayer(p); refreshBuilding(b); bump("donate-keep"); mirrorLegacyToEcsTables("donate-keep");
-  return ok({ note: `Donated ${amount}🪙 to ${b.nm || "the Keep"}. ${reputationDeltaText(rep)}`, keep: { uid: b.id, hp: b.hp, maxHp: b.maxHp, stored: b.stored }, inv: p.inv, reputation: reputationSummaryForWire(Number(p.id)) });
+  return ok({ note: `Donated ${amount}🪙 to ${b.nm || "the Keep"}.`, keep: { uid: b.id, hp: b.hp, maxHp: b.maxHp, stored: b.stored }, inv: p.inv });
 }
 
 function actionRaidKeep(p: PlayerRow, body: any) {
@@ -524,21 +521,18 @@ function actionRaidKeep(p: PlayerRow, body: any) {
     const stored = Math.max(0, Math.floor(Number(b.stored || 0)));
     if (stored > 0) gain(p, { g: stored });
     deleteBuilding(Number(b.id));
-    const rep = adjustReputation(Number(p.id), reputationDeltaFor(isKeep ? "keepBreach" : "buildingAttack"), isKeep ? "keepBreach" : "buildingAttack");
     addXp(p, isKeep ? XP.raidKill || 22 : 8);
-    note = `${isKeep ? "Keep breached" : "Building destroyed"}. ${stored ? `Recovered ${stored}🪙. ` : ""}${reputationDeltaText(rep)}`;
+    note = `${isKeep ? "Keep breached" : "Building destroyed"}. ${stored ? `Recovered ${stored}🪙.` : ""}`;
   } else {
     if (isKeep) {
       const coins = Math.min(Math.max(0, Math.floor(Number(b.stored || 0))), 3);
       if (coins) { b.stored = Math.max(0, Math.floor(Number(b.stored || 0)) - coins); gain(p, { g: coins }); note += ` Looted ${coins}🪙.`; }
-      const rep = adjustReputation(Number(p.id), reputationDeltaFor("keepRaid"), "keepRaid");
-      note += ` ${reputationDeltaText(rep)}`;
     }
     refreshBuilding(b);
   }
   refreshPlayer(p); bump("raid"); mirrorLegacyToEcsTables("raid");
   try { if (isKeep) addSystemChat(keepChatCard(b)); } catch {}
-  return ok({ note, player: { hp: p.hp, energy: p.energy }, building: b.hp > 0 ? { uid: b.id, hp: b.hp, maxHp: b.maxHp } : null, inv: p.inv, reputation: reputationSummaryForWire(Number(p.id)) });
+  return ok({ note, player: { hp: p.hp, energy: p.energy }, building: b.hp > 0 ? { uid: b.id, hp: b.hp, maxHp: b.maxHp } : null, inv: p.inv });
 }
 
 function actionFightPlayer(p: PlayerRow, body: any) {

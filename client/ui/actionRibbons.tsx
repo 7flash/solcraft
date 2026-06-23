@@ -45,7 +45,7 @@ export function ActionRibbon(props: any) {
   const useOpen = mode === "use";
 
   const wonderQuick = showWonderQuick ? <div className="wonder-inline-planner wonder-action-ribbon">
-    <div className="wonder-inline-head"><b>{t("ribbon.worldWonder", "★ World Wonder")}</b><span>{currentWonderSize()}×{currentWonderSize()} · {wonderTilesClient(currentWonderSize())} {t("ribbon.tiles", "tiles")} · ~{Math.round(wonderBuildMsClient(currentWonderSize(), currentWonderMode()) / 1000)}s</span></div>
+    <div className="wonder-inline-head"><b>{t("ribbon.worldWonder", "★ Landmark")}</b><span>{currentWonderSize()}×{currentWonderSize()} · {wonderTilesClient(currentWonderSize())} {t("ribbon.tiles", "tiles")} · ~{Math.round(wonderBuildMsClient(currentWonderSize(), currentWonderMode()) / 1000)}s</span></div>
     <div className="wonder-line-row">
       <input className="wonder-prompt-line" maxlength="180" value={state.wonderPrompt || ""} data-input="wonder-prompt" placeholder={t("ribbon.wonderPlaceholder", "Describe the landmark: school, dish, observatory, market...")} />
       <span className={"wonder-live-status" + (state.wonderBusy || state.wonderPlacing ? " busy" : "")}>{state.wonderPlacing ? t("ribbon.wonderFounding", "Founding…") : state.wonderBusy ? t("ribbon.wonderGenerating", "Generating…") : cleanWonderPromptClient(state.wonderPrompt) ? t("ribbon.wonderClickMap", "Click map to found") : t("ribbon.wonderTypePrompt", "Type prompt first")}</span>
@@ -103,7 +103,7 @@ export function ActionRibbon(props: any) {
         {houses.map((h: any) => <button className="build-tile" aria-label={`Teleport to House ${h.x},${h.z}`} data-tip-title={t("ribbon.houseTip", "🏠 House travel")} data-tip-body={t("ribbon.houseTravelTip", "Houses are normal travel points between your settlements.")} data-click="house-teleport" data-uid={h.uid}>
           <span className="bg">🏠</span><span className="bn">{h.name || `House ${h.x},${h.z}`}</span><span className="bc">{t("ribbon.houseTravel", "House travel")}</span>
         </button>)}
-        {wonders.map((w: any) => <button className="build-tile" aria-label={`Teleport to ${w.name || `Wonder ${w.x},${w.z}`}`} data-tip-title={t("ribbon.worldWonderTip", "★ World Wonder")} data-tip-body={t("ribbon.wonderTravelTip", "Travel to an unlocked Wonder landmark.")} data-click="wonder-teleport" data-uid={w.uid}>
+        {wonders.map((w: any) => <button className="build-tile" aria-label={`Teleport to ${w.name || `Wonder ${w.x},${w.z}`}`} data-tip-title={t("ribbon.worldWonderTip", "★ Landmark")} data-tip-body={t("ribbon.wonderTravelTip", "Travel to an unlocked Landmark.")} data-click="wonder-teleport" data-uid={w.uid}>
           <span className="bg">★</span><span className="bn">{w.name || `Wonder ${w.x},${w.z}`}</span><span className="bc">{t("ribbon.wonderTravel", "Wonder travel")}</span>
         </button>)}
         {!wonders.length && !houses.length ? <button className="build-tile" disabled aria-label={t("ribbon.noWondersAria", "No travel points yet")}>
