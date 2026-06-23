@@ -13,7 +13,7 @@ import { cleanBuildKindResponse } from "./cleanRelease";
 import { recordActivity, logError } from "./activityLog";
 import { withImmediateTx } from "./dbTx";
 import { applyReferralCodeForNewProfile } from "./referralProgram";
-import { flushLiveMovementToDb, liveMovementRow, liveMovementRows, liveMovementStats } from "./liveMovement";
+import { residentPlayerRow, residentPlayerRows, residentWorldRows, residentWorldStatus, ensureResidentWorldStarted, checkpointResidentWorld, residentWorldRev, upsertResidentPlayer } from "./residentWorld";
 
 export type EcsPlayerRow = any;
 export type WalletAuthInput = { wallet?: string; message?: string; signature?: string } | null | undefined;
@@ -39,6 +39,7 @@ function anchorOf(x: number, z: number) { return [Math.floor((x | 0) / ANCHOR_ST
 function safeJson(raw: any, fallback: any) { try { return typeof raw === "string" ? JSON.parse(raw || "") : raw ?? fallback; } catch { return fallback; } }
 function wonderMetaKey(uid: number) { return `wonder:recipe:${Number(uid) || 0}`; }
 function readWonderRecipe(uid: number) { return safeJson(metaGet(wonderMetaKey(uid), "{}"), {}); }
+function landmarkBonusPct() { return Number(metaGet("solcraft:landmarks:globalCoinBonusPct:v1", metaGet("solcraft:wonders:globalCoinBonusPct:v1", "0"))) || 0; }
 function cleanName(name: string, fallback = "Wanderer") { return String(name || fallback).trim().slice(0, 18) || fallback; }
 function randomSecret(prefix = "") { return `${prefix}${crypto.randomUUID()}`; }
 function num(v: any, fallback = 0) { const n = Number(v); return Number.isFinite(n) ? n : fallback; }
@@ -91,7 +92,7 @@ function leaderboardRows() {
     .map((p, i) => ({ rank: i + 1, id: p.id, name: p.name, level: p.level || 1, xp: p.xp || 0, body: p.body, hat: p.hat }));
 }
 function activeMapPlayers(t = now()) {
-  return liveMovementRows(db.players.select().all() as any[])
+  return residentPlayerRows(db.players.select().all() as any[])
     .filter((p) => t - Number(p.lastSeen || 0) <= ACTIVE_PLAYER_WINDOW_MS)
     .map((p) => ({ id: p.id, name: p.name, x: p.x, z: p.z, body: p.body, level: p.level || 1, spectator: isSpectator(p), lastSeen: p.lastSeen || 0 }));
 }
@@ -127,6 +128,7 @@ async function verifyWalletLogin(input: WalletAuthInput) {
   return { wallet, loginGate: gate.loginGate || gate };
 }
 function syncEcsPlayerEntity(p: any) {
+  try { upsertResidentPlayer(p); } catch {}
   try {
     const existing = (db as any).ecsEntities?.select?.().where?.({ legacyTable: "players", legacyId: p.id })?.first?.();
     if (existing) { existing.kind = "player"; existing.active = 1; }
@@ -222,43 +224,21 @@ export function joinSpectator(name = "Spectator", appearance?: any) {
   return { id: p.id, secret: p.secret, wallet: "", existing: false, needsProfile: false, spectator: true, backend: "ecs" };
 }
 
-function worldRows(p: any, q: any, world: EcsWorld) {
-  const [ax, az] = anchorOf(p.x, p.z);
-  const R = VIEW_RADIUS + ANCHOR_PAD;
-  const includeMap = Number(q.mapRev || 0) !== ecsWorldRev();
-  const near = (r: any) => cheb(r.x, r.z, ax, az) <= R;
-  const tiles = (db.tiles.select().all() as any[]).filter(near);
-  const buildings = (db.buildings.select().all() as any[]).filter(near);
-  const doodads = (db.doodads.select().all() as any[]).filter(near);
-  const loot = (db.loot.select().all() as any[]).filter(near);
-  return {
-    rev: ecsWorldRev(), ax, az,
-    tiles: tiles.map((r) => ({ x: r.x, z: r.z, owner: r.owner, ownerBody: pinfo(r.owner).body, ownerName: pinfo(r.owner).name })),
-    buildings: buildings.map((b) => ({ uid: b.id, owner: b.owner, ownerName: pinfo(b.owner).name, ownerBody: pinfo(b.owner).body, ownerFace: null, kind: b.kind, x: b.x, z: b.z, nm: b.nm, cl: b.cl, acc: b.acc, accAt: b.accAt, cdUntil: b.cdUntil, constructAt: b.accAt, constructUntil: b.cdUntil, usedAt: b.usedAt || 0, level: b.level || 1, hp: b.hp, maxHp: b.maxHp, stored: b.stored || 0, wonder: b.kind === "worldwonder" ? readWonderRecipe(Number(b.id)) : null })),
-    doodads: doodads.map((d) => ({ x: d.x, z: d.z, type: d.state === "gone" ? "gone" : d.state === "rock" ? "rock" : d.state === "food" ? "food" : "tree" })),
-    loot: loot.map((l) => ({ id: l.id, x: l.x, z: l.z, kind: l.kind, gid: l.gid })),
-    offers: (db.offers.select().where({ open: 1 }).orderBy("id", "DESC").limit(20).all() as any[]).map((o) => ({ id: o.id, byId: o.byId, byName: o.byName, gRes: o.gRes, gAmt: o.gAmt, wRes: o.wRes, wAmt: o.wAmt })),
-    coinNodes: [],
-    map: includeMap ? {
-      rev: ecsWorldRev(),
-      tiles: (db.tiles.select().all() as any[]).map((r) => ({ x: r.x, z: r.z, owner: r.owner, ownerBody: pinfo(r.owner).body, ownerName: pinfo(r.owner).name })),
-      buildings: (db.buildings.select().all() as any[]).map((b) => ({ uid: b.id, owner: b.owner, ownerBody: pinfo(b.owner).body, kind: b.kind, x: b.x, z: b.z })),
-      loot: (db.loot.select().where({ kind: "gold" }).all() as any[]).map((l) => ({ id: l.id, x: l.x, z: l.z, kind: l.kind, gid: l.gid })),
-      players: activeMapPlayers(),
-    } : undefined,
-  };
+function worldRows(p: any, q: any, _world: EcsWorld) {
+  return residentWorldRows(p, q, { pinfo, readLandmarkRecipe: readWonderRecipe, activeMapPlayers });
 }
+
 
 export function snapshot(p: EcsPlayerRow, q: { rev: number; ax: number; az: number; chat: number; mapRev?: number }) {
   const t = now();
-  const fresh = liveMovementRow(getPlayer(p.id) as any || p) as any;
-  const world = loadEcsWorld({ playerId: fresh.id, ax: q.ax, az: q.az, radius: VIEW_RADIUS + ANCHOR_PAD });
+  const fresh = residentPlayerRow(getPlayer(p.id) as any || p) as any;
+  const world = { events: [] } as any as EcsWorld;
   const [ax, az] = anchorOf(fresh.x, fresh.z);
-  const worldSame = q.rev === ecsWorldRev() && q.ax === ax && q.az === az && Number(q.mapRev || 0) === ecsWorldRev();
+  const worldSame = q.rev === residentWorldRev() && q.ax === ax && q.az === az && Number(q.mapRev || 0) === residentWorldRev();
   const ownedBuildings = (db.buildings.select().where({ owner: fresh.id }).all() as any[]);
   const energyWire = energyNowForWire(fresh);
   const houses = ownedBuildings.filter((b) => String(b.kind || "") === "cottage" || String(b.kind || "") === "house").map((b) => ({ uid: Number(b.id), x: Number(b.x), z: Number(b.z), name: b.nm || "House" }));
-  const wonders = ownedBuildings.filter((b) => String(b.kind || "") === "worldwonder").map((b) => ({ uid: Number(b.id), x: Number(b.x), z: Number(b.z), name: b.nm || "World Wonder" }));
+  const wonders = ownedBuildings.filter((b) => String(b.kind || "") === "worldwonder").map((b) => ({ uid: Number(b.id), x: Number(b.x), z: Number(b.z), name: b.nm || "Landmark" }));
   const me = {
     id: fresh.id, name: fresh.name, body: fresh.body, hat: fresh.hat, x: fresh.x, z: fresh.z, spawnX: fresh.spawnX, spawnZ: fresh.spawnZ,
     appearance: safeJson(fresh.appearance, null), energy: energyWire.energy, maxE: energyWire.maxE, regen: energyWire.regen, hp: fresh.hp ?? MAX_HP,
@@ -269,9 +249,9 @@ export function snapshot(p: EcsPlayerRow, q: { rev: number; ax: number; az: numb
     treesChopped: fresh.treesChopped || 0, planksMade: fresh.planksMade || 0, gearCrafted: fresh.gearCrafted || 0, tradesDone: fresh.tradesDone || 0, equippedOnce: !!fresh.equippedOnce,
     clientVersion: "", requiredVersion: requiredClientVersion, updateReason: requiredClientReason, profileDone: !!fresh.profileDone, spectator: isSpectator(fresh),
     tileCap: tileCapacityFor(fresh), storageCap: resourceCaps(fresh), tuning: {}, quests: {}, reputation: reputationSummaryForWire(fresh.id), guideQuests: [], guideSummary: { done: 0, total: 0, claimed: 0, claimable: 0, pct: 0 }, bank: null,
-    backend: "ecs",
+    backend: "ecs", landmarkBonusPct: landmarkBonusPct(),
   };
-  const players = liveMovementRows(db.players.select().all() as any[])
+  const players = residentPlayerRows(db.players.select().all() as any[])
     .filter((o) => o.id !== fresh.id && t - Number(o.lastSeen || 0) <= ACTIVE_PLAYER_WINDOW_MS && cheb(o.x, o.z, fresh.x, fresh.z) <= VIEW_RADIUS)
     .sort((a, b) => cheb(a.x, a.z, fresh.x, fresh.z) - cheb(b.x, b.z, fresh.x, fresh.z))
     .slice(0, MAX_WIRE_PLAYERS)
@@ -321,7 +301,7 @@ function dispatchUnlocked(p: EcsPlayerRow, body: any) {
     row.profileDone = 1;
     refreshPlayer(row);
     try { db.chat.insert({ name: "", msg: `${row.name || "A new settler"} joined the world.`, sys: 1 }); } catch {}
-    return { ok: true, backend: "ecs", referral: referral || null, note: referral?.note || "Character ready." };
+    return { ok: true, backend: "ecs", landmarkBonusPct: landmarkBonusPct(), referral: referral || null, note: referral?.note || "Character ready." };
   }
   if (type === "profileAppearance") {
     const row = getPlayer(p.id) as any;
@@ -387,34 +367,33 @@ function buildingResourceTick(t = now()) {
 
 export function runWorldTick(reason = "manual") {
   const t = now();
-  if (t - ecsTickAt < 4900 && reason !== "manual") return { ok: true, skipped: true, backend: "ecs", at: ecsTickAt };
+  if (t - ecsTickAt < 4900 && reason !== "manual") return { ok: true, skipped: true, backend: "ecs", landmarkBonusPct: landmarkBonusPct(), at: ecsTickAt };
   ecsTickAt = t;
   try {
     const economy = withImmediateTx(`ecs.worldTick:${reason}`, () => {
-      const movement = flushLiveMovementToDb();
       const r = buildingResourceTick(t);
-      if (reason === "manual") mirrorLegacyToEcsTables("tick-manual");
-      return { ...r, movement };
+      const snapshot = reason === "manual" || reason === "interval" ? checkpointResidentWorld(`tick-${reason}`) : { ok: true };
+      return { ...r, snapshot };
     });
-    const out = { ok: true, backend: "ecs", at: ecsTickAt, reason, economy };
+    const out = { ok: true, backend: "ecs", landmarkBonusPct: landmarkBonusPct(), at: ecsTickAt, reason, economy };
     if (reason !== "interval" || Math.random() < 0.02) recordActivity({ route: "worldTick", action: reason, backend: "ecs" }, "worldTick", out);
     return out;
   } catch (e: any) {
     logError({ route: "worldTick", action: reason, backend: "ecs" }, "ecs.worldTick.failed", e, { reasonCode: "WORLD_TICK_FAILED" });
-    return { ok: false, backend: "ecs", at: ecsTickAt, reason, msg: String(e?.message || e || "world tick failed") };
+    return { ok: false, backend: "ecs", landmarkBonusPct: landmarkBonusPct(), at: ecsTickAt, reason, msg: String(e?.message || e || "world tick failed") };
   }
 }
 
 export function ensureWorldTickStarted() {
   if (ecsTickStarted) return;
   ecsTickStarted = true;
-  mirrorLegacyToEcsTables("boot");
+  ensureResidentWorldStarted();
   ecsTickTimer = setInterval(() => runWorldTick("interval"), 5000);
   try { (ecsTickTimer as any)?.unref?.(); } catch {}
 }
 
 export function worldTickStatus() {
-  return { backend: "ecs", started: ecsTickStarted, lastTickAt: ecsTickAt, migration: ecsMigrationStatus(), economy: cleanEconomyStatus(), movement: liveMovementStats() };
+  return { backend: "ecs", landmarkBonusPct: landmarkBonusPct(), started: ecsTickStarted, lastTickAt: ecsTickAt, migration: ecsMigrationStatus(), economy: cleanEconomyStatus(), residentWorld: residentWorldStatus() };
 }
 
 export function forceClientRefresh(reason = "Admin published an update") {
@@ -424,5 +403,5 @@ export function forceClientRefresh(reason = "Admin published an update") {
 }
 
 export function ecsBackendStatus() {
-  return { backend: "ecs", tick: worldTickStatus(), rulesBuildings: Object.keys(ecsRulesFromShared().buildings).length, economy: cleanEconomyStatus(), gameplay: ecsGameplayStatus(), coreActions: [...ECS_ACTION_TYPES].sort(), activeActions: activeActionSurface() };
+  return { backend: "ecs", landmarkBonusPct: landmarkBonusPct(), tick: worldTickStatus(), rulesBuildings: Object.keys(ecsRulesFromShared().buildings).length, economy: cleanEconomyStatus(), gameplay: ecsGameplayStatus(), coreActions: [...ECS_ACTION_TYPES].sort(), activeActions: activeActionSurface() };
 }

@@ -26,6 +26,22 @@ function isServicePreview(p: any) {
   return ["trade", "bank", "vault", "customizer", "tailor", "townhall", "guide", "service"].some((v) => k.includes(v) || name.includes(v));
 }
 
+function BuildChoices() {
+  return <div className="object-preview-scroll">
+    <div className="building-site-note"><b>Empty captured tile</b><span>Choose a starter building. Warehouses increase shared storage; Houses become travel points.</span></div>
+    <div className="build-choice-list" aria-label="Choose building for selected tile">
+      {BUILD_CHOICE_IDS.map((id) => {
+        const { name, icon, cost, info } = buildChoice(id);
+        return <button className="build-choice-card production-build-choice" data-click="build-tile-choice" data-id={id} data-tip-title={`${icon} ${name}`} data-tip-body={`${info.purpose || "City infrastructure"} Cost: ${costLine(cost)}. Requires: ${info.requires || "captured tile"}.`}>
+          <b><span>{icon}</span>{name}</b>
+          <small>{info.purpose || "City infrastructure."}</small>
+          <em>Cost: {costLine(cost)}</em>
+        </button>;
+      })}
+    </div>
+  </div>;
+}
+
 export function ObjectPreviewPanelView({ preview }: any) {
   const p = preview || null;
   if (!p) return <div />;
@@ -50,20 +66,10 @@ export function ObjectPreviewPanelView({ preview }: any) {
         <div className="tiny">{desc}</div>
       </div>
     </div>
-    {p.kind === "buildTile" ? <div className="build-first-rule"><b>Build here</b><span>Choose a starter building for this empty captured tile. Warehouses increase shared storage; Houses become travel points.</span></div> : null}
+    {p.kind === "buildTile" ? <BuildChoices /> : null}
     {p.kind === "keep" && (p.maxHp || p.coins) ? <div className="keep-rally-strip" aria-label="Shared keep rally details">
       {p.maxHp ? <span><b>{Math.max(0, Math.floor(Number(p.hp || 0)))}/{Math.floor(Number(p.maxHp || 0))}</b><em>HP when shared</em></span> : null}
       {p.coins ? <span><b>{Math.floor(Number(p.coins || 0))}🪙</b><em>reported inside</em></span> : null}
-    </div> : null}
-    {p.kind === "buildTile" ? <div className="build-choice-list" aria-label="Choose building for selected tile">
-      {BUILD_CHOICE_IDS.map((id) => {
-        const { name, icon, cost, info } = buildChoice(id);
-        return <button className="build-choice-card production-build-choice" data-click="build-tile-choice" data-id={id} data-tip-title={`${icon} ${name}`} data-tip-body={`${info.purpose || "City infrastructure"} Cost: ${costLine(cost)}. Requires: ${info.requires || "captured tile"}.`}>
-          <b><span>{icon}</span>{name}</b>
-          <small>{info.purpose || "City infrastructure."}</small>
-          <em>Cost: {costLine(cost)}</em>
-        </button>;
-      })}
     </div> : null}
     <div className="inspect-actions object-preview-actions">
       {hasCoords(p) ? <button className="btn" data-click="object-preview-share">Share location</button> : null}

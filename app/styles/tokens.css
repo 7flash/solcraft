@@ -25,5 +25,5 @@
   --sc-radius-md:18px;
   --sc-radius-lg:26px;
   --sc-shadow:0 22px 70px rgba(0,0,0,.46);
-  --sc-glass:blur(16px) saturate(1.08);
+  --sc-glass:blur(8px) saturate(1.04);
 }

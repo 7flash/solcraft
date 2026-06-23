@@ -7,7 +7,7 @@ import { removedFeatureResponse } from "./removedFeatures";
 import { bumpEcsWorldRev, mirrorLegacyToEcsTables } from "./ecsDbAdapter";
 import { BASE_MAX, ECONOMY_RULES, GOLD_MINE_KIND, LIBRARY, MAX_HP, NORMAL_BUILDING_BUILD_MS, DECOR_BUILDING_BUILD_MS, RAID_COST, RES_KEYS, RES_NAMES, TELEPORT_COST, TELEPORT_MS, XP, biomeAt, cheb, harvestMs, naturalDoodad, proceduralNpcAt, hrand, WORLD_WONDER_GLOBAL_COIN_BONUS_PCT, WORLD_WONDER_MAX_GLOBAL_COIN_BONUS_PCT, WORLD_WONDER_PLAZA_RADIUS } from "./shared";
 import { cleanBuildKindResponse } from "./cleanRelease";
-import { commitLiveMovement, flushLiveMovementForPlayer, liveMovementFor } from "./liveMovement";
+import { commitResidentMovement, residentMovementFor, residentPlayerRow, markResidentWorldDirty, checkpointResidentWorld } from "./residentWorld";
 
 export type EcsGameplayResult = { handled: boolean; result?: any };
 
@@ -89,8 +89,9 @@ function addXp(p: PlayerRow, amount: number) {
     p.level = level;
   }
 }
-function bump(reason = "ecs-gameplay") {
+function bump(reason = "ecs-gameplay", x?: any, z?: any) {
   bumpEcsWorldRev();
+  markResidentWorldDirty(reason, x, z);
   try { metaSet("solcraft:ecs:lastGameplayMutation:v1", JSON.stringify({ at: now(), reason })); } catch {}
 }
 function libById(kind: string) { return (LIBRARY as any[]).find((b) => String(b?.id || "") === String(kind || "")) || null; }
@@ -111,26 +112,26 @@ function actionPlaceBuilding(p: PlayerRow, body: any) {
   const def = libById(kind);
   if (!def) return err("Unknown building.", "UNKNOWN_BUILDING");
   const x = int(body.x), z = int(body.z);
-  const isWonder = kind === "worldwonder";
-  if (capitalReserved(x, z)) return err(isWonder ? "Found the World Wonder outside the capital plaza." : "Build outside the capital plaza.", "CAPITAL_RESERVED");
-  if (!isWonder) {
+  const isLandmark = kind === "worldwonder";
+  if (capitalReserved(x, z)) return err(isLandmark ? "Found the Landmark outside the capital plaza." : "Build outside the capital plaza.", "CAPITAL_RESERVED");
+  if (!isLandmark) {
     const tile = (db.tiles.select().where({ x, z }).first() as any) || null;
     if (!tile || Number(tile.owner || 0) !== Number(p.id)) return err("Choose an empty captured tile you own.", "NEED_CAPTURED_TILE");
   }
   const existing = (db.buildings.select().where({ x, z }).first() as any) || null;
   if (existing) return err("That tile already has a building.", "BUILD_TILE_OCCUPIED");
   if (int(p.x) === x && int(p.z) === z) return err("Step aside first, then place the building.", "STEP_ASIDE");
-  if (isWonder) {
+  if (isLandmark) {
     const minDist = 9;
-    const nearWonder = (db.buildings.select().where({ kind: "worldwonder" }).all() as any[]).find((b) => cheb(Number(b.x), Number(b.z), x, z) < minDist);
-    if (nearWonder) return err(`World Wonders need more space. Place at least ${minDist} tiles from another Wonder.`, "WONDER_TOO_CLOSE");
+    const nearLandmark = (db.buildings.select().where({ kind: "worldwonder" }).all() as any[]).find((b) => cheb(Number(b.x), Number(b.z), x, z) < minDist);
+    if (nearLandmark) return err(`Landmarks need more space. Place at least ${minDist} tiles from another Landmark.`, "WONDER_TOO_CLOSE");
     const r = Math.max(1, Math.floor(Number(WORLD_WONDER_PLAZA_RADIUS || 4)));
     for (let dx = -r; dx <= r; dx++) for (let dz = -r; dz <= r; dz++) {
       const sx = x + dx, sz = z + dz;
       const other = (db.buildings.select().where({ x: sx, z: sz }).first() as any) || null;
-      if (other) return err("The Wonder plaza is blocked by another building.", "WONDER_PLAZA_BLOCKED");
+      if (other) return err("The Landmark site is blocked by another building.", "WONDER_PLAZA_BLOCKED");
       const tile = (db.tiles.select().where({ x: sx, z: sz }).first() as any) || null;
-      if (tile && Number(tile.owner || 0) && Number(tile.owner || 0) !== Number(p.id)) return err("The Wonder plaza cannot cover another player's land.", "WONDER_PLAZA_OWNED");
+      if (tile && Number(tile.owner || 0) && Number(tile.owner || 0) !== Number(p.id)) return err("The Landmark site cannot cover another player's land.", "WONDER_PLAZA_OWNED");
     }
   }
   const miss = missing(p, def.cost || {});
@@ -148,12 +149,12 @@ function actionPlaceBuilding(p: PlayerRow, body: any) {
     const l = lootAt(x, z) as any;
     if (l) deleteLoot(l);
   } catch {}
-  if (kind === "worldwonder") updateWorldWonderCoinBonus();
+  if (kind === "worldwonder") updateLandmarkCoinBonus();
   addXp(p, Number((XP as any).build || 6));
   refreshPlayer(p);
   bump("place-building");
   mirrorLegacyToEcsTables("place-building");
-  return ok({ uid: Number(row?.id || 0), x, z, kind, inv: p.inv, buildMs, note: kind === "worldwonder" ? `${def.name || "World Wonder"} founded. Coin production will rise for everyone when the landmark is active.` : `${def.name || "Building"} construction started.` });
+  return ok({ uid: Number(row?.id || 0), x, z, kind, inv: p.inv, buildMs, note: kind === "worldwonder" ? `${def.name || "Landmark"} founded. Coin production will rise for everyone when the landmark is active.` : `${def.name || "Building"} construction started.` });
 }
 function isUnderConstruction(b: BuildingRow) { return Number(b?.cdUntil || 0) > now(); }
 function markUsed(b: BuildingRow) { b.usedAt = now(); refreshBuilding(b); }
@@ -223,10 +224,11 @@ function dropHarvestLoot(x: number, z: number, kind: "wood" | "stone", amount: n
   return dropped;
 }
 function capitalReserved(x: number, z: number) { return Math.max(Math.abs(x), Math.abs(z)) <= 6; }
-function updateWorldWonderCoinBonus() {
+function updateLandmarkCoinBonus() {
   try {
     const count = Number(db.buildings.select().where({ kind: "worldwonder" }).count() || 0);
     const pct = Math.max(0, Math.min(WORLD_WONDER_MAX_GLOBAL_COIN_BONUS_PCT, count * WORLD_WONDER_GLOBAL_COIN_BONUS_PCT));
+    metaSet("solcraft:landmarks:globalCoinBonusPct:v1", String(pct));
     metaSet("solcraft:wonders:globalCoinBonusPct:v1", String(pct));
     return pct;
   } catch { return 0; }
@@ -602,18 +604,18 @@ function actionHouseCancel(p: PlayerRow) { channels.delete(Number(p.id)); return
 
 function actionWonderStart(p: PlayerRow, body: any) {
   const b = getBuilding(int(body.uid));
-  if (!b || Number(b.owner || 0) !== Number(p.id) || String(b.kind || "") !== "worldwonder") return err("That World Wonder is not yours.", "NOT_WONDER");
-  if (playerNear(p, b.x, b.z, 2)) return err("Already at that World Wonder.", "ALREADY_THERE");
+  if (!b || Number(b.owner || 0) !== Number(p.id) || String(b.kind || "") !== "worldwonder") return err("That Landmark is not yours.", "NOT_LANDMARK");
+  if (playerNear(p, b.x, b.z, 2)) return err("Already at that Landmark.", "ALREADY_THERE");
   channels.set(Number(p.id), { type: "wonder", x: int(p.x), z: int(p.z), until: now() + TELEPORT_MS, uid: Number(b.id), tx: int(b.x), tz: int(b.z) });
-  return ok({ ms: TELEPORT_MS, note: `Wonder Scroll casting… ${b.nm || "World Wonder"} is answering.` });
+  return ok({ ms: TELEPORT_MS, note: `Landmark Travel casting… ${b.nm || "Landmark"} is answering.` });
 }
 function actionWonderFinish(p: PlayerRow) {
   const ch = completionChannel(p, "wonder");
-  if (!ch) return err("Not travelling to a Wonder.", "NO_TELEPORT_CHANNEL");
+  if (!ch) return err("Not travelling to a Landmark.", "NO_TELEPORT_CHANNEL");
   if (now() < ch.until - 250) return err("Still travelling…", "TELEPORT_PENDING");
   if (int(p.x) !== ch.x || int(p.z) !== ch.z) { channels.delete(Number(p.id)); return err("Teleport cancelled because you moved.", "TELEPORT_MOVED"); }
   p.x = int(ch.tx); p.z = int(ch.tz); channels.delete(Number(p.id)); refreshPlayer(p); bump("wonder-teleport");
-  return ok({ note: "Wonder Scroll complete.", x: p.x, z: p.z });
+  return ok({ note: "Landmark Travel complete.", x: p.x, z: p.z });
 }
 function actionGuideVisit(p: PlayerRow, body: any) {
   const id = String(body.id || body.panel || "").trim().slice(0, 48);
@@ -633,7 +635,7 @@ function actionWallet(p: PlayerRow, body: any) {
 }
 
 function energyNowForMove(p: PlayerRow, t = now()) {
-  const live = liveMovementFor(p.id);
+  const live = residentMovementFor(p.id);
   const maxE = Math.max(1, Number(BASE_MAX || 100));
   const regenPerSec = Math.max(0, Number(ECONOMY_RULES.energyRegenBasePerMinute || 0) / 60);
   const base = Math.max(0, Number(live?.energy ?? p.energy ?? maxE));
@@ -650,7 +652,7 @@ function movementBlockedForPlayer(p: PlayerRow, x: number, z: number) {
   return true;
 }
 function movementStartFor(p: PlayerRow) {
-  const live = liveMovementFor(p.id);
+  const live = residentMovementFor(p.id);
   return { x: int(live?.x ?? p.x), z: int(live?.z ?? p.z), energy: energyNowForMove(p), lastSeq: int(live?.lastSeq || 0) };
 }
 function cleanMoveSteps(body: any) {
@@ -686,7 +688,7 @@ function actionMovePath(p: PlayerRow, body: any) {
     x = nx; z = nz; lastSeq = Math.max(lastSeq, seq); acceptedSeq = lastSeq;
     path.push({ x, z, seq });
   }
-  commitLiveMovement(p, { x, z, energy, energyAt: t, seq: lastSeq, at: t });
+  commitResidentMovement(p, { x, z, energy, energyAt: t, seq: lastSeq, at: t });
   const base = { x, z, energy, ackSeq: lastSeq, acceptedSeq, moved: path.length, path, partial, stoppedMsg, reasonCode };
   if (!path.length && partial) return err(stoppedMsg || "Movement blocked.", reasonCode || "MOVE_REJECTED", base);
   return ok(base);
@@ -703,8 +705,7 @@ export function dispatchEcsGameplayAction(playerLike: PlayerRow, body: any): Ecs
   if (!p) return { handled: true, result: err("Unknown player", "PLAYER_NOT_FOUND") };
   try {
     if (type === "move" || type === "movePath") return { handled: true, result: actionMovePath(p, body) };
-    flushLiveMovementForPlayer(p.id);
-    p = getPlayer(playerLike?.id) as PlayerRow || p;
+    p = residentPlayerRow(getPlayer(playerLike?.id) as PlayerRow || p) as PlayerRow;
     if (type === "claim") return { handled: true, result: actionClaimAnyFreeTile(p, body) };
     if (type === "harvestStart") return { handled: true, result: actionHarvestStart(p, body) };
     if (type === "harvestFinish") return { handled: true, result: actionHarvestFinish(p, body) };

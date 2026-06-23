@@ -246,11 +246,6 @@ export default function mount() {
     onOpenMap: () => { if (ST.screen === "playing") { ST.modal = "worldmap"; paint(true); } },
   });
 
-  const minimapBonusEl = document.createElement("div");
-  minimapBonusEl.className = "minimap-bonus";
-  minimapBonusEl.style.display = "none";
-  try { hudEl.appendChild(minimapBonusEl); } catch {}
-
   const perf = createPerfOverlay(root, {
     enabled: perfOverlayEnabledFromUrl(window.location.search, window.localStorage),
     label: "SolCraft client",
@@ -260,7 +255,7 @@ export default function mount() {
   const sfx = makeSfx();
 
   const ST = {
-    screen: "menu", auth: null, walletVerified: false, loginMsg: "", loginGate: null,
+    screen: "menu", auth: null, walletVerified: false, loginMsg: "", loginGate: null, profileError: "",
     profile: { name: "", body: BODY_COLORS[0], hat: HAT_COLORS[0], wallet: "" },
     characterProfile: loadCharacterProfile(),
     me: null, rev: 0, ax: 1e6, az: 1e6, chatId: 0, mapRev: -1,
@@ -4335,13 +4330,16 @@ export default function mount() {
   function submitIntroName() {
     const input = document.getElementById("sc-intro-name") as HTMLInputElement | null;
     const name = String(input?.value || "").trim().slice(0, 18);
-    if (!name) { sfx.err(); say("Choose a character name."); return; }
+    ST.profileError = "";
+    if (!name) { ST.profileError = "Choose a character name."; sfx.err(); say(ST.profileError); paint(true); return; }
     try { localStorage.setItem("solcraft.characterName", name); } catch {}
     ST.profile.name = name;
+    const inviteCode = referralCodeFromIntro();
     const randomHue = Math.floor(Math.random() * 360);
     const randomBody = new THREE.Color().setHSL(randomHue / 360, 0.62, 0.58).getHex();
-    act("setupProfile", { name, referralCode: referralCodeFromIntro(), body: randomBody, hat: ST.profile.hat, appearance: ST.characterProfile }).then((r) => {
+    act("setupProfile", { name, referralCode: inviteCode, body: randomBody, hat: ST.profile.hat, appearance: ST.characterProfile }).then((r) => {
       if (r && r.ok) {
+        ST.profileError = "";
         ST.needsProfile = false;
         if (ST.me) { ST.me.name = name; ST.me.body = randomBody; ST.me.profileDone = true; }
         world.refreshOwnRig();
@@ -4350,7 +4348,19 @@ export default function mount() {
         maybeStartWalkthrough(true);
         say(`${name} joined the world. Capture 3 tiles, then build your first House.`, 3600);
         pollSoon(); paint(true);
+      } else {
+        const msg = String(r?.msg || (inviteCode ? "Invite code could not be used." : "Could not create your character.")).trim();
+        ST.profileError = msg;
+        sfx.err();
+        say(msg, 3600);
+        paint(true);
       }
+    }).catch((e) => {
+      const msg = String(e?.message || e || "Could not create your character.");
+      ST.profileError = msg;
+      sfx.err();
+      say(msg, 3600);
+      paint(true);
     });
   }
 
@@ -4360,7 +4370,8 @@ export default function mount() {
       <h2>Choose your character</h2>
       <p className="tiny">Name your character and optionally enter an invite code. Alpha invite codes may assign a one-of-one doll design from the atlas.</p>
       <div className="field"><label>Character name</label><input id="sc-intro-name" maxLength={18} placeholder="Wanderer" defaultValue={ST.profile.name || localStorage.getItem("solcraft.characterName") || (m?.name === "Wanderer" ? "" : m?.name || "")} data-keydown="intro-submit" /></div>
-      <div className="field"><label>Invite code <em>optional</em></label><input data-referral-code-input="1" className="profile-referral-input" maxLength={32} placeholder="Enter invite code" defaultValue={localStorage.getItem("solcraft.referralCode") || ""} onInput={(e:any)=>{ try{ localStorage.setItem("solcraft.referralCode", String(e.currentTarget.value||"").toUpperCase()); }catch{} }} /></div>
+      <div className="field"><label>Invite code <em>optional</em></label><input data-referral-code-input="1" className="profile-referral-input" maxLength={32} placeholder="Enter invite code" defaultValue={localStorage.getItem("solcraft.referralCode") || ""} onInput={(e:any)=>{ ST.profileError = ""; try{ localStorage.setItem("solcraft.referralCode", String(e.currentTarget.value||"").toUpperCase()); }catch{} }} /></div>
+      {ST.profileError ? <div className="profile-error" role="alert">{ST.profileError}</div> : null}
       <div className="row" style={{ marginTop: 12 }}><button className="btn primary" style={{ width: "100%" }} data-click="intro-submit">Enter the frontier</button></div>
     </div>;
   }
@@ -4810,7 +4821,7 @@ export default function mount() {
   function modalSig() {
     if (ST.updateRequired) return ["update", ST.updateVersion || "", ST.updateReason || ""].join("|");
     if (ST.screen !== "playing") return "none";
-    if (ST.me && (ST.needsProfile || !ST.me.profileDone)) return ["intro", ST.profile.body, ST.profile.hat, ST.profile.name, JSON.stringify(ST.characterProfile)].join("|");
+    if (ST.me && (ST.needsProfile || !ST.me.profileDone)) return ["intro", ST.profile.body, ST.profile.hat, ST.profile.name, ST.profileError || "", JSON.stringify(ST.characterProfile)].join("|");
     if (!ST.modal) return "none";
     const m = ST.me;
     const b = ST.panel === "inspect" ? world.buildPool.get(ST.inspect) : null;
@@ -4839,12 +4850,6 @@ export default function mount() {
     perf.measure("ui.hints", () => updateHints());
     chatEl.style.display = ST.screen === "playing" ? "flex" : "none";
     minimapEl.style.display = (ST.screen === "playing" && !ST.panel && !ST.modal) ? "block" : "none";
-    const showMinimapBonus = ST.screen === "playing" && !ST.panel && !ST.modal;
-    minimapBonusEl.style.display = showMinimapBonus ? "grid" : "none";
-    if (showMinimapBonus) {
-      const pct = Math.max(0, Number(ST.me?.landmarkBonusPct || ST.me?.wonderBonusPct || 0));
-      minimapBonusEl.innerHTML = `<b>Landmark Bonus: +${pct}% coins</b><span>Coins come from Keeps and NPCs.</span>`;
-    }
     vignetteEl.style.display = ST.screen === "playing" ? "block" : "none";
     if (ST.screen !== "playing" || ST.modal) hideCtx();
     let utilityRendered = false;

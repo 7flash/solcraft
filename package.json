@@ -19,7 +19,9 @@
     "clean": "bun -e \"import { rmSync } from 'fs'; for (const p of ['node_modules','bun.lock','bun.lockb']) { try { rmSync(p,{recursive:true,force:true}); } catch {} }\"",
     "admin:invites": "bun scripts/create-admin-invite-codes.ts --count 64",
     "audit:backend-consistency": "bun scripts/audit-backend-consistency.ts",
-    "test:backend-consistency": "bun scripts/audit-backend-consistency.ts"
+    "test:backend-consistency": "bun scripts/audit-backend-consistency.ts",
+    "world:migrate": "bun scripts/migrate-production-to-resident-world.ts",
+    "world:migrate:recenter": "bun scripts/migrate-production-to-resident-world.ts --recenter"
   },
   "dependencies": {
     "measure-fn": "4.0.4",
