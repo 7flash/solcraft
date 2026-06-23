@@ -21,7 +21,9 @@ type ResidentWorld = {
   loaded: boolean;
   loadedAt: number;
   rev: number;
+  playerRev: number;
   dirty: boolean;
+  playerDirty: boolean;
   chunkSize: number;
   chunkRevs: Map<string, number>;
   players: Map<number, ResidentRow>;
@@ -38,7 +40,9 @@ const world: ResidentWorld = {
   loaded: false,
   loadedAt: 0,
   rev: 1,
+  playerRev: 1,
   dirty: false,
+  playerDirty: false,
   chunkSize: CHUNK_SIZE,
   chunkRevs: new Map(),
   players: new Map(),
@@ -75,13 +79,42 @@ function denormalizeBuildingKind(row: any) {
   return r;
 }
 
+
+function cleanPlayerRow(rowLike: any) {
+  const r = { ...(rowLike || {}) };
+  // Keep Resident snapshot hot rows lean. Full face/profile payloads should be
+  // read only by profile/inspect flows, never by every /api/state poll.
+  delete r.faceImage;
+  if (typeof r.appearance === "string" && r.appearance.length > 2400) r.appearance = "";
+  return r;
+}
+function nextEntityId(map: Map<number, ResidentRow>) {
+  let max = 0;
+  for (const id of map.keys()) max = Math.max(max, Number(id || 0));
+  return max + 1;
+}
+function setStructuralDirty(reason = "mutation", atX?: any, atZ?: any) {
+  world.rev += 1;
+  world.dirty = true;
+  world.reason = reason;
+  if (atX !== undefined && atZ !== undefined) setChunkRevFor(atX, atZ);
+  try { metaSet("solcraft:residentWorld:lastMutation:v1", JSON.stringify({ at: now(), rev: world.rev, reason })); } catch {}
+  return world.rev;
+}
+function setPlayerDirty(reason = "player") {
+  world.playerRev += 1;
+  world.playerDirty = true;
+  world.reason = reason;
+  return world.playerRev;
+}
+
 function loadFromDb() {
   world.players.clear();
   world.tiles.clear();
   world.buildings.clear();
   world.doodads.clear();
   world.loot.clear();
-  for (const p of rowArray(db.players)) world.players.set(Number(p.id || 0), clone(p));
+  for (const p of rowArray(db.players)) world.players.set(Number(p.id || 0), cleanPlayerRow(clone(p)));
   for (const t of rowArray(db.tiles)) world.tiles.set(key(t.x, t.z), clone(t));
   for (const b of rowArray(db.buildings)) world.buildings.set(Number(b.id || 0), normalizeBuildingKind(b));
   for (const d of rowArray(db.doodads)) world.doodads.set(key(d.x, d.z), clone(d));
@@ -94,13 +127,14 @@ function loadFromDb() {
 
 function applySnapshot(s: ResidentWorldSnapshot) {
   world.players.clear(); world.tiles.clear(); world.buildings.clear(); world.doodads.clear(); world.loot.clear(); world.chunkRevs.clear();
-  for (const p of s.players || []) world.players.set(Number((p as any).id || 0), clone(p));
+  for (const p of s.players || []) world.players.set(Number((p as any).id || 0), cleanPlayerRow(clone(p)));
   for (const t of s.tiles || []) world.tiles.set(key((t as any).x, (t as any).z), clone(t));
   for (const b of s.buildings || []) world.buildings.set(Number((b as any).id || 0), normalizeBuildingKind(b));
   for (const d of s.doodads || []) world.doodads.set(key((d as any).x, (d as any).z), clone(d));
   for (const l of s.loot || []) world.loot.set(Number((l as any).id || 0), clone(l));
   for (const [k, v] of Object.entries(s.chunkRevs || {})) world.chunkRevs.set(k, Number(v || 0));
   world.rev = Math.max(1, Number(s.rev || 1));
+  world.playerRev = Math.max(1, Number((s as any).playerRev || 1));
   world.loaded = true;
   world.loadedAt = now();
   world.lastSaveAt = Number(s.savedAt || 0);
@@ -124,7 +158,9 @@ export function residentWorldStatus() {
     loaded: world.loaded,
     loadedAt: world.loadedAt,
     rev: world.rev,
+    playerRev: world.playerRev,
     dirty: world.dirty,
+    playerDirty: world.playerDirty,
     dirtyMoves,
     chunkSize: world.chunkSize,
     chunks: world.chunkRevs.size,
@@ -140,15 +176,16 @@ export function residentWorldStatus() {
 function ensureResidentWorldLoaded() { if (!world.loaded) ensureResidentWorldStarted(); }
 
 export function residentWorldRev() { ensureResidentWorldLoaded(); return world.rev; }
+export function residentPlayerRev() { ensureResidentWorldLoaded(); return world.playerRev; }
+export function residentChunkRevs() { ensureResidentWorldLoaded(); return Object.fromEntries(world.chunkRevs.entries()); }
 
 export function markResidentWorldDirty(reason = "mutation", atX?: any, atZ?: any) {
   ensureResidentWorldLoaded();
-  world.rev += 1;
-  world.dirty = true;
-  world.reason = reason;
-  if (atX !== undefined && atZ !== undefined) setChunkRevFor(atX, atZ);
-  try { metaSet("solcraft:residentWorld:lastMutation:v1", JSON.stringify({ at: now(), rev: world.rev, reason })); } catch {}
-  return world.rev;
+  return setStructuralDirty(reason, atX, atZ);
+}
+export function markResidentPlayerDirty(reason = "player") {
+  ensureResidentWorldLoaded();
+  return setPlayerDirty(reason);
 }
 
 export function rebuildResidentWorldFromDb(reason = "db-refresh") {
@@ -164,8 +201,8 @@ export function upsertResidentPlayer(rowLike: any) {
   const row = clone(rowLike);
   const live = liveMoves.get(Number(row.id || 0));
   if (live) { row.x = live.x; row.z = live.z; if (live.energy !== undefined) row.energy = live.energy; if (live.energyAt !== undefined) row.energyAt = live.energyAt; row.moveSeq = live.lastSeq; }
-  world.players.set(Number(row.id || 0), row);
-  markResidentWorldDirty("player", row.x, row.z);
+  world.players.set(Number(row.id || 0), cleanPlayerRow(row));
+  setPlayerDirty("player");
   return row;
 }
 
@@ -224,8 +261,8 @@ export function commitResidentMovement(rowLike: Record<string, any>, next: { x: 
   if (state.energy !== undefined) cached.energy = state.energy;
   if (state.energyAt !== undefined) cached.energyAt = state.energyAt;
   cached.moveSeq = state.lastSeq;
-  world.players.set(id, cached);
-  markResidentWorldDirty("movement", state.x, state.z);
+  world.players.set(id, cleanPlayerRow(cached));
+  setPlayerDirty("movement");
   return state;
 }
 
@@ -235,18 +272,107 @@ export function checkpointResidentWorld(reason = "manual") {
     schemaVersion: 1,
     savedAt: now(),
     rev: world.rev,
+    playerRev: world.playerRev,
     chunkSize: world.chunkSize,
     reason,
     chunkRevs: Object.fromEntries(world.chunkRevs.entries()),
-    players: [...world.players.values()].map(clone),
+    players: [...world.players.values()].map((p) => cleanPlayerRow(clone(p))),
     tiles: [...world.tiles.values()].map(clone),
     buildings: [...world.buildings.values()].map((b) => denormalizeBuildingKind(clone(b))),
     doodads: [...world.doodads.values()].map(clone),
     loot: [...world.loot.values()].map(clone),
   };
   const result = saveResidentWorldSnapshot(snapshot);
-  if (result.ok) { world.lastSaveAt = snapshot.savedAt; world.dirty = false; for (const m of liveMoves.values()) m.dirty = false; }
+  if (result.ok) { world.lastSaveAt = snapshot.savedAt; world.dirty = false; world.playerDirty = false; for (const m of liveMoves.values()) m.dirty = false; }
   return { ...result, status: residentWorldStatus() };
+}
+
+
+
+export function residentTileAt(x: any, z: any) { ensureResidentWorldLoaded(); return world.tiles.get(key(x, z)) || null; }
+export function upsertResidentTile(rowLike: any, reason = "tile") {
+  ensureResidentWorldLoaded();
+  const row = clone(rowLike || {});
+  row.x = int(row.x); row.z = int(row.z); row.owner = int(row.owner);
+  world.tiles.set(key(row.x, row.z), row);
+  return setStructuralDirty(reason, row.x, row.z);
+}
+export function residentOwnedTileCount(ownerLike: any) {
+  ensureResidentWorldLoaded();
+  const owner = int(ownerLike);
+  let n = 0;
+  for (const t of world.tiles.values()) if (int(t.owner) === owner) n++;
+  return n;
+}
+
+export function residentBuildingAt(x: any, z: any) {
+  ensureResidentWorldLoaded();
+  for (const b of world.buildings.values()) if (int(b.x) === int(x) && int(b.z) === int(z)) return b;
+  return null;
+}
+export function residentBuildingById(idLike: any) { ensureResidentWorldLoaded(); return world.buildings.get(int(idLike)) || null; }
+export function residentBuildings(kind?: string) {
+  ensureResidentWorldLoaded();
+  const k = String(kind || "");
+  return [...world.buildings.values()].filter((b) => !k || String(b.kind || "") === k || (k === "worldwonder" && String(b.kind || "") === "landmark"));
+}
+export function upsertResidentBuilding(rowLike: any, reason = "building") {
+  ensureResidentWorldLoaded();
+  const row = normalizeBuildingKind(clone(rowLike || {}));
+  row.id = int(row.id || row.uid || 0) || nextEntityId(world.buildings);
+  row.x = int(row.x); row.z = int(row.z); row.owner = int(row.owner);
+  world.buildings.set(Number(row.id), row);
+  return setStructuralDirty(reason, row.x, row.z);
+}
+export function removeResidentBuilding(idLike: any, reason = "building-remove") {
+  ensureResidentWorldLoaded();
+  const id = int(idLike);
+  const row = world.buildings.get(id);
+  if (!row) return false;
+  world.buildings.delete(id);
+  setStructuralDirty(reason, row.x, row.z);
+  return true;
+}
+
+export function residentDoodadAt(x: any, z: any) { ensureResidentWorldLoaded(); return world.doodads.get(key(x, z)) || null; }
+export function upsertResidentDoodad(rowLike: any, reason = "doodad") {
+  ensureResidentWorldLoaded();
+  const row = clone(rowLike || {});
+  row.x = int(row.x); row.z = int(row.z); row.state = String(row.state || "gone");
+  world.doodads.set(key(row.x, row.z), row);
+  return setStructuralDirty(reason, row.x, row.z);
+}
+
+export function residentLootAt(x: any, z: any) {
+  ensureResidentWorldLoaded();
+  for (const l of world.loot.values()) if (int(l.x) === int(x) && int(l.z) === int(z)) return l;
+  return null;
+}
+export function residentLootById(idLike: any) { ensureResidentWorldLoaded(); return world.loot.get(int(idLike)) || null; }
+export function upsertResidentLoot(rowLike: any, reason = "loot") {
+  ensureResidentWorldLoaded();
+  const row = clone(rowLike || {});
+  row.id = int(row.id || row.uid || 0) || nextEntityId(world.loot);
+  row.x = int(row.x); row.z = int(row.z);
+  world.loot.set(Number(row.id), row);
+  return setStructuralDirty(reason, row.x, row.z);
+}
+export function removeResidentLoot(idLike: any, reason = "loot-remove") {
+  ensureResidentWorldLoaded();
+  const id = int(idLike);
+  const row = world.loot.get(id);
+  if (!row) return false;
+  world.loot.delete(id);
+  setStructuralDirty(reason, row.x, row.z);
+  return true;
+}
+
+export function residentLandmarkBonusPct() {
+  ensureResidentWorldLoaded();
+  const pctEach = Number(metaGet("solcraft:landmarks:bonusPctEach:v1", "3")) || 3;
+  const max = Number(metaGet("solcraft:landmarks:maxBonusPct:v1", "30")) || 30;
+  const count = residentBuildings("worldwonder").length;
+  return Math.max(0, Math.min(max, count * pctEach));
 }
 
 export function residentWorldRows(p: any, q: any, helpers: { pinfo: (id: number) => any; readLandmarkRecipe?: (uid: number) => any; activeMapPlayers?: () => any[] }) {

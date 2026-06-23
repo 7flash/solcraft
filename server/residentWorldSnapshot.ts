@@ -6,6 +6,7 @@ export type ResidentWorldSnapshot = {
   schemaVersion: number;
   savedAt: number;
   rev: number;
+  playerRev?: number;
   chunkSize: number;
   reason?: string;
   chunkRevs: Record<string, number>;

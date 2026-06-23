@@ -7,7 +7,28 @@ import { removedFeatureResponse } from "./removedFeatures";
 import { bumpEcsWorldRev, mirrorLegacyToEcsTables } from "./ecsDbAdapter";
 import { BASE_MAX, ECONOMY_RULES, GOLD_MINE_KIND, LIBRARY, MAX_HP, NORMAL_BUILDING_BUILD_MS, DECOR_BUILDING_BUILD_MS, RAID_COST, RES_KEYS, RES_NAMES, TELEPORT_COST, TELEPORT_MS, XP, biomeAt, cheb, harvestMs, naturalDoodad, proceduralNpcAt, hrand, WORLD_WONDER_GLOBAL_COIN_BONUS_PCT, WORLD_WONDER_MAX_GLOBAL_COIN_BONUS_PCT, WORLD_WONDER_PLAZA_RADIUS } from "./shared";
 import { cleanBuildKindResponse } from "./cleanRelease";
-import { commitResidentMovement, residentMovementFor, residentPlayerRow, markResidentWorldDirty, checkpointResidentWorld } from "./residentWorld";
+import {
+  commitResidentMovement,
+  residentMovementFor,
+  residentPlayerRow,
+  markResidentWorldDirty,
+  checkpointResidentWorld,
+  residentTileAt,
+  upsertResidentTile,
+  residentOwnedTileCount,
+  residentBuildingAt,
+  residentBuildingById,
+  residentBuildings,
+  upsertResidentBuilding,
+  removeResidentBuilding,
+  residentDoodadAt,
+  upsertResidentDoodad,
+  residentLootAt,
+  residentLootById,
+  upsertResidentLoot,
+  removeResidentLoot,
+  residentLandmarkBonusPct,
+} from "./residentWorld";
 
 export type EcsGameplayResult = { handled: boolean; result?: any };
 
@@ -115,22 +136,22 @@ function actionPlaceBuilding(p: PlayerRow, body: any) {
   const isLandmark = kind === "worldwonder";
   if (capitalReserved(x, z)) return err(isLandmark ? "Found the Landmark outside the capital plaza." : "Build outside the capital plaza.", "CAPITAL_RESERVED");
   if (!isLandmark) {
-    const tile = (db.tiles.select().where({ x, z }).first() as any) || null;
+    const tile = residentTileAt(x, z) || ((db.tiles.select().where({ x, z }).first() as any) || null);
     if (!tile || Number(tile.owner || 0) !== Number(p.id)) return err("Choose an empty captured tile you own.", "NEED_CAPTURED_TILE");
   }
-  const existing = (db.buildings.select().where({ x, z }).first() as any) || null;
+  const existing = residentBuildingAt(x, z) || ((db.buildings.select().where({ x, z }).first() as any) || null);
   if (existing) return err("That tile already has a building.", "BUILD_TILE_OCCUPIED");
   if (int(p.x) === x && int(p.z) === z) return err("Step aside first, then place the building.", "STEP_ASIDE");
   if (isLandmark) {
     const minDist = 9;
-    const nearLandmark = (db.buildings.select().where({ kind: "worldwonder" }).all() as any[]).find((b) => cheb(Number(b.x), Number(b.z), x, z) < minDist);
+    const nearLandmark = residentBuildings("worldwonder").find((b) => cheb(Number(b.x), Number(b.z), x, z) < minDist);
     if (nearLandmark) return err(`Landmarks need more space. Place at least ${minDist} tiles from another Landmark.`, "WONDER_TOO_CLOSE");
     const r = Math.max(1, Math.floor(Number(WORLD_WONDER_PLAZA_RADIUS || 4)));
     for (let dx = -r; dx <= r; dx++) for (let dz = -r; dz <= r; dz++) {
       const sx = x + dx, sz = z + dz;
-      const other = (db.buildings.select().where({ x: sx, z: sz }).first() as any) || null;
+      const other = residentBuildingAt(sx, sz) || ((db.buildings.select().where({ x: sx, z: sz }).first() as any) || null);
       if (other) return err("The Landmark site is blocked by another building.", "WONDER_PLAZA_BLOCKED");
-      const tile = (db.tiles.select().where({ x: sx, z: sz }).first() as any) || null;
+      const tile = residentTileAt(sx, sz) || ((db.tiles.select().where({ x: sx, z: sz }).first() as any) || null);
       if (tile && Number(tile.owner || 0) && Number(tile.owner || 0) !== Number(p.id)) return err("The Landmark site cannot cover another player's land.", "WONDER_PLAZA_OWNED");
     }
   }
@@ -141,19 +162,20 @@ function actionPlaceBuilding(p: PlayerRow, body: any) {
   const buildMs = buildMsFor(def);
   const mhp = buildMaxHpFor(def, 1);
   const row = insertBuilding({ owner: Number(p.id), kind, x, z, nm: null, cl: null, level: 1, hp: mhp, maxHp: mhp, acc: 0, accAt: startedAt, cdUntil: startedAt + buildMs, usedAt: 0, stored: 0 }) as any;
+  upsertResidentBuilding(row, "place-building");
   try {
     const d = db.doodads.select().where({ x, z }).first() as any;
     if (d) d.state = "gone";
+    upsertResidentDoodad({ x, z, state: "gone" }, "place-clear-doodad");
   } catch {}
   try {
-    const l = lootAt(x, z) as any;
-    if (l) deleteLoot(l);
+    const l = residentLootAt(x, z) || (lootAt(x, z) as any);
+    if (l) { deleteLoot(l); removeResidentLoot(Number(l.id), "place-clear-loot"); }
   } catch {}
   if (kind === "worldwonder") updateLandmarkCoinBonus();
   addXp(p, Number((XP as any).build || 6));
   refreshPlayer(p);
-  bump("place-building");
-  mirrorLegacyToEcsTables("place-building");
+  bump("place-building", x, z);
   return ok({ uid: Number(row?.id || 0), x, z, kind, inv: p.inv, buildMs, note: kind === "worldwonder" ? `${def.name || "Landmark"} founded. Coin production will rise for everyone when the landmark is active.` : `${def.name || "Building"} construction started.` });
 }
 function isUnderConstruction(b: BuildingRow) { return Number(b?.cdUntil || 0) > now(); }
@@ -164,19 +186,21 @@ function markNpcGone(x: number, z: number) {
   const row = db.doodads.select().where({ x, z }).first() as any;
   if (row) row.state = "gone";
   else db.doodads.insert({ x, z, state: "gone" });
+  upsertResidentDoodad({ x, z, state: "gone" }, "npc-gone");
 }
-function npcAlreadyGone(x: number, z: number) { return !!db.doodads.select().where({ x, z, state: "gone" }).first(); }
+function npcAlreadyGone(x: number, z: number) { const r = residentDoodadAt(x, z); return String(r?.state || "") === "gone" || !!db.doodads.select().where({ x, z, state: "gone" }).first(); }
 function lootSpot(x: number, z: number, idx: number) {
   const spots = [[0,0],[1,0],[-1,0],[0,1],[0,-1],[1,1],[1,-1],[-1,1],[-1,-1],[2,0],[-2,0],[0,2],[0,-2]];
   const [dx, dz] = spots[idx % spots.length];
   return { x: x + dx, z: z + dz };
 }
 function scatterLoot(x: number, z: number, kind: string, amount: number) {
-  const n = Math.max(1, Math.min(120, Math.floor(Number(amount || 1))));
+  const bonusMul = (kind === "gold" || kind === "coin" || kind === "coins") ? (1 + Math.max(0, residentLandmarkBonusPct()) / 100) : 1;
+  const n = Math.max(1, Math.min(160, Math.floor(Number(amount || 1) * bonusMul)));
   let dropped = 0;
   for (let i = 0; i < n; i++) {
     const s = lootSpot(x, z, i);
-    try { insertLoot({ x: s.x, z: s.z, kind, gid: null }); dropped++; } catch {}
+    try { const row = insertLoot({ x: s.x, z: s.z, kind, gid: null }) as any; upsertResidentLoot(row || { x: s.x, z: s.z, kind, gid: null }, "scatter-loot"); dropped++; } catch {}
   }
   return dropped;
 }
@@ -184,7 +208,7 @@ function npcGatheredBonus(npc: any) {
   const res = npc?.resource;
   const infra = res === "w" ? "lumber" : res === "s" ? "quarry" : res === "f" ? "farm" : "";
   if (!infra) return { bonus: 0, source: "" };
-  const near = (db.buildings.select().where({ kind: infra }).all() as any[]).filter((b) => cheb(Number(b.x), Number(b.z), Number(npc.x), Number(npc.z)) <= 8);
+  const near = residentBuildings(infra).filter((b) => cheb(Number(b.x), Number(b.z), Number(npc.x), Number(npc.z)) <= 8);
   const bonus = near.reduce((sum, b) => sum + Math.max(1, Math.floor(Number(b.level || 1))), 0);
   return { bonus: Math.min(12, bonus), source: infra === "lumber" ? "nearby Lumber Camp" : infra === "quarry" ? "nearby Quarry" : "nearby Farm" };
 }
@@ -196,7 +220,7 @@ function completionChannel(p: PlayerRow, kind: "home" | "house" | "wonder") {
 
 
 function doodadAt(x: number, z: number): "tree" | "rock" | "food" | "" {
-  const row = (db.doodads.select().where({ x, z }).first() as any) || null;
+  const row = residentDoodadAt(x, z) || ((db.doodads.select().where({ x, z }).first() as any) || null);
   const state = String(row?.state || "");
   if (state === "gone") return "";
   if (state === "tree" || state === "rock" || state === "food") return state as any;
@@ -208,6 +232,7 @@ function markDoodadGone(x: number, z: number) {
   const row = (db.doodads.select().where({ x, z }).first() as any) || null;
   if (row) row.state = "gone";
   else db.doodads.insert({ x, z, state: "gone" });
+  upsertResidentDoodad({ x, z, state: "gone" }, "harvest-gone");
 }
 function dropHarvestLoot(x: number, z: number, kind: "wood" | "stone", amount: number) {
   const spots = [[0,0],[1,0],[-1,0],[0,1],[0,-1],[1,1],[1,-1],[-1,1],[-1,-1]] as const;
@@ -216,9 +241,10 @@ function dropHarvestLoot(x: number, z: number, kind: "wood" | "stone", amount: n
   for (const [dx, dz] of spots) {
     if (left <= 0) break;
     const lx = x + dx, lz = z + dz;
-    if (lootAt(lx, lz)) continue;
+    if (residentLootAt(lx, lz) || lootAt(lx, lz)) continue;
     const n = Math.min(left, kind === "wood" ? 5 : 4);
-    insertLoot({ x: lx, z: lz, kind, gid: String(n) });
+    const row = insertLoot({ x: lx, z: lz, kind, gid: String(n) }) as any;
+    upsertResidentLoot(row || { x: lx, z: lz, kind, gid: String(n) }, "harvest-loot");
     left -= n; dropped += n;
   }
   return dropped;
@@ -226,7 +252,7 @@ function dropHarvestLoot(x: number, z: number, kind: "wood" | "stone", amount: n
 function capitalReserved(x: number, z: number) { return Math.max(Math.abs(x), Math.abs(z)) <= 6; }
 function updateLandmarkCoinBonus() {
   try {
-    const count = Number(db.buildings.select().where({ kind: "worldwonder" }).count() || 0);
+    const count = residentBuildings("worldwonder").length;
     const pct = Math.max(0, Math.min(WORLD_WONDER_MAX_GLOBAL_COIN_BONUS_PCT, count * WORLD_WONDER_GLOBAL_COIN_BONUS_PCT));
     metaSet("solcraft:landmarks:globalCoinBonusPct:v1", String(pct));
     metaSet("solcraft:wonders:globalCoinBonusPct:v1", String(pct));
@@ -235,7 +261,7 @@ function updateLandmarkCoinBonus() {
 }
 function infrastructureDoodadAt(x: number, z: number): "tree" | "rock" | "food" | "" {
   try {
-    const rows = (db.buildings.select().all() as any[]).filter((b) => b && ["lumber", "quarry", "farm"].includes(String(b.kind || "")) && cheb(Number(b.x), Number(b.z), x, z) <= 6 && cheb(Number(b.x), Number(b.z), x, z) >= 2);
+    const rows = residentBuildings().filter((b) => b && ["lumber", "quarry", "farm"].includes(String(b.kind || "")) && cheb(Number(b.x), Number(b.z), x, z) <= 6 && cheb(Number(b.x), Number(b.z), x, z) >= 2);
     if (!rows.length) return "";
     rows.sort((a, b) => cheb(Number(a.x), Number(a.z), x, z) - cheb(Number(b.x), Number(b.z), x, z));
     for (const b of rows.slice(0, 3)) {
@@ -252,14 +278,15 @@ function infrastructureDoodadAt(x: number, z: number): "tree" | "rock" | "food" 
 function actionClaimAnyFreeTile(p: PlayerRow, body: any) {
   const x = int(body.x), z = int(body.z);
   if (capitalReserved(x, z)) return err("The capital plaza is public land. Claim outside the service ring.", "CAPITAL_RESERVED");
-  const existing = (db.tiles.select().where({ x, z }).first() as any) || null;
+  const existing = residentTileAt(x, z) || ((db.tiles.select().where({ x, z }).first() as any) || null);
   if (existing && Number(existing.owner || 0) === Number(p.id)) return ok({ note: `Already yours: ${x},${z}.` });
   if (existing && Number(existing.owner || 0)) return err("That tile is already claimed.", "TILE_TAKEN");
   const cap = tileCapacityForPlayer(p);
-  const owned = ownedTileCount(Number(p.id));
+  const owned = residentOwnedTileCount(Number(p.id));
   if (owned >= cap) return err(`Tile limit reached: ${owned}/${cap}. Hold more $CRAFTS to expand your land capacity.`, "TILE_CAP_REACHED", { owned, cap });
   if (existing) existing.owner = Number(p.id); else db.tiles.insert({ x, z, owner: Number(p.id) });
-  addXp(p, 4); refreshPlayer(p); bump("claim-any-free"); mirrorLegacyToEcsTables("claim-any-free");
+  upsertResidentTile({ x, z, owner: Number(p.id) }, "claim-tile");
+  addXp(p, 4); refreshPlayer(p); bump("claim-any-free");
   return ok({ note: `Claimed ${x},${z}.`, x, z });
 }
 function actionHarvestStart(p: PlayerRow, body: any) {
@@ -303,7 +330,7 @@ function actionHarvestFinish(p: PlayerRow, body: any) {
     addXp(p, 4);
     note = `Harvested crops: +${amount} food 🌾.`;
   }
-  refreshPlayer(p); bump("harvest-channel"); mirrorLegacyToEcsTables("harvest-channel");
+  refreshPlayer(p); bump("harvest-channel");
   return ok({ note, inv: p.inv, kind, x, z });
 }
 function actionHarvestCancel(p: PlayerRow) { channels.delete(Number(p.id)); return ok(); }
@@ -320,13 +347,13 @@ function actionPickupLoot(p: PlayerRow, body: any) {
   const x = int(body.x ?? p.x), z = int(body.z ?? p.z);
   let l: any = null;
   if (id) {
-    try { l = (db.loot as any).get ? (db.loot as any).get(id) : null; } catch {}
+    try { l = residentLootById(id) || ((db.loot as any).get ? (db.loot as any).get(id) : null); } catch {}
     if (!l) {
       try { l = (db.loot.select().where({ id }).first() as any) || null; } catch {}
     }
   }
   if (!l) {
-    try { l = (db.loot.select().where({ x, z }).first() as any) || null; } catch {}
+    try { l = residentLootAt(x, z) || ((db.loot.select().where({ x, z }).first() as any) || null); } catch {}
   }
   if (!l) return err("That pickup was already collected.", "LOOT_GONE");
   if (!playerNear(p, l.x, l.z, 0)) return err("Stand on the pickup to collect it.", "TOO_FAR");
@@ -345,26 +372,30 @@ function actionPickupLoot(p: PlayerRow, body: any) {
     if (left > 0) {
       try { l.gid = String(left); } catch {}
       try { db.query("update loot set gid = ? where id = ?").run(String(left), Number(l.id)); } catch {}
+      upsertResidentLoot(l, "pickup-partial");
       note = `Picked up +${added} ${label}. Storage full — ${left} left on the ground.`;
     } else {
       try { (db.loot as any).delete?.(Number(l.id)); } catch {
         try { db.query("delete from loot where id = ?").run(Number(l.id)); } catch {}
       }
+      removeResidentLoot(Number(l.id), "pickup-loot");
       note = `Picked up +${added} ${label}.`;
     }
   } else if (kind === "gold" || kind === "coin" || kind === "coins") {
     try { (db.loot as any).delete?.(Number(l.id)); } catch { try { db.query("delete from loot where id = ?").run(Number(l.id)); } catch {} }
+    removeResidentLoot(Number(l.id), "pickup-coins");
     const amount = Math.max(1, Math.floor(Number(l.gid || 3) || 3));
     gain(p, { g: amount });
     note = `Picked up +${amount} coins 🪙.`;
   } else {
     try { (db.loot as any).delete?.(Number(l.id)); } catch { try { db.query("delete from loot where id = ?").run(Number(l.id)); } catch {} }
+    removeResidentLoot(Number(l.id), "pickup-coins");
     const amount = Math.max(1, Math.floor(Number(l.gid || 1) || 1));
     gain(p, { g: amount });
     note = `Picked up +${amount} coins 🪙.`;
   }
   addXp(p, 1);
-  refreshPlayer(p); bump("pickup"); mirrorLegacyToEcsTables("pickup");
+  refreshPlayer(p); bump("pickup");
   return ok({ note, lootGone: Number(l.id || 0), inv: p.inv, xp: p.xp, level: p.level });
 }
 
@@ -377,7 +408,7 @@ function actionCustomize(p: PlayerRow, body: any) {
     if (body.cl && !color) return err("Choose one of the safe building colors.", "BAD_COLOR");
     b.cl = color || null;
   }
-  refreshBuilding(b); bump("customize");
+  refreshBuilding(b); upsertResidentBuilding(b, "customize-building"); bump("customize", b.x, b.z);
   return ok({ note: "Building customized." });
 }
 
@@ -462,13 +493,14 @@ function actionDonateNpc(p: PlayerRow, body: any) {
   if (!npc || npcAlreadyGone(x, z)) return err("Nobody is there anymore.", "NPC_GONE");
   if (!playerNear(p, x, z)) return err("Stand beside the traveler first.", "TOO_FAR");
   const coinCost = 5;
-  if (have(p, "g") < coinCost) return err(`Donate ${coinCost}🪙 to help the traveler. Coins are separate from storage.`, "DONATION_NEEDS_COINS");
+  if (have(p, "g") < coinCost) return err(`Donate ${coinCost}🪙 to earn reputation. Coins are separate from storage.`, "DONATION_NEEDS_COINS");
   spend(p, { g: coinCost });
   p.hp = Math.min(MAX_HP, Math.max(1, Number(p.hp || MAX_HP)) + 3);
   addXp(p, 8);
   markNpcGone(x, z);
-  refreshPlayer(p); bump("donate-npc"); mirrorLegacyToEcsTables("donate-npc");
-  return ok({ note: `Donated ${coinCost}🪙 to ${npc.title || "traveler"}. +3♥ goodwill, +8 XP.`, player: { hp: p.hp, maxHp: MAX_HP }, inv: p.inv });
+  const rep = adjustReputation(Number(p.id), reputationDeltaFor("npcDonate"), "npcDonate");
+  refreshPlayer(p); bump("donate-npc");
+  return ok({ note: `Donated ${coinCost}🪙 to ${npc.title || "traveler"}. +3♥ goodwill, +8 XP. ${reputationDeltaText(rep)}`, player: { hp: p.hp, maxHp: MAX_HP }, inv: p.inv, reputation: reputationSummaryForWire(Number(p.id)) });
 }
 
 function actionAttackNpc(p: PlayerRow, body: any) {
@@ -487,8 +519,9 @@ function actionAttackNpc(p: PlayerRow, body: any) {
   const resKind = npc.resource === "s" ? "stone" : npc.resource === "f" ? "food" : "wood";
   const resources = scatterLoot(x, z, resKind, carried);
   addXp(p, XP.fight || 4);
-  refreshPlayer(p); bump("attack-npc"); mirrorLegacyToEcsTables("attack-npc");
-  return ok({ note: `${npc.title || "Traveler"} defeated. Loot dropped nearby${bonus.bonus ? ` from ${bonus.source}` : ""}.`, player: { hp: p.hp, maxHp: MAX_HP }, dropped: { coins, resources, kind: resKind }, npc: { id: npc.id, x, z } });
+  const rep = adjustReputation(Number(p.id), reputationDeltaFor("npcKill"), "npcKill");
+  refreshPlayer(p); bump("attack-npc");
+  return ok({ note: `${npc.title || "Traveler"} defeated. Loot dropped nearby${bonus.bonus ? ` from ${bonus.source}` : ""}. ${reputationDeltaText(rep)}`, player: { hp: p.hp, maxHp: MAX_HP }, dropped: { coins, resources, kind: resKind }, npc: { id: npc.id, x, z }, reputation: reputationSummaryForWire(Number(p.id)) });
 }
 
 function actionDonateKeep(p: PlayerRow, body: any) {
@@ -502,8 +535,9 @@ function actionDonateKeep(p: PlayerRow, body: any) {
   b.maxHp = maxHpFor(b);
   b.hp = Math.min(Number(b.maxHp || b.hp || 1), Math.max(1, Number(b.hp || 1)) + Math.max(1, Math.floor(amount / 2)));
   b.accAt = now(); markUsed(b); addXp(p, Math.max(4, Math.floor(amount / 2)));
-  refreshPlayer(p); refreshBuilding(b); bump("donate-keep"); mirrorLegacyToEcsTables("donate-keep");
-  return ok({ note: `Donated ${amount}🪙 to ${b.nm || "the Keep"}.`, keep: { uid: b.id, hp: b.hp, maxHp: b.maxHp, stored: b.stored }, inv: p.inv });
+  const rep = adjustReputation(Number(p.id), Math.max(1, reputationDeltaFor("keepDonate", Math.ceil(amount / 10))), "keepDonate");
+  refreshPlayer(p); refreshBuilding(b); bump("donate-keep");
+  return ok({ note: `Donated ${amount}🪙 to ${b.nm || "the Keep"}. ${reputationDeltaText(rep)}`, keep: { uid: b.id, hp: b.hp, maxHp: b.maxHp, stored: b.stored }, inv: p.inv, reputation: reputationSummaryForWire(Number(p.id)) });
 }
 
 function actionRaidKeep(p: PlayerRow, body: any) {
@@ -521,18 +555,23 @@ function actionRaidKeep(p: PlayerRow, body: any) {
     const stored = Math.max(0, Math.floor(Number(b.stored || 0)));
     if (stored > 0) gain(p, { g: stored });
     deleteBuilding(Number(b.id));
+    removeResidentBuilding(Number(b.id), "raid-destroy-building");
+    const rep = adjustReputation(Number(p.id), reputationDeltaFor(isKeep ? "keepBreach" : "buildingAttack"), isKeep ? "keepBreach" : "buildingAttack");
     addXp(p, isKeep ? XP.raidKill || 22 : 8);
-    note = `${isKeep ? "Keep breached" : "Building destroyed"}. ${stored ? `Recovered ${stored}🪙.` : ""}`;
+    note = `${isKeep ? "Keep breached" : "Building destroyed"}. ${stored ? `Recovered ${stored}🪙. ` : ""}${reputationDeltaText(rep)}`;
   } else {
     if (isKeep) {
       const coins = Math.min(Math.max(0, Math.floor(Number(b.stored || 0))), 3);
       if (coins) { b.stored = Math.max(0, Math.floor(Number(b.stored || 0)) - coins); gain(p, { g: coins }); note += ` Looted ${coins}🪙.`; }
+      const rep = adjustReputation(Number(p.id), reputationDeltaFor("keepRaid"), "keepRaid");
+      note += ` ${reputationDeltaText(rep)}`;
     }
     refreshBuilding(b);
+    upsertResidentBuilding(b, "building-update");
   }
-  refreshPlayer(p); bump("raid"); mirrorLegacyToEcsTables("raid");
+  refreshPlayer(p); bump("raid");
   try { if (isKeep) addSystemChat(keepChatCard(b)); } catch {}
-  return ok({ note, player: { hp: p.hp, energy: p.energy }, building: b.hp > 0 ? { uid: b.id, hp: b.hp, maxHp: b.maxHp } : null, inv: p.inv });
+  return ok({ note, player: { hp: p.hp, energy: p.energy }, building: b.hp > 0 ? { uid: b.id, hp: b.hp, maxHp: b.maxHp } : null, inv: p.inv, reputation: reputationSummaryForWire(Number(p.id)) });
 }
 
 function actionFightPlayer(p: PlayerRow, body: any) {
@@ -638,7 +677,7 @@ function energyNowForMove(p: PlayerRow, t = now()) {
   return Math.max(0, Math.min(maxE, base + regenPerSec * dt));
 }
 function movementBlockedForPlayer(p: PlayerRow, x: number, z: number) {
-  const b = (db.buildings.select().where({ x, z }).first() as any) || null;
+  const b = residentBuildingAt(x, z) || ((db.buildings.select().where({ x, z }).first() as any) || null);
   if (!b) return false;
   const def = libById(String(b.kind || ""));
   if (def && def.blocksMovement === false) return false;
