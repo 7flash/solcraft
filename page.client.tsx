@@ -92,9 +92,9 @@ import {
 
 const AUTH_KEY = "solcraft:auth";
 const FACE_KEY = "solcraft:face.v1";
-const RENDER_R = 48;
-const TILE_LOAD_R = RENDER_R + 18;
-const TILE_LOAD_R_MAX = 92;
+const RENDER_R = 34;
+const TILE_LOAD_R = RENDER_R + 10;
+const TILE_LOAD_R_MAX = 52;
 const TILE_WINDOW_HYSTERESIS = 9;
 const PATH_R = 112;
 const MOVE_BATCH_MAX = 18;
@@ -190,6 +190,17 @@ function referralCodeForCreate() {
   return referralCodeFromIntro() || referralCodeFromEntry();
 }
 
+function readStr(el: any, key: string, fallback = "") {
+  try {
+    const v = el?.dataset ? el.dataset[key] : null;
+    return v == null || v === "" ? fallback : String(v);
+  } catch { return fallback; }
+}
+function readNum(el: any, key: string, fallback = 0) {
+  const n = Number(readStr(el, key, ""));
+  return Number.isFinite(n) ? n : fallback;
+}
+
 function spawnHarvestPulse(world: any, ch: any, progress: number) {
   try {
     if (!ch || !(ch.kind === "tree" || ch.kind === "rock" || ch.kind === "food")) return;
@@ -206,10 +217,10 @@ function loadTimeControls() {
   try {
     const raw = JSON.parse(localStorage.getItem("solcraft:time.v1") || "{}");
     return {
-      auto: raw.auto === true,
+      auto: raw.auto === false ? false : true,
       hour: Number.isFinite(Number(raw.hour)) ? Math.max(0, Math.min(23, Math.floor(Number(raw.hour)))) : 12,
     };
-  } catch { return { auto: false, hour: 12 }; }
+  } catch { return { auto: true, hour: 12 }; }
 }
 function saveTimeControls(next: any) {
   const out = { auto: next?.auto === true, hour: Math.max(0, Math.min(23, Math.floor(Number(next?.hour ?? 12)))) };
@@ -252,6 +263,23 @@ export default function mount() {
     consoleBudgetMs: 24,
   });
 
+  const perfMini = (() => {
+    const el = document.createElement("div");
+    el.className = "sc-perf-mini";
+    el.setAttribute("aria-hidden", "true");
+    root.appendChild(el);
+    const data = { ping: 0, paint: 0, frame: 0, cells: 0, chunks: 0, last: 0 };
+    function update(partial: any = {}) {
+      Object.assign(data, partial || {});
+      const now = performance.now();
+      if (now - data.last < 180) return;
+      data.last = now;
+      const ping = data.ping ? `${Math.round(data.ping)}ms` : "—";
+      el.textContent = `ping ${ping} · frame ${Math.round(data.frame || 0)}ms · ui ${Math.round(data.paint || 0)}ms · cells ${Math.round(data.cells || 0)}`;
+    }
+    return { update };
+  })();
+
   const sfx = makeSfx();
 
   const ST = {
@@ -276,6 +304,7 @@ export default function mount() {
     questTab: "actions",
     bank: null, bankBusy: false, bankMsg: "",
     walkthrough: null, // { active, step: "char" | "quests" }
+    inviteGift: null, inviteError: "", landmarkBonusPct: 0,
     wonderPrompt: "", wonderName: "", wonderFootprint: 9, wonderMode: "district", wonderPaletteId: "solar", wonderRecipe: null, wonderBusy: false, wonderPlacing: false, wonderMsg: "", wonderLastPlaceAt: 0, wonderLastPlaceKey: "",
     adminTool: "demolish", adminMsg: "", hoverCellX: 0, hoverCellZ: 0,
   };
@@ -655,8 +684,10 @@ export default function mount() {
   function pushNotice(msg, kind = "info") {
     const text = String(msg || "").trim();
     if (!text) return;
+    const nowMs = Date.now();
+    notices = notices.filter((n) => !(n.text === text && nowMs - Number(n.at || 0) < 1400));
     const id = ++noticeSeq;
-    notices = [...notices, { id, text, kind }].slice(-6);
+    notices = [...notices, { id, text, kind, at: nowMs }].slice(-3);
     renderNotices();
     setTimeout(() => {
       notices = notices.map((n) => n.id === id ? { ...n, gone: true } : n);
@@ -671,8 +702,7 @@ export default function mount() {
     if (shouldSuppressNotice(msg)) return;
     const text = String(msg || "").trim();
     if (!text) return;
-    // Keep only the stackable notification rail. The legacy single toast caused
-    // duplicate messages and was especially noisy for camera/zoom controls.
+    // Keep only important system messages in the rail. Small world rewards use floating text.
     toastEl.textContent = "";
     toastEl.classList.remove("show");
     clearTimeout(toastT);
@@ -813,7 +843,9 @@ export default function mount() {
     if (!ST.auth || pollBusy || (!force && ST.screen !== "playing")) return false;
     const a = { ...ST.auth };
     pollBusy = true;
+    const pollStartedAt = performance.now();
     const r = await perf.measureAsync("net.state", () => api(`/api/state?pid=${a.pid}&secret=${encodeURIComponent(a.secret)}&rev=${ST.rev}&ax=${ST.ax}&az=${ST.az}&chat=${ST.chatId}&mapRev=${ST.mapRev ?? -1}`), { rev: ST.rev, mapRev: ST.mapRev ?? -1 });
+    perfMini.update({ ping: performance.now() - pollStartedAt });
     pollBusy = false;
     if (!r || !r.ok) {
       if (r && r.msg === "auth") {
@@ -856,6 +888,7 @@ export default function mount() {
     }
     ST.me = nextMe;
     ST.spectator = !!snap.me.spectator;
+    ST.landmarkBonusPct = Math.max(0, Number(snap.landmarkBonusPct || snap.me?.landmarkBonusPct || 0) || 0);
     if (snap.me.appearance && !ST.modal && ST.panel !== "char") {
       ST.characterProfile = saveCharacterProfile({ ...ST.characterProfile, ...snap.me.appearance, palette: { ...(ST.characterProfile.palette || {}), ...(snap.me.appearance.palette || {}) }, parts: { ...(ST.characterProfile.parts || {}), ...(snap.me.appearance.parts || {}) } });
     }
@@ -1067,7 +1100,8 @@ export default function mount() {
       return { ok: false, msg: "spectator" };
     }
     const r = await api("/api/action", { pid: ST.auth.pid, secret: ST.auth.secret, type, ...payload });
-    if (r && r.note) say(r.note, 2600);
+    const quietWorldFeedback = type === "pickup" || type === "harvestFinish" || type === "harvestStart";
+    if (r && r.note && !quietWorldFeedback) say(r.note, 2600);
     else if (r && !r.ok && r.msg) { sfx.err(); say(r.msg, 2400); }
     if (r && r.ok && type !== "move" && type !== "movePath") pollSoon();
     return r;
@@ -1315,7 +1349,7 @@ export default function mount() {
       // Keep the 3D world light. The expanded minimap gives global overview without
       // streaming/rendering the entire infinite world into Three.js.
       const needed = Math.ceil(view * Math.max(1, aspect) + 12);
-      return Math.max(TILE_LOAD_R, Math.min(Math.min(TILE_LOAD_R_MAX, 44), needed));
+      return Math.max(22, Math.min(TILE_LOAD_R_MAX, needed));
     }
     function applyFogDistance(day: any = null) {
       const zoom = clampCameraZoom(ST.visual?.cameraZoom, 1);
@@ -1444,6 +1478,12 @@ export default function mount() {
         scene.add(m); items.push({ m, v: new THREE.Vector3((Math.random()-0.5)*2.2, 2.2+Math.random()*2, (Math.random()-0.5)*2.2) });
       }
       bursts.push({ mat, items, life: 0.75, max: 0.75 });
+    }
+    function floatText(x, z, text, color = "#ffd76e") {
+      const label = makeLabel(String(text || ""), color);
+      label.position.set(Number(x || 0), 1.24, Number(z || 0));
+      scene.add(label);
+      anims.push({ kind: "float", t: 0, dur: 0.9, obj: label, fromY: label.position.y, done: () => { scene.remove(label); try { label.material?.map?.dispose?.(); label.material?.dispose?.(); } catch {} } });
     }
     const ringGeo = new THREE.RingGeometry(0.42, 0.5, 32);
     function shockwave(x, z, color = 0x14f195) {
@@ -2172,7 +2212,7 @@ export default function mount() {
         ST.me.energyAt = performance.now();
       }
       anims.push({ kind: "hop", t: 0, dur: hopDur, from, to: { x, z }, done: () => {
-        walking = false; sfx.hop(); queueServerMove(x, z, from); advanceLocalWalk();
+        walking = false; sfx.hop(); tryPickupAt(x, z); queueServerMove(x, z, from); advanceLocalWalk();
       } });
       return true;
     }
@@ -2279,6 +2319,7 @@ export default function mount() {
         } else if (a.kind === "in") { if (a.obj) a.obj.scale.setScalar(0.01 + 0.99 * k); }
         else if (a.kind === "up") { if (a.obj) { a.obj.position.y = 0.52 + k * 0.7; a.obj.scale.setScalar(1 - k * 0.9); } }
         else if (a.kind === "pulse") { if (a.obj) { const p = 1 + Math.sin(k * Math.PI) * 0.09; const b = a.base || { x: 1, y: 1, z: 1 }; a.obj.scale.set(b.x * p, b.y * (1 + Math.sin(k * Math.PI) * 0.04), b.z * p); } }
+        else if (a.kind === "float") { if (a.obj) { a.obj.position.y = (a.fromY || 1.2) + k * 0.72; if (a.obj.material) a.obj.material.opacity = Math.max(0, 1 - k); } }
         if (k >= 1) { if (a.kind === "pulse" && a.obj && a.base) a.obj.scale.copy(a.base); anims.splice(i, 1); a.done && a.done(); }
       }
       if (!anims.some((a) => a.kind === "hop" || a.kind === "correct")) player.position.set(me.x, 0.22, me.z);
@@ -2329,7 +2370,9 @@ export default function mount() {
       const renderStart = performance.now();
       renderer.render(scene, camera);
       perf.record("webgl.render", performance.now() - renderStart);
-      perf.record("frame.total", performance.now() - frameStart, { rawDtMs: rawDt * 1000, anims: anims.length, rigs: rigPool.size, builds: buildPool.size, cells: cells.size });
+      const frameMs = performance.now() - frameStart;
+      perf.record("frame.total", frameMs, { rawDtMs: rawDt * 1000, anims: anims.length, rigs: rigPool.size, builds: buildPool.size, cells: cells.size });
+      perfMini.update({ frame: frameMs, cells: cells.size });
     });
 
     function drawMinimap() {
@@ -2340,18 +2383,46 @@ export default function mount() {
       perf.measure("ui.minimap", () => drawKnownWorldMap(minimapEl, false));
     }
 
+    function updateMinimapInfo() {
+      if (!minimapEl?.isConnected) return;
+      let info = document.getElementById("sc-minimap-info");
+      if (!info) {
+        info = document.createElement("div");
+        info.id = "sc-minimap-info";
+        info.className = "minimap-info-card";
+        minimapEl.insertAdjacentElement("afterend", info);
+      }
+      const show = ST.screen === "playing" && !ST.modal;
+      info.style.display = show ? "grid" : "none";
+      if (!show) return;
+      const bonus = Math.max(0, Number(ST.landmarkBonusPct || 0) || 0);
+      const hour = currentWorldHour(ST, Number(ST.now || Date.now()));
+      const label = hour < 5 ? "Night" : hour < 8 ? "Dawn" : hour < 18 ? "Day" : hour < 21 ? "Dusk" : "Night";
+      const x = Math.trunc(Number(ST.me?.x || 0));
+      const z = Math.trunc(Number(ST.me?.z || 0));
+      info.innerHTML = `<b>${label} · ${String(hour).padStart(2, "0")}:00</b><span>You ${x}, ${z}</span><span>Landmark Bonus: +${bonus}% coins</span><span>Coins come from Keeps and NPCs.</span>`;
+    }
 
     function onResize() { renderer.setSize(W(), H()); setFrustum(); }
     window.addEventListener("resize", onResize);
 
+    function markDoodadGone(x, z) {
+      const k = key(x, z);
+      exceptions.set(k, "gone");
+      const dd = doodadPool.get(k);
+      if (dd) { scene.remove(dd.group); doodadPool.delete(k); }
+      refreshCell(Math.trunc(Number(x || 0)), Math.trunc(Number(z || 0)));
+    }
+
     return {
       applyWorld, applyPlayers, applyMe, me, cellFromEvent, buildingFromEvent, pathTo, pathToNear, tryMoveDelta,
-      blocked, buildPoolAt, doodadVisible, burst, shockwave, hoverMarker, hardSnapMe,
+      blocked, buildPoolAt, doodadVisible, burst, floatText, shockwave, hoverMarker, hardSnapMe, markDoodadGone,
       setHintCells, hideBuildGhost, showBuildGhost, refreshWindow, rebuildBuilding, animateBuildingUse, refreshConstructionProgress,
       refreshOwnRig: () => ensureRig(true),
       applyVisualQuality,
       hasPendingMove,
       tileOwner, buildPool, buildAt, lootPool, rigPool, tradePostPool, cells,
+      updateMinimapInfo,
       rotateCam: (delta = CAMERA_ROTATION_STEP) => stepCameraYaw(delta),
       refreshCameraRotation: () => {},
       refreshCameraZoom: () => setFrustum(),
@@ -2472,7 +2543,7 @@ export default function mount() {
     act("wonderStart", { uid }).then((r) => {
       if (!r || !r.ok) return;
       ST.channel = { x, z, until: performance.now() + r.ms, ms: r.ms, kind: "wonder", uid };
-      showChannel("Travelling to Wonder…");
+      showChannel("Travelling to Landmark…");
     });
   }
   function startHouseCast(uid) {
@@ -2592,7 +2663,10 @@ export default function mount() {
       } else {
         act("harvestFinish", { x, z }).then((r) => {
           if (r && r.ok) {
+            world.markDoodadGone?.(x, z);
             world.burst(x, 0.4, z, kind === "tree" ? 0x52ad58 : kind === "food" ? 0xffd76e : 0xaaa69a, 12, 0.45);
+            const gainText = String(r.note || "").match(/(?:\+\d+[^.]*|\d+\s+(?:wood|stone|food)[^.]*)/i)?.[0] || (kind === "tree" ? "+wood dropped" : kind === "rock" ? "+stone dropped" : "+food");
+            world.floatText?.(x, z, gainText, kind === "tree" ? "#14f195" : kind === "food" ? "#ffd76e" : "#d7dde7");
             completeWalkthroughAction(kind === "tree" ? "chop" : kind === "food" ? "farm" : "mine");
             pollSoon();
           }
@@ -2691,21 +2765,40 @@ export default function mount() {
   let lastPickupAt = 0;
   function localLootAt(x = world?.me?.x, z = world?.me?.z) {
     if (!world?.lootPool) return null;
+    const tx = Math.trunc(Number(x));
+    const tz = Math.trunc(Number(z));
+    let nearest = null;
+    let best = 99;
     for (const l of world.lootPool.values()) {
-      if (Math.trunc(Number(l.x)) === Math.trunc(Number(x)) && Math.trunc(Number(l.z)) === Math.trunc(Number(z))) return l;
+      const lx = Math.trunc(Number(l.x));
+      const lz = Math.trunc(Number(l.z));
+      const d = Math.max(Math.abs(lx - tx), Math.abs(lz - tz));
+      if (d < best && d <= 1) { nearest = l; best = d; }
     }
-    return null;
+    return nearest;
   }
   function tryPickupAt(x = world?.me?.x, z = world?.me?.z) {
     if (pickupBusy || ST.spectator || !ST.auth) return;
     const l = localLootAt(x, z);
     if (!l) return;
     const now = performance.now();
-    if (now - lastPickupAt < 180) return;
+    if (now - lastPickupAt < 70) return;
     lastPickupAt = now;
     pickupBusy = true;
     act("pickup", { id: l.id, x: l.x, z: l.z }).then((r) => {
-      if (r?.ok) { sfx.coin?.(); pollSoon(); }
+      if (r?.ok) {
+        sfx.coin?.();
+        if (r.lootGone && world.lootPool?.has?.(Number(r.lootGone))) {
+          const gone = world.lootPool.get(Number(r.lootGone));
+          if (gone?.group) { try { gone.group.parent?.remove?.(gone.group); } catch {} }
+          world.lootPool.delete(Number(r.lootGone));
+        }
+        const note = String(r.note || "Picked up.").replace(/^Picked up\s*/i, "").replace(/\.$/, "");
+        world.floatText?.(l.x, l.z, note || "+loot", String(l.kind || "") === "gold" ? "#ffd76e" : "#14f195");
+        if (r.inv && ST.me) ST.me.inv = { ...(ST.me.inv || {}), ...r.inv };
+        paint(true);
+        pollSoon();
+      }
     }).finally(() => { pickupBusy = false; });
   }
   function selectCaptureTool() {
@@ -2739,7 +2832,7 @@ export default function mount() {
   function touchesOwnLand(x, z) {
     return N4.some(([dx, dz]) => world.tileOwner.get(key(x + dx, z + dz))?.owner === ST.me?.id);
   }
-  function padRadiusForDef(def) { return def?.id === "worldwonder" ? wonderRadiusClient(currentWonderSize()) : 1; }
+  function padRadiusForDef(def) { return def?.id === "worldwonder" ? wonderRadiusClient(currentWonderSize()) : 0; }
   function padNameForDef(def) { return def?.id === "worldwonder" ? `${currentWonderSize()}×${currentWonderSize()} Wonder plaza` : "direct construction site"; }
   function padOffsetsForDef(def) {
     const r = padRadiusForDef(def);
@@ -2751,7 +2844,7 @@ export default function mount() {
   }
   function padRequirementLine(def) {
     if (def?.id === "worldwonder") return `Costs ${polishCostLine(WORLD_WONDER_COST)}. Needs a clear ${currentWonderSize()}×${currentWonderSize()} plaza (${wonderTilesClient(currentWonderSize())} tiles): center plus ${wonderTilesClient(currentWonderSize()) - 1} surrounding cells. ${wonderFactsLine()}.`;
-    return "Needs a clear claimed 3×3 street ring: the eight surrounding tiles must be yours and empty.";
+    return "Needs one empty captured tile. Step aside and clear any tree or rock on the tile first.";
   }
   function canPlaceAt(x, z) {
     const t = world.tileOwner.get(key(x, z));
@@ -2771,7 +2864,7 @@ export default function mount() {
       }
       return null;
     }
-    if (!t || !ST.me || t.owner !== ST.me.id) return "Build on YOUR claimed land.";
+    if (!t || !ST.me || t.owner !== ST.me.id) return "Build on an empty tile you captured.";
     if (def?.id === "road") return "Road building is disabled in this build.";
     if (tradePostAt(x, z)) return "A trade post occupies this tile.";
     if (world.buildPoolAt(x, z)) return "Occupied.";
@@ -3285,6 +3378,7 @@ export default function mount() {
       case "inspect-demolish": return act("demolish", { uid: ST.inspect }).then((r) => { if (r && r.ok) { sfx.demolish(); closeInspectPanel(); } });
       case "inspect-walk-near": { const uid = ST.inspect || ST.wonderViewUid; const b = uid ? world.buildPool.get(uid) : null; closeInspectPanel(); ST.modal = null; ST.wonderViewUid = null; if (b) world.pathToNear(b.x, b.z); return; }
       case "intro-submit": return submitIntroName();
+      case "invite-gift-accept": ST.modal = null; ST.inviteGift = null; maybeStartWalkthrough(true); world.refreshOwnRig?.(); paint(true); return;
       case "modal-close": ST.modal = null; ST.wonderViewUid = null; ST.wonderViewError = ""; stopWonderViewer(); paint(true); return;
       case "panel-close": ST.panel = null; ST.serviceAccess = ""; paint(true); return;
       case "char-sync": world.refreshOwnRig?.(); say(t("toast.characterSynced", "Character synced."), 900); return;
@@ -3784,7 +3878,7 @@ export default function mount() {
     if (ST.screen !== "playing" || !m) return <div />;
     const visiblePlayers = Array.isArray(ST.players) ? ST.players.length : 0;
     const activePlayers = Array.isArray(ST.map?.players) ? ST.map.players.length : visiblePlayers;
-    const hint = ST.channel ? (ST.channel.kind === "home" ? "Returning to flag" : ST.channel.kind === "house" ? "Travelling to House" : ST.channel.kind === "wonder" ? "Travelling to Wonder" : ST.channel.kind === "redeem" ? "Withdrawing coins" : ST.channel.kind === "combat" ? "Attacking" : ST.channel.kind === "tree" ? "Chopping wood" : ST.channel.kind === "food" ? "Harvesting food" : "Mining stone") : "";
+    const hint = ST.channel ? (ST.channel.kind === "home" ? "Returning to flag" : ST.channel.kind === "house" ? "Travelling to House" : ST.channel.kind === "wonder" ? "Travelling to Landmark" : ST.channel.kind === "redeem" ? "Withdrawing coins" : ST.channel.kind === "combat" ? "Attacking" : ST.channel.kind === "tree" ? "Chopping wood" : ST.channel.kind === "food" ? "Harvesting food" : "Mining stone") : "";
     const wondersBuilt = (ST.map?.buildings || []).filter((b) => b && b.kind === "worldwonder" && Number(b.owner || 0) === Number(m.id || 0)).length;
     return <><PlayerHudView
       player={m}
@@ -4330,23 +4424,51 @@ export default function mount() {
   function submitIntroName() {
     const input = document.getElementById("sc-intro-name") as HTMLInputElement | null;
     const name = String(input?.value || "").trim().slice(0, 18);
-    if (!name) { sfx.err(); say("Choose a character name."); return; }
+    if (!name) { ST.inviteError = "Choose a character name first."; sfx.err(); paint(true); return; }
     try { localStorage.setItem("solcraft.characterName", name); } catch {}
     ST.profile.name = name;
+    ST.inviteError = "";
+    const code = referralCodeFromIntro();
     const randomHue = Math.floor(Math.random() * 360);
     const randomBody = new THREE.Color().setHSL(randomHue / 360, 0.62, 0.58).getHex();
-    act("setupProfile", { name, referralCode: referralCodeFromIntro(), body: randomBody, hat: ST.profile.hat, appearance: ST.characterProfile }).then((r) => {
-      if (r && r.ok) {
-        ST.needsProfile = false;
-        if (ST.me) { ST.me.name = name; ST.me.body = randomBody; ST.me.profileDone = true; }
-        world.refreshOwnRig();
+    act("setupProfile", { name, referralCode: code, body: randomBody, hat: ST.profile.hat, appearance: ST.characterProfile }).then((r) => {
+      if (!r || !r.ok) {
+        ST.inviteError = code
+          ? (String(r?.reasonCode || "").startsWith("REFERRAL") ? (r?.msg || "That invite code is not valid or has already been used.") : "That invite code could not be applied. Check the code or leave it empty.")
+          : (r?.msg || "Could not create your character yet.");
+        sfx.err();
+        paint(true);
+        return;
+      }
+      ST.needsProfile = false;
+      if (ST.me) { ST.me.name = name; ST.me.body = Number(r.body || r.referral?.body || randomBody) || randomBody; ST.me.hat = Number(r.hat || r.referral?.hat || ST.me.hat || ST.profile.hat) || ST.profile.hat; ST.me.profileDone = true; }
+      if (r.referral?.appearance) ST.characterProfile = saveCharacterProfile({ ...ST.characterProfile, ...r.referral.appearance });
+      world.refreshOwnRig();
+      ST.panel = null;
+      if (r.referral?.invite) {
+        ST.inviteGift = r.referral;
+        ST.modal = "invite-gift";
+        say("Invite gift unlocked. Accept it to reveal your unique character.", 2200);
+      } else {
         ST.modal = null;
-        ST.panel = null;
         maybeStartWalkthrough(true);
         say(`${name} joined the world. Capture 3 tiles, then build your first House.`, 3600);
-        pollSoon(); paint(true);
       }
+      pollSoon(); paint(true);
     });
+  }
+
+
+  function InviteGiftModal() {
+    const gift = ST.inviteGift || {};
+    const design = String(gift.characterDesignId || gift.atlas?.id || "Founder character");
+    return <div className="modal invite-gift-modal" style={{ width: "min(460px,94vw)" }}>
+      <div className="invite-gift-hero"><span>🎁</span><b>Invite gift unlocked</b></div>
+      <h2>Unique character design</h2>
+      <p className="tiny">Your invite code grants a one-of-one doll appearance from the character atlas. Accept the gift to reveal it, then the tutorial will begin.</p>
+      <div className="invite-gift-card"><b>{design}</b><span>{gift.note || "Special founder appearance ready."}</span></div>
+      <button className="btn primary" data-click="invite-gift-accept">Accept gift</button>
+    </div>;
   }
 
   function IntroModal() {
@@ -4355,7 +4477,8 @@ export default function mount() {
       <h2>Choose your character</h2>
       <p className="tiny">Name your character and optionally enter an invite code. Alpha invite codes may assign a one-of-one doll design from the atlas.</p>
       <div className="field"><label>Character name</label><input id="sc-intro-name" maxLength={18} placeholder="Wanderer" defaultValue={ST.profile.name || localStorage.getItem("solcraft.characterName") || (m?.name === "Wanderer" ? "" : m?.name || "")} data-keydown="intro-submit" /></div>
-      <div className="field"><label>Invite code <em>optional</em></label><input data-referral-code-input="1" className="profile-referral-input" maxLength={32} placeholder="Enter invite code" defaultValue={localStorage.getItem("solcraft.referralCode") || ""} onInput={(e:any)=>{ try{ localStorage.setItem("solcraft.referralCode", String(e.currentTarget.value||"").toUpperCase()); }catch{} }} /></div>
+      <div className="field"><label>Invite code <em>optional</em></label><input data-referral-code-input="1" className="profile-referral-input" maxLength={32} placeholder="Enter invite code" defaultValue={localStorage.getItem("solcraft.referralCode") || ""} onInput={(e:any)=>{ ST.inviteError = ""; try{ localStorage.setItem("solcraft.referralCode", String(e.currentTarget.value||"").toUpperCase()); }catch{} }} /></div>
+      {ST.inviteError ? <div className="invite-error" role="alert">{ST.inviteError}</div> : null}
       <div className="row" style={{ marginTop: 12 }}><button className="btn primary" style={{ width: "100%" }} data-click="intro-submit">Enter the frontier</button></div>
     </div>;
   }
@@ -4491,7 +4614,7 @@ export default function mount() {
       <div className="grid" style={{ gridTemplateColumns: "repeat(auto-fit,minmax(240px,1fr))" }}>
         <div className="card source-card"><div className="card-title">Territory coins</div><div className="tiny">{territoryCoinStatusText()}</div><div className="usetag">{territoryCoinNextStep()}</div></div>
         <div className="card"><div className="card-title">Fixed mint</div><div className="tiny">Launch rate is {GOLD_PER_CRAFTS_FIXED}🪙 = 1 $CRAFTS. Coins must be in your purse and you must stand near an active Coin Mint.</div></div>
-        <div className="card"><div className="card-title">Siege rule</div><div className="tiny">PvP is intentionally weak: both players lose 1 HP. Keeps, NPCs, buildings, and reputation pressure are the real conflict loop.</div></div>
+        <div className="card"><div className="card-title">Siege rule</div><div className="tiny">PvP is intentionally light. Keeps and NPCs are coin targets; territory size comes from your connected $CRAFTS holding.</div></div>
       </div>
       <h3>Guide cards</h3>
       <div className="guide-list">{visible.map((row) => <GuideCard key={row.id} row={row} compact={false} />)}</div>
@@ -4505,6 +4628,14 @@ export default function mount() {
 
   function HelpModal() {
     return <HelpModalView />;
+  }
+
+  function WorldMapModal() {
+    return <WorldMapModalView
+      map={ST.map}
+      admin={isAdminPlayer()}
+      onDraw={(cv) => drawKnownWorldMap(cv, true)}
+    />;
   }
 
   function MorePanel() {
@@ -4682,45 +4813,18 @@ export default function mount() {
     return score;
   }
   function walkthroughPlacement(panel) {
-    const vw = Math.max(1, window.innerWidth || 1024);
-    const vh = Math.max(1, window.innerHeight || 768);
-    const compact = vw < 520 || vh < 520;
-    const safe = compact ? 8 : 12;
-    const w = Math.min(vw - safe * 2, compact ? 268 : vw < 720 || vh < 560 ? 300 : 326);
-    const h = compact ? 112 : vw < 720 || vh < 560 ? 142 : 164;
-    const gap = compact ? 10 : 14;
-    const r = walkthroughTargetRect(panel);
-    const avoid = walkthroughAvoidRects(panel);
-    const candidates = [];
-    function add(left, top, prefer = 0) {
-      const rect = rectFromStyle(clampPx(left, safe, vw - w - safe), clampPx(top, safe, vh - h - safe), w, h);
-      const score = placementPenalty(rect, avoid, safe, vw, vh) + prefer;
-      candidates.push({ ...rect, score });
-    }
-    if (r) {
-      const centeredLeft = r.left + r.width / 2 - w / 2;
-      add(r.right + gap, r.top - 8, 1);
-      add(r.left - w - gap, r.top - 8, 2);
-      add(centeredLeft, r.bottom + gap, 3);
-      add(centeredLeft, r.top - h - gap, 4);
-    }
-    add(vw - w - safe, safe, 20);
-    add(safe, vh - h - Math.max(74, safe), 22);
-    add((vw - w) / 2, safe, 24);
-    add((vw - w) / 2, vh - h - Math.max(74, safe), 26);
-    add((vw - w) / 2, (vh - h) / 2, 40);
-    const best = candidates.sort((a, b) => a.score - b.score)[0] || { left: safe, top: safe };
-    let nub = null;
-    if (r) {
-      const nubSize = compact ? 46 : 54;
-      nub = {
-        left: `${Math.round(clampPx(r.left + r.width / 2 - nubSize / 2, safe, vw - nubSize - safe))}px`,
-        top: `${Math.round(clampPx(r.top + r.height / 2 - nubSize / 2, safe, vh - nubSize - safe))}px`,
-      };
-    }
+    const safe = 14;
+    const narrow = window.innerWidth < 720;
+    const w = narrow ? Math.min(window.innerWidth - safe * 2, 340) : 340;
     return {
-      card: { left: `${Math.round(best.left)}px`, top: `${Math.round(best.top)}px`, width: `${Math.round(w)}px`, maxHeight: `${Math.round(Math.max(96, vh - safe * 2))}px` },
-      nub,
+      card: {
+        right: `${safe}px`,
+        top: `calc(${safe}px + env(safe-area-inset-top))`,
+        left: "auto",
+        width: `${Math.round(w)}px`,
+        maxHeight: `min(52vh, 360px)`,
+      },
+      nub: null,
     };
   }
 
@@ -4730,8 +4834,8 @@ export default function mount() {
     const meta = {
       chop: { panel: "chop", title: t("walkthrough.chop.title", "Step 1: Axe"), text: t("walkthrough.chop.text", "Select the axe and click a tree. Wood drops as pickups on the map."), btn: t("walkthrough.chop.button", "Select axe"), click: "gather-wood" },
       mine: { panel: "mine", title: t("walkthrough.mine.title", "Step 2: Pickaxe"), text: t("walkthrough.mine.text", "Select the pickaxe and click stone. The cursor tells you what can be worked."), btn: t("walkthrough.mine.button", "Select pickaxe"), click: "gather-stone" },
-      claim: { panel: "claim", title: t("walkthrough.claim.title", "Step 3: Capture"), text: t("walkthrough.claim.text", "Select capture, stand on any open tile outside the capital, and claim it."), btn: t("walkthrough.claim.button", "Select capture"), click: "claim" },
-      build: { panel: "build", title: t("walkthrough.build.title", "Step 4: Build"), text: t("walkthrough.build.text", "Select the hammer, click an empty captured tile, then choose a building in the right panel."), btn: t("walkthrough.build.button", "Open build"), click: "select-build" },
+      claim: { panel: "claim", title: t("walkthrough.claim.title", "Step 3: Capture"), text: t("walkthrough.claim.text", "Select capture and claim any free tile inside your territory capacity. Claims are free; $CRAFTS holding sets the limit."), btn: t("walkthrough.claim.button", "Select capture"), click: "claim" },
+      build: { panel: "build", title: t("walkthrough.build.title", "Step 4: Build"), text: t("walkthrough.build.text", "Select the hammer, click an empty captured tile, then choose House. Red highlights explain blocked tiles before you click."), btn: t("walkthrough.build.button", "Open build"), click: "select-build" },
     }[step] || { panel: "chop", title: t("walkthrough.fallback.title", "Step 1: Axe"), text: t("walkthrough.fallback.text", "Start by gathering wood."), btn: t("walkthrough.fallback.button", "Select axe"), click: "gather-wood" };
     const place = walkthroughPlacement(meta.panel);
     return <div className="walkthrough-layer">
@@ -4741,7 +4845,6 @@ export default function mount() {
         <div className="walkthrough-progress">{Math.max(1, WALK_STEPS.indexOf(step) + 1)} / {WALK_STEPS.length}</div>
         <h3>{meta.title}</h3>
         <p>{meta.text}</p>
-        <div className="tiny">{t("walkthrough.note", "Basics stay here while you play. Skip anytime.")}</div>
         <div className="walkthrough-actions"><button className="btn primary" data-click={meta.click} data-panel={meta.panel}>{meta.btn}</button><button className="btn" data-click="guide-skip">{t("walkthrough.skip", "Skip")}</button></div>
       </div>
     </div>;
@@ -4750,6 +4853,7 @@ export default function mount() {
   function ModalLayer() {
     if (ST.updateRequired) return <div className="modal-wrap"><div className="modal" style={{ width: "min(420px,94vw)", textAlign: "center" }}><h2>{t("update.title", "Update ready")}</h2><p className="tiny">{ST.updateReason || t("update.reason", "A new game build is ready. Refresh when convenient.")}</p><button className="btn primary" data-click="reload-page">{t("update.refresh", "Refresh and continue")}</button></div></div>;
     if (ST.screen === "playing" && ST.me && (ST.needsProfile || !ST.me.profileDone)) return <div className="modal-wrap"><IntroModal /></div>;
+    if (ST.screen === "playing" && ST.modal === "invite-gift") return <div className="modal-wrap"><InviteGiftModal /></div>;
     if (ST.screen !== "playing" || !ST.modal) return <div />;
     return (
       <div className="modal-wrap" data-click="modal-backdrop">
@@ -4833,7 +4937,8 @@ export default function mount() {
     /* chat panel visibility is imperative */
     perf.measure("ui.hints", () => updateHints());
     chatEl.style.display = ST.screen === "playing" ? "flex" : "none";
-    minimapEl.style.display = (ST.screen === "playing" && !ST.panel && !ST.modal) ? "block" : "none";
+    minimapEl.style.display = (ST.screen === "playing" && !ST.modal) ? "block" : "none";
+    try { world?.updateMinimapInfo?.(); } catch {}
     vignetteEl.style.display = ST.screen === "playing" ? "block" : "none";
     if (ST.screen !== "playing" || ST.modal) hideCtx();
     let utilityRendered = false;
@@ -4857,7 +4962,9 @@ export default function mount() {
     if (ST.screen === "playing" && (ST.mode === "build" || ST.mode === "place")) syncBuildScrollSoon();
     mountWonderViewerSoon();
     if ((force && (!forceSet || forceSet.has("utility"))) || utilityRendered) syncMiniPreviewPanels(utilityRoot);
-    perf.record("ui.paint", performance.now() - paintStart, { force, only, changed });
+    const paintMs = performance.now() - paintStart;
+    perf.record("ui.paint", paintMs, { force, only, changed });
+    perfMini.update({ paint: paintMs });
   }
 
   /* ---------- imperative energy/bin ticker: NO vdom ---------- */
