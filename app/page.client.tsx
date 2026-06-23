@@ -2417,7 +2417,7 @@ export default function mount() {
 
     return {
       applyWorld, applyPlayers, applyMe, me, cellFromEvent, buildingFromEvent, pathTo, pathToNear, tryMoveDelta,
-      blocked, buildPoolAt, doodadVisible, burst, floatText, shockwave, hoverMarker, hardSnapMe, markDoodadGone,
+      blocked, buildPoolAt, doodadVisible, burst, floatText, shockwave, hoverMarker, hardSnapMe, markDoodadGone, removeBuild,
       setHintCells, hideBuildGhost, showBuildGhost, refreshWindow, rebuildBuilding, animateBuildingUse, refreshConstructionProgress,
       refreshOwnRig: () => ensureRig(true),
       applyVisualQuality,
@@ -2490,7 +2490,19 @@ export default function mount() {
       if (b && LIB_BY_ID[b.kind]?.use?.k === "trade") ST.near.m = true;
     }
   }
-  const nearT = setInterval(() => { if (ST.screen !== "playing") return; perf.measure("ui.near", () => { refreshNear(); updateHints(); tryPickupAt(); paint(); }); }, 450);
+  function maybeStartQueuedHarvest() {
+    const q = ST.harvestAfterWalk;
+    if (!q || ST.channel || !ST.me) return;
+    const d = world.doodadVisible(q.x, q.z);
+    const want = q.tool === "stone" ? "rock" : "tree";
+    if (!d) { ST.harvestAfterWalk = null; world.markDoodadGone?.(q.x, q.z); return; }
+    if (d !== want) { ST.harvestAfterWalk = null; return; }
+    if (cheb(q.x, q.z, world.me.x, world.me.z) <= 1) {
+      ST.harvestAfterWalk = null;
+      startChop(q.x, q.z);
+    }
+  }
+  const nearT = setInterval(() => { if (ST.screen !== "playing") return; perf.measure("ui.near", () => { refreshNear(); updateHints(); tryPickupAt(); maybeStartQueuedHarvest(); paint(); }); }, 250);
 
   function useBuildingClient(uid) {
     if (uid == null) return;
@@ -2516,12 +2528,34 @@ export default function mount() {
     if (lbl) lbl.textContent = label;
     if (fill) fill.style.width = "0%";
   }
+  function harvestErrorText(r) {
+    const code = String(r?.reasonCode || "");
+    if (code === "TOO_FAR") return "Move closer";
+    if (code === "NO_HARVEST_TARGET" || code === "HARVEST_GONE") return "Already gathered";
+    if (code === "NO_HARVEST_ENERGY") return "Rest a moment";
+    return String(r?.msg || "Can't harvest that");
+  }
   function startChop(x, z) {
-    if (ST.channel) return;
     const d = world.doodadVisible(x, z);
-    if (!d) return;
-    act("harvestStart", { x, z }).then((r) => {
-      if (!r || !r.ok) { if (r?.msg) say(r.msg, 1200); return; }
+    if (!d) { world.markDoodadGone?.(x, z); world.floatText?.(x, z, "Already gathered", "#d7dde7"); return; }
+    if (ST.channel) {
+      if (ST.channel.kind === d && Math.trunc(ST.channel.x) === Math.trunc(x) && Math.trunc(ST.channel.z) === Math.trunc(z)) return;
+      world.floatText?.(x, z, "Busy", "#ffd76e");
+      return;
+    }
+    if (cheb(x, z, world.me.x, world.me.z) > 1) {
+      ST.harvestAfterWalk = { x, z, tool: d === "rock" ? "stone" : "wood" };
+      world.pathToNear(x, z);
+      world.floatText?.(x, z, "Moving closer", "#d7dde7");
+      return;
+    }
+    act("harvestStart", { x, z, clientX: world.me.x, clientZ: world.me.z }).then((r) => {
+      if (!r || !r.ok) {
+        if (r?.reasonCode === "TOO_FAR") { ST.harvestAfterWalk = { x, z, tool: d === "rock" ? "stone" : "wood" }; world.pathToNear(x, z); }
+        if (r?.reasonCode === "NO_HARVEST_TARGET" || r?.reasonCode === "HARVEST_GONE") world.markDoodadGone?.(x, z);
+        world.floatText?.(x, z, harvestErrorText(r), "#ffd76e");
+        return;
+      }
       sfx.chop();
       const ms = Math.max(450, Number(r.ms || (d === "food" ? 900 : 1450)) || 1200);
       ST.channel = { x, z, until: performance.now() + ms, ms, kind: r.kind || d, nextFx: 0 };
@@ -2624,7 +2658,7 @@ export default function mount() {
     const ch = ST.channel;
     const moved = (ch.kind === "home" || ch.kind === "house" || ch.kind === "wonder" || ch.kind === "redeem" || ch.kind === "combat")
       ? (!ST.me || world.me.x !== ch.x || world.me.z !== ch.z)
-      : (!ST.me || cheb(world.me.x, world.me.z, ch.x, ch.z) > 1);
+      : (!ST.me || cheb(world.me.x, world.me.z, ch.x, ch.z) > 2);
     if (moved) { cancelChop(); return; }
     const now = performance.now();
     const totalMs = Math.max(1, Number(ch.ms || 1200));
@@ -2934,14 +2968,16 @@ export default function mount() {
     if (!c || !ST.me) return null;
     return { kind: "buildTile", x: c.x, z: c.z, name: "Build site", biome: biomeAt(c.x, c.z).name };
   }
-  function canOpenBuildTile(c) {
-    if (!c || !ST.me) return false;
+  function buildTileProblem(c) {
+    if (!c || !ST.me) return "No tile selected";
     const t = world.tileOwner.get(key(c.x, c.z));
-    if (!t || Number(t.owner || 0) !== Number(ST.me.id)) return false;
-    if (capitalBlocksPlayerTerritory(c.x, c.z)) return false;
-    if (world.buildPoolAt(c.x, c.z)) return false;
-    return true;
+    if (!t || Number(t.owner || 0) !== Number(ST.me.id)) return "Need a captured tile";
+    if (capitalBlocksPlayerTerritory(c.x, c.z)) return "Capital reserve";
+    if (world.buildPoolAt(c.x, c.z)) return "Tile occupied";
+    if (world.doodadVisible(c.x, c.z)) return "Clear the resource first";
+    return "";
   }
+  function canOpenBuildTile(c) { return !buildTileProblem(c); }
   function claimableHere(x, z) {
     const t = world.tileOwner.get(key(x, z));
     if (!ST.me || t) return false;
@@ -2963,7 +2999,7 @@ export default function mount() {
     const tool = ST.tool, mode = ST.mode;
     const wantsScan = tool === "wood" || tool === "stone" || tool === "claim"
       || tool === "spawn" || tool === "siege" || tool === "use"
-      || mode === "build" || mode === "place";
+      || mode === "build" || mode === "place" || tool === "build";
     if (!wantsScan) { world.setHintCells([]); if (mode !== "place") world.hideBuildGhost(); return; }
     const cells = [];
     const push = (x, z, color, opacity = 0.20) => cells.push({ x, z, color, opacity });
@@ -2972,6 +3008,12 @@ export default function mount() {
       eachVisibleCell((x, z) => {
         const d = world.doodadVisible(x, z);
         if (d === want && !world.buildPoolAt(x, z)) push(x, z, d === "tree" ? 0x14f195 : 0x7dcfe8, 0.24);
+      });
+    } else if (ST.tool === "build") {
+      eachVisibleCell((x, z) => {
+        const problem = buildTileProblem({ x, z });
+        if (!problem) push(x, z, 0x14f195, 0.20);
+        else if (problem === "Need a captured tile" || problem === "Tile occupied") push(x, z, 0xd6604f, 0.10);
       });
     } else if (ST.tool === "claim") {
       eachVisibleCell((x, z) => {
@@ -3069,6 +3111,10 @@ export default function mount() {
       if (b && ST.me && b.owner !== ST.me.id) return tipText(`Siege ${LIB_BY_ID[b.kind]?.name || b.kind}`, cheb(b.x, b.z, world.me.x, world.me.z) <= 1 ? "In siege range. Manual siege now does 1 structure damage; deploy tools for serious damage." : "Click to walk beside it first.");
       return "";
     }
+    if (ST.tool === "build") {
+      const bad = buildTileProblem(c);
+      return bad ? tipText("Can't build here", bad) : tipText("Build site", "Click to choose a building for this captured tile.");
+    }
     if (ST.mode === "place") {
       const def = ST.placing ? LIB_BY_ID[ST.placing] : null;
       const bad = canPlaceAt(c.x, c.z);
@@ -3109,7 +3155,11 @@ export default function mount() {
     syncToolCursor();
     world.hoverMarker.visible = true; world.hoverMarker.position.x = c.x; world.hoverMarker.position.z = c.z;
     const mat = world.hoverMarker.material;
-    if (ST.mode === "place" || (ST.placing === "worldwonder" && ST.tool === "wonder")) {
+    if (ST.tool === "build") {
+      const bad = buildTileProblem(c);
+      mat.color.set(bad ? 0xd6604f : 0x14f195);
+      world.hideBuildGhost();
+    } else if (ST.mode === "place" || (ST.placing === "worldwonder" && ST.tool === "wonder")) {
       const bad = canPlaceAt(c.x, c.z);
       mat.color.set(bad ? 0xd6604f : 0x14f195);
       world.showBuildGhost(c.x, c.z, !bad);
@@ -3152,7 +3202,8 @@ export default function mount() {
       }
     }
     if (ST.tool === "build" && c) {
-      if (!canOpenBuildTile(c)) { sfx.err(); say(t("toast.chooseCapturedTile", "Choose one of your empty captured tiles to build."), 1600); return; }
+      const problem = buildTileProblem(c);
+      if (problem) { sfx.err(); world.floatText?.(c.x, c.z, problem, "#ff8a5e"); showTip(tipText("Can't build here", problem), ev); return; }
       openObjectPreview(buildTilePreviewForCell(c));
       return;
     }
@@ -3168,8 +3219,7 @@ export default function mount() {
       const d = world.doodadVisible(c.x, c.z);
       if (d && d !== want) { sfx.err(); say(ST.tool === "wood" ? t("toast.useStonePick", "Use the stone pick for rocks.") : t("toast.useWoodAxe", "Use the wood axe for trees.")); return; }
       if (d === want && !world.buildPoolAt(c.x, c.z)) {
-        if (cheb(c.x, c.z, world.me.x, world.me.z) <= 1) startChop(c.x, c.z);
-        else world.pathToNear(c.x, c.z);
+        startChop(c.x, c.z);
         return;
       }
     }
@@ -3211,8 +3261,8 @@ export default function mount() {
       return;
     }
     if (ST.mode === "demolish" && hitB) {
-      if (ST.me && hitB.b.owner === ST.me.id) act("demolish", { uid: hitB.uid }).then((r) => { if (r && r.ok) sfx.demolish(); });
-      else { sfx.err(); say(t("toast.notYourBuilding", "Not your building.")); }
+      if (ST.me && hitB.b.owner === ST.me.id) act("demolish", { uid: hitB.uid }).then((r) => { if (r && r.ok) { sfx.demolish(); world.removeBuild?.(hitB.uid, true); ST.inspect = null; ST.objectPreview = null; pollSoon(); paint(true); } else if (r) { sfx.err(); world.floatText?.(hitB.b.x, hitB.b.z, r.msg || "Can't demolish", "#ff8a5e"); } });
+      else { sfx.err(); world.floatText?.(hitB.b.x, hitB.b.z, t("toast.notYourBuilding", "Not your building."), "#ff8a5e"); }
       return;
     }
     if (hitB) { openBuildingInspect(hitB); return; }

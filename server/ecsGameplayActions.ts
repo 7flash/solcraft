@@ -186,7 +186,14 @@ function actionPlaceBuilding(p: PlayerRow, body: any) {
 function isUnderConstruction(b: BuildingRow) { return Number(b?.cdUntil || 0) > now(); }
 function markUsed(b: BuildingRow) { b.usedAt = now(); refreshBuilding(b); }
 function maxHpFor(b: BuildingRow, def: any = libById(b?.kind)) { return Math.max(10, Number(b?.maxHp || def?.hp || 18) + Math.max(0, Number(b?.level || 1) - 1) * 6); }
-function playerNear(p: PlayerRow, x: any, z: any, r = 1) { return cheb(int(p.x), int(p.z), int(x), int(z)) <= r; }
+function playerNear(p: PlayerRow, x: any, z: any, r = 1) {
+  // Movement is resident-memory authoritative; DB player rows can lag behind while
+  // smooth client prediction is being reconciled. Validate interactions against the
+  // live resident position and allow a tiny edge tolerance so harvest/pickup does
+  // not fail during a one-step correction frame.
+  const live = residentPlayerRow(p) || p;
+  return cheb(int((live as any).x), int((live as any).z), int(x), int(z)) <= Math.max(0, r) + 1;
+}
 function markNpcGone(x: number, z: number) {
   const row = db.doodads.select().where({ x, z }).first() as any;
   if (row) row.state = "gone";

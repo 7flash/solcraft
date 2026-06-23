@@ -8,3 +8,8 @@
 .sc-root[data-tool-cursor="shovel"] .sc-world{cursor:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24'%3E%3Cpath d='M6 20l9.7-9.7' stroke='%23f4e9cf' stroke-width='2.4' stroke-linecap='round'/%3E%3Cpath d='M14.2 3.8l6 6-2.9 2.9-6-6z' fill='%23d7dde7' stroke='%23070a12' stroke-width='1'/%3E%3Ccircle cx='5' cy='20' r='2.4' fill='%23ffb45e'/%3E%3C/svg%3E") 5 20, pointer;}
 .sc-root[data-tool-cursor="capture"] .sc-world{cursor:crosshair;}
 .sc-root[data-tool-cursor="sword"] .sc-world{cursor:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24'%3E%3Ctext x='2' y='18' font-size='16'%3E⚔%3C/text%3E%3C/svg%3E") 3 18, pointer;}
+
+/* Playability polish: tool cursors stay proportional and default movement uses a normal pointer. */
+.sc-root[data-tool-cursor="walk"] .sc-world,.sc-root[data-tool-cursor="select"] .sc-world{cursor:pointer!important;}
+.sc-root[data-tool-cursor="capture"] .sc-world{cursor:crosshair!important;}
+.sc-root[data-tool-cursor="shovel"] .sc-world{cursor:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24'%3E%3Cpath d='M6 20l9.7-9.7' stroke='%23f4e9cf' stroke-width='2.4' stroke-linecap='round'/%3E%3Cpath d='M14.2 3.8l6 6-2.9 2.9-6-6z' fill='%23d7dde7' stroke='%23070a12' stroke-width='1'/%3E%3Ccircle cx='5' cy='20' r='2.4' fill='%23ffb45e'/%3E%3C/svg%3E") 5 20, pointer!important;}
