@@ -13,6 +13,7 @@ import { cleanBuildKindResponse } from "./cleanRelease";
 import { recordActivity, logError } from "./activityLog";
 import { withImmediateTx } from "./dbTx";
 import { applyReferralCodeForNewProfile } from "./referralProgram";
+import { flushLiveMovementToDb, liveMovementRow, liveMovementRows, liveMovementStats } from "./liveMovement";
 
 export type EcsPlayerRow = any;
 export type WalletAuthInput = { wallet?: string; message?: string; signature?: string } | null | undefined;
@@ -90,7 +91,7 @@ function leaderboardRows() {
     .map((p, i) => ({ rank: i + 1, id: p.id, name: p.name, level: p.level || 1, xp: p.xp || 0, body: p.body, hat: p.hat }));
 }
 function activeMapPlayers(t = now()) {
-  return (db.players.select().all() as any[])
+  return liveMovementRows(db.players.select().all() as any[])
     .filter((p) => t - Number(p.lastSeen || 0) <= ACTIVE_PLAYER_WINDOW_MS)
     .map((p) => ({ id: p.id, name: p.name, x: p.x, z: p.z, body: p.body, level: p.level || 1, spectator: isSpectator(p), lastSeen: p.lastSeen || 0 }));
 }
@@ -250,7 +251,7 @@ function worldRows(p: any, q: any, world: EcsWorld) {
 
 export function snapshot(p: EcsPlayerRow, q: { rev: number; ax: number; az: number; chat: number; mapRev?: number }) {
   const t = now();
-  const fresh = getPlayer(p.id) as any || p;
+  const fresh = liveMovementRow(getPlayer(p.id) as any || p) as any;
   const world = loadEcsWorld({ playerId: fresh.id, ax: q.ax, az: q.az, radius: VIEW_RADIUS + ANCHOR_PAD });
   const [ax, az] = anchorOf(fresh.x, fresh.z);
   const worldSame = q.rev === ecsWorldRev() && q.ax === ax && q.az === az && Number(q.mapRev || 0) === ecsWorldRev();
@@ -270,7 +271,7 @@ export function snapshot(p: EcsPlayerRow, q: { rev: number; ax: number; az: numb
     tileCap: tileCapacityFor(fresh), storageCap: resourceCaps(fresh), tuning: {}, quests: {}, reputation: reputationSummaryForWire(fresh.id), guideQuests: [], guideSummary: { done: 0, total: 0, claimed: 0, claimable: 0, pct: 0 }, bank: null,
     backend: "ecs",
   };
-  const players = (db.players.select().all() as any[])
+  const players = liveMovementRows(db.players.select().all() as any[])
     .filter((o) => o.id !== fresh.id && t - Number(o.lastSeen || 0) <= ACTIVE_PLAYER_WINDOW_MS && cheb(o.x, o.z, fresh.x, fresh.z) <= VIEW_RADIUS)
     .sort((a, b) => cheb(a.x, a.z, fresh.x, fresh.z) - cheb(b.x, b.z, fresh.x, fresh.z))
     .slice(0, MAX_WIRE_PLAYERS)
@@ -390,9 +391,10 @@ export function runWorldTick(reason = "manual") {
   ecsTickAt = t;
   try {
     const economy = withImmediateTx(`ecs.worldTick:${reason}`, () => {
+      const movement = flushLiveMovementToDb();
       const r = buildingResourceTick(t);
       if (reason === "manual") mirrorLegacyToEcsTables("tick-manual");
-      return r;
+      return { ...r, movement };
     });
     const out = { ok: true, backend: "ecs", at: ecsTickAt, reason, economy };
     if (reason !== "interval" || Math.random() < 0.02) recordActivity({ route: "worldTick", action: reason, backend: "ecs" }, "worldTick", out);
@@ -412,7 +414,7 @@ export function ensureWorldTickStarted() {
 }
 
 export function worldTickStatus() {
-  return { backend: "ecs", started: ecsTickStarted, lastTickAt: ecsTickAt, migration: ecsMigrationStatus(), economy: cleanEconomyStatus() };
+  return { backend: "ecs", started: ecsTickStarted, lastTickAt: ecsTickAt, migration: ecsMigrationStatus(), economy: cleanEconomyStatus(), movement: liveMovementStats() };
 }
 
 export function forceClientRefresh(reason = "Admin published an update") {

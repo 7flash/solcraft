@@ -98,6 +98,9 @@ const TILE_LOAD_R_MAX = 92;
 const TILE_WINDOW_HYSTERESIS = 9;
 const PATH_R = 112;
 const MOVE_BATCH_MAX = 18;
+const MOVE_FLUSH_MS = 65;
+const MOVE_MAX_IN_FLIGHT = 4;
+const MOVE_SOFT_CORRECT_TILES = 2;
 const REMOTE_FULL_RIG_RADIUS = 16;
 const REMOTE_FULL_RIG_BUDGET = 24;
 const CLIENT_BOOT_AT = Date.now();
@@ -1428,6 +1431,7 @@ export default function mount() {
     }
     const anims = [], bursts = [], waves = [], walkQueue = [], netMoveQueue = [];
     let walking = false, moveBusy = false, pendingWalk = null, moveErrorAt = 0, moveToken = 0, activeMoveToken = 0;
+    let moveSeq = 0, lastAckMoveSeq = 0, moveFlushTimer = 0, inFlightMoveBatches = 0;
     const spinners = [], spinsY = [], wavers = [], bobbers = [], flickers = [];
     const partGeo = new THREE.BoxGeometry(0.08, 0.08, 0.08);
     function burst(x, y, z, color, n = 8, spread = 0.45) {
@@ -1750,7 +1754,7 @@ export default function mount() {
     loadAtlasRuntimeConfig().then(() => { ownerMatCache.clear(); for (const [, c] of cells) c.owner = -1; refreshWindow(true); }).catch(() => {});
 
     function hardSnapMe(x, z) {
-      walkQueue.length = 0; netMoveQueue.length = 0; walking = false; moveBusy = false; pendingWalk = null; activeMoveToken = ++moveToken;
+      walkQueue.length = 0; netMoveQueue.length = 0; walking = false; moveBusy = false; pendingWalk = null; inFlightMoveBatches = 0; lastAckMoveSeq = moveSeq; activeMoveToken = ++moveToken;
       for (let i = anims.length - 1; i >= 0; i--) if (anims[i].kind === "hop") anims.splice(i, 1);
       confirmedMove.x = x; confirmedMove.z = z;
       me.x = x; me.z = z; player.position.set(x, 0.22, z); camTarget.set(x, 0.22, z);
@@ -1924,8 +1928,8 @@ export default function mount() {
       }
       for (const [id, r] of [...rigPool]) { if (pSeen.has(id)) continue; scene.remove(r.group); rigPool.delete(id); }
     }
-    function optimisticMoveLead() { return netMoveQueue.length + (moveBusy ? 1 : 0); }
-    function hasPendingMove() { return walking || moveBusy || netMoveQueue.length > 0 || walkQueue.length > 0 || !!pendingWalk || anims.some((a) => a.kind === "hop"); }
+    function optimisticMoveLead() { return netMoveQueue.length + inFlightMoveBatches * MOVE_BATCH_MAX; }
+    function hasPendingMove() { return walking || inFlightMoveBatches > 0 || moveBusy || netMoveQueue.length > 0 || walkQueue.length > 0 || !!pendingWalk || anims.some((a) => a.kind === "hop" || a.kind === "correct"); }
     function applyMe(forceMe = false) {
       if (!ST.me) return;
       const movingNow = hasPendingMove();
@@ -1977,7 +1981,7 @@ export default function mount() {
       netMoveQueue.length = 0;
       pendingWalk = null;
       walking = false;
-      moveBusy = false;
+      moveBusy = false; inFlightMoveBatches = 0; lastAckMoveSeq = moveSeq;
       hardSnapMe(snapX, snapZ);
       refreshWindow(); refreshNear(); paint(true);
     }
@@ -1991,66 +1995,107 @@ export default function mount() {
       const next = walkQueue.shift();
       if (next) stepTo(next[0], next[1]);
     }
+    function scheduleMoveFlush(delay = MOVE_FLUSH_MS) {
+      if (moveFlushTimer) return;
+      moveFlushTimer = window.setTimeout(() => { moveFlushTimer = 0; flushMoveQueue(); }, Math.max(0, delay));
+    }
+    function newestLocalMoveSeq() { return Math.max(moveSeq, lastAckMoveSeq); }
+    function softCorrectMe(x, z) {
+      const tx = Math.trunc(Number(x)), tz = Math.trunc(Number(z));
+      if (!Number.isFinite(tx) || !Number.isFinite(tz)) return;
+      for (let i = anims.length - 1; i >= 0; i--) if (anims[i].kind === "correct") anims.splice(i, 1);
+      const from = { x: player.position.x, z: player.position.z };
+      me.x = tx; me.z = tz;
+      if (ST.me) { ST.me.x = tx; ST.me.z = tz; }
+      anims.push({ kind: "correct", t: 0, dur: 0.18, from, to: { x: tx, z: tz }, done: () => { player.position.set(tx, 0.22, tz); refreshWindow(); } });
+    }
+    function reconcileMovePosition(x, z) {
+      const tx = Math.trunc(Number(x)), tz = Math.trunc(Number(z));
+      if (!Number.isFinite(tx) || !Number.isFinite(tz)) return;
+      const d = cheb(me.x, me.z, tx, tz);
+      if (d <= 0) return;
+      if (d <= MOVE_SOFT_CORRECT_TILES) softCorrectMe(tx, tz);
+      else hardSnapMe(tx, tz);
+    }
+    function finishMoveBatch() {
+      inFlightMoveBatches = Math.max(0, inFlightMoveBatches - 1);
+      moveBusy = inFlightMoveBatches > 0;
+      if (netMoveQueue.length) scheduleMoveFlush(0);
+    }
     function queueServerMove(x, z, from) {
-      netMoveQueue.push({ x, z, from });
-      flushMoveQueue();
+      const seq = ++moveSeq;
+      netMoveQueue.push({ seq, x, z, from, retry: 0 });
+      scheduleMoveFlush();
     }
     function flushMoveQueue() {
-      if (moveBusy || !netMoveQueue.length) return;
-      const batch = netMoveQueue.splice(0, Math.min(MOVE_BATCH_MAX, netMoveQueue.length));
-      const lastReq = batch[batch.length - 1];
-      moveBusy = true;
-      const token = ++moveToken;
-      activeMoveToken = token;
-      act("movePath", { steps: batch.map((q) => ({ x: q.x, z: q.z })) }).then((r) => {
-        if (token !== activeMoveToken) return;
-        moveBusy = false;
-        if (!r || !r.ok) {
-          sfx.err();
-          const sx = (r && Number.isInteger(r.x)) ? r.x : confirmedMove.x;
-          const sz = (r && Number.isInteger(r.z)) ? r.z : confirmedMove.z;
-          stopOptimisticMovement(sx, sz);
+      while (inFlightMoveBatches < MOVE_MAX_IN_FLIGHT && netMoveQueue.length) {
+        const batch = netMoveQueue.splice(0, Math.min(MOVE_BATCH_MAX, netMoveQueue.length));
+        const lastReq = batch[batch.length - 1];
+        inFlightMoveBatches++;
+        moveBusy = true;
+        act("movePath", { baseSeq: lastAckMoveSeq, moveSeq: lastReq.seq, steps: batch.map((q) => ({ x: q.x, z: q.z, seq: q.seq })) }).then((r) => {
+          const ackSeq = Math.max(0, Number(r?.ackSeq ?? r?.acceptedSeq ?? lastReq.seq) || 0);
+          if (ackSeq <= lastAckMoveSeq) { finishMoveBatch(); return; }
+          if (!r || !r.ok) {
+            const staleFailure = lastReq.seq < newestLocalMoveSeq() || inFlightMoveBatches > 1 || netMoveQueue.length > 0 || walking || !!pendingWalk;
+            if (!staleFailure) {
+              sfx.err();
+              const sx = (r && Number.isInteger(r.x)) ? r.x : confirmedMove.x;
+              const sz = (r && Number.isInteger(r.z)) ? r.z : confirmedMove.z;
+              confirmedMove.x = sx; confirmedMove.z = sz;
+              reconcileMovePosition(sx, sz);
+              pollSoon();
+            }
+            lastAckMoveSeq = Math.max(lastAckMoveSeq, ackSeq);
+            finishMoveBatch();
+            return;
+          }
+          lastAckMoveSeq = Math.max(lastAckMoveSeq, ackSeq);
+          const accepted = Array.isArray(r.path) && r.path.length ? r.path : [{ x: r.x, z: r.z, seq: ackSeq }];
+          const last = accepted[accepted.length - 1] || lastReq;
+          confirmedMove.x = (typeof last.x === "number" ? last.x : lastReq.x);
+          confirmedMove.z = (typeof last.z === "number" ? last.z : lastReq.z);
+          const stillAhead = walking || walkQueue.length > 0 || netMoveQueue.length > 0 || !!pendingWalk || inFlightMoveBatches > 1 || lastAckMoveSeq < moveSeq;
+          if (ST.me) {
+            ST.me.x = stillAhead ? me.x : confirmedMove.x;
+            ST.me.z = stillAhead ? me.z : confirmedMove.z;
+            if (typeof r.energy === "number") { ST.me.energy = r.energy; ST.me.energyAt = performance.now(); }
+            if (r.inv) ST.me.inv = { ...(ST.me.inv || {}), ...r.inv };
+            if (typeof r.xp === "number") ST.me.xp = r.xp;
+          }
+          if (!stillAhead) reconcileMovePosition(confirmedMove.x, confirmedMove.z);
+          tryPickupAt(confirmedMove.x, confirmedMove.z);
+          if (r.partial) {
+            if (!stillAhead) {
+              if (r.stoppedMsg) say(r.stoppedMsg, 1200);
+              reconcileMovePosition(confirmedMove.x, confirmedMove.z);
+              pollSoon();
+            }
+            finishMoveBatch();
+            return;
+          }
+          if (r.lootGone || r.inv) pollSoon();
+          refreshWindow(); refreshNear();
+          if (ST.tool === "use" && ST.useAfterWalkUid != null) {
+            const b = buildPool.get(ST.useAfterWalkUid);
+            if (b && cheb(b.x, b.z, me.x, me.z) <= 1) { const uid = ST.useAfterWalkUid; ST.useAfterWalkUid = null; setTimeout(() => useBuildingClient(uid), 0); }
+          }
+          if (ST.tool === "claim" && captureTargetHere(me.x, me.z)) setTimeout(() => claimTile(me.x, me.z), 0);
+          finishMoveBatch();
+          advanceLocalWalk();
+        }).catch(() => {
+          for (const q of batch.reverse()) {
+            if (q.seq <= lastAckMoveSeq || q.retry >= 2) continue;
+            q.retry = Number(q.retry || 0) + 1;
+            netMoveQueue.unshift(q);
+          }
+          finishMoveBatch();
+          const now = performance.now();
+          if (now - moveErrorAt > 1200) { moveErrorAt = now; say(t("toast.networkHiccup", "Network hiccup — movement will resync."), 1200); }
+          scheduleMoveFlush(120);
           pollSoon();
-          return;
-        }
-        const accepted = Array.isArray(r.path) && r.path.length ? r.path : [{ x: r.x, z: r.z }];
-        const last = accepted[accepted.length - 1] || lastReq;
-        confirmedMove.x = (typeof last.x === "number" ? last.x : lastReq.x);
-        confirmedMove.z = (typeof last.z === "number" ? last.z : lastReq.z);
-        const stillAhead = walking || walkQueue.length > 0 || netMoveQueue.length > 0 || !!pendingWalk;
-        if (ST.me) {
-          ST.me.x = stillAhead ? me.x : confirmedMove.x;
-          ST.me.z = stillAhead ? me.z : confirmedMove.z;
-          if (typeof r.energy === "number") { ST.me.energy = r.energy; ST.me.energyAt = performance.now(); }
-          if (r.inv) ST.me.inv = { ...(ST.me.inv || {}), ...r.inv };
-          if (typeof r.xp === "number") ST.me.xp = r.xp;
-        }
-        tryPickupAt(confirmedMove.x, confirmedMove.z);
-        if (r.partial) {
-          if (r.stoppedMsg) say(r.stoppedMsg, 1600);
-          stopOptimisticMovement(confirmedMove.x, confirmedMove.z);
-          pollSoon();
-          return;
-        }
-        if (r.lootGone || r.inv) pollSoon();
-        refreshWindow(); refreshNear();
-        if (ST.tool === "use" && ST.useAfterWalkUid != null) {
-          const b = buildPool.get(ST.useAfterWalkUid);
-          if (b && cheb(b.x, b.z, me.x, me.z) <= 1) { const uid = ST.useAfterWalkUid; ST.useAfterWalkUid = null; setTimeout(() => useBuildingClient(uid), 0); }
-        }
-        if (ST.tool === "claim" && captureTargetHere(me.x, me.z)) setTimeout(() => claimTile(me.x, me.z), 0);
-        flushMoveQueue();
-        advanceLocalWalk();
-      }).catch(() => {
-        if (token !== activeMoveToken) return;
-        moveBusy = false;
-        const now = performance.now();
-        if (now - moveErrorAt > 900) { moveErrorAt = now; sfx.err(); say(t("toast.networkHiccup", "Network hiccup — keeping movement synced."), 1600); }
-        // Do not throw away the user's target on a transient request failure.
-        // Snap to the last confirmed tile, then let the next click/path continue cleanly.
-        stopOptimisticMovement(confirmedMove.x, confirmedMove.z);
-        pollSoon();
-      });
+        });
+      }
     }
     function clientMoveCost() { return Math.max(0, Number(ST.me?.tuning?.moveEnergy ?? MOVE_COST)); }
     function clientEnergyNow() {
@@ -2227,12 +2272,16 @@ export default function mount() {
         if (a.kind === "hop") {
           const x = a.from.x + (a.to.x - a.from.x) * k, z = a.from.z + (a.to.z - a.from.z) * k;
           player.position.set(x, 0.22 + Math.sin(k * Math.PI) * 0.24, z);
+        } else if (a.kind === "correct") {
+          const ease = 1 - Math.pow(1 - k, 3);
+          const x = a.from.x + (a.to.x - a.from.x) * ease, z = a.from.z + (a.to.z - a.from.z) * ease;
+          player.position.set(x, 0.22, z);
         } else if (a.kind === "in") { if (a.obj) a.obj.scale.setScalar(0.01 + 0.99 * k); }
         else if (a.kind === "up") { if (a.obj) { a.obj.position.y = 0.52 + k * 0.7; a.obj.scale.setScalar(1 - k * 0.9); } }
         else if (a.kind === "pulse") { if (a.obj) { const p = 1 + Math.sin(k * Math.PI) * 0.09; const b = a.base || { x: 1, y: 1, z: 1 }; a.obj.scale.set(b.x * p, b.y * (1 + Math.sin(k * Math.PI) * 0.04), b.z * p); } }
         if (k >= 1) { if (a.kind === "pulse" && a.obj && a.base) a.obj.scale.copy(a.base); anims.splice(i, 1); a.done && a.done(); }
       }
-      if (!anims.some((a) => a.kind === "hop")) player.position.set(me.x, 0.22, me.z);
+      if (!anims.some((a) => a.kind === "hop" || a.kind === "correct")) player.position.set(me.x, 0.22, me.z);
       for (let i = bursts.length - 1; i >= 0; i--) {
         const b = bursts[i]; b.life -= dt;
         for (const it of b.items) { it.v.y -= 7 * dt; it.m.position.addScaledVector(it.v, dt); it.m.rotation.x += dt * 4; it.m.rotation.y += dt * 5; }

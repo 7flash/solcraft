@@ -7,6 +7,7 @@ import { removedFeatureResponse } from "./removedFeatures";
 import { bumpEcsWorldRev, mirrorLegacyToEcsTables } from "./ecsDbAdapter";
 import { BASE_MAX, ECONOMY_RULES, GOLD_MINE_KIND, LIBRARY, MAX_HP, NORMAL_BUILDING_BUILD_MS, DECOR_BUILDING_BUILD_MS, RAID_COST, RES_KEYS, RES_NAMES, TELEPORT_COST, TELEPORT_MS, XP, biomeAt, cheb, harvestMs, naturalDoodad, proceduralNpcAt, hrand, WORLD_WONDER_GLOBAL_COIN_BONUS_PCT, WORLD_WONDER_MAX_GLOBAL_COIN_BONUS_PCT, WORLD_WONDER_PLAZA_RADIUS } from "./shared";
 import { cleanBuildKindResponse } from "./cleanRelease";
+import { commitLiveMovement, flushLiveMovementForPlayer, liveMovementFor } from "./liveMovement";
 
 export type EcsGameplayResult = { handled: boolean; result?: any };
 
@@ -17,6 +18,8 @@ type ResBag = Record<string, number>;
 const SWORD_COST = Math.max(1, Number(process.env.SOLCRAFT_SWORD_ENERGY_COST || 4) || 4);
 const RESOURCE_KEYS = new Set<string>(RES_KEYS as any);
 const DIRECT_ACTIONS = new Set([
+  "move",
+  "movePath",
   "claim",
   "harvestStart",
   "harvestFinish",
@@ -629,6 +632,66 @@ function actionWallet(p: PlayerRow, body: any) {
   p.wallet = addr; refreshPlayer(p); return ok({ wallet: addr, note: "Wallet linked." });
 }
 
+function energyNowForMove(p: PlayerRow, t = now()) {
+  const live = liveMovementFor(p.id);
+  const maxE = Math.max(1, Number(BASE_MAX || 100));
+  const regenPerSec = Math.max(0, Number(ECONOMY_RULES.energyRegenBasePerMinute || 0) / 60);
+  const base = Math.max(0, Number(live?.energy ?? p.energy ?? maxE));
+  const at = Number(live?.energyAt || p.energyAt || t);
+  const dt = Math.max(0, Math.min(60, (t - at) / 1000));
+  return Math.max(0, Math.min(maxE, base + regenPerSec * dt));
+}
+function movementBlockedForPlayer(p: PlayerRow, x: number, z: number) {
+  const b = (db.buildings.select().where({ x, z }).first() as any) || null;
+  if (!b) return false;
+  const def = libById(String(b.kind || ""));
+  if (def && def.blocksMovement === false) return false;
+  if (def && def.passableOwner && Number(b.owner || 0) === Number(p.id)) return false;
+  return true;
+}
+function movementStartFor(p: PlayerRow) {
+  const live = liveMovementFor(p.id);
+  return { x: int(live?.x ?? p.x), z: int(live?.z ?? p.z), energy: energyNowForMove(p), lastSeq: int(live?.lastSeq || 0) };
+}
+function cleanMoveSteps(body: any) {
+  const raw = String(body?.type || "") === "move"
+    ? [{ x: body.x, z: body.z, seq: body.seq ?? body.moveSeq }]
+    : (Array.isArray(body?.steps) ? body.steps : []);
+  return raw.slice(0, 32).map((step: any) => ({ x: int(step?.x), z: int(step?.z), seq: int(step?.seq ?? step?.moveSeq ?? 0) }));
+}
+function actionMovePath(p: PlayerRow, body: any) {
+  if (p.spectator) return err("Spectators cannot move.", "SPECTATOR");
+  const steps = cleanMoveSteps(body);
+  if (!steps.length) {
+    const start = movementStartFor(p);
+    return ok({ x: start.x, z: start.z, energy: start.energy, ackSeq: start.lastSeq, acceptedSeq: start.lastSeq, moved: 0, path: [] });
+  }
+  const t = now();
+  const path: any[] = [];
+  let { x, z, energy, lastSeq } = movementStartFor(p);
+  let acceptedSeq = lastSeq;
+  let partial = false;
+  let stoppedMsg = "";
+  let reasonCode = "";
+  const cost = Math.max(0, Number(ECONOMY_RULES.moveEnergy || 0));
+  for (const step of steps) {
+    const nx = int(step.x), nz = int(step.z), seq = int(step.seq || 0);
+    const d = cheb(x, z, nx, nz);
+    if (d < 1) { lastSeq = Math.max(lastSeq, seq); continue; }
+    if (d > 1) { lastSeq = Math.max(lastSeq, seq); partial = true; reasonCode = "MOVE_TOO_FAR"; stoppedMsg = "Movement resynced."; break; }
+    if (movementBlockedForPlayer(p, nx, nz)) { lastSeq = Math.max(lastSeq, seq); partial = true; reasonCode = "MOVE_BLOCKED"; stoppedMsg = "Path blocked."; break; }
+    const freeRoadStep = false;
+    if (!freeRoadStep && energy + 1e-9 < cost) { lastSeq = Math.max(lastSeq, seq); partial = true; reasonCode = "ENERGY_LOW"; stoppedMsg = "Out of energy."; break; }
+    if (!freeRoadStep) energy = Math.max(0, energy - cost);
+    x = nx; z = nz; lastSeq = Math.max(lastSeq, seq); acceptedSeq = lastSeq;
+    path.push({ x, z, seq });
+  }
+  commitLiveMovement(p, { x, z, energy, energyAt: t, seq: lastSeq, at: t });
+  const base = { x, z, energy, ackSeq: lastSeq, acceptedSeq, moved: path.length, path, partial, stoppedMsg, reasonCode };
+  if (!path.length && partial) return err(stoppedMsg || "Movement blocked.", reasonCode || "MOVE_REJECTED", base);
+  return ok(base);
+}
+
 export function ecsGameplaySupportedActionTypes() { return [...DIRECT_ACTIONS].sort(); }
 
 export function dispatchEcsGameplayAction(playerLike: PlayerRow, body: any): EcsGameplayResult {
@@ -636,9 +699,12 @@ export function dispatchEcsGameplayAction(playerLike: PlayerRow, body: any): Ecs
   const removed = removedFeatureResponse(type);
   if (removed) return { handled: true, result: err(removed.msg, removed.reasonCode, removed) };
   if (!DIRECT_ACTIONS.has(type)) return { handled: false };
-  const p = getPlayer(playerLike?.id) as PlayerRow || playerLike;
+  let p = getPlayer(playerLike?.id) as PlayerRow || playerLike;
   if (!p) return { handled: true, result: err("Unknown player", "PLAYER_NOT_FOUND") };
   try {
+    if (type === "move" || type === "movePath") return { handled: true, result: actionMovePath(p, body) };
+    flushLiveMovementForPlayer(p.id);
+    p = getPlayer(playerLike?.id) as PlayerRow || p;
     if (type === "claim") return { handled: true, result: actionClaimAnyFreeTile(p, body) };
     if (type === "harvestStart") return { handled: true, result: actionHarvestStart(p, body) };
     if (type === "harvestFinish") return { handled: true, result: actionHarvestFinish(p, body) };

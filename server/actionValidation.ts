@@ -34,7 +34,7 @@ function safeId(v: any, fallback = "") {
 }
 function cleanSteps(value: any) {
   if (!Array.isArray(value)) return [];
-  return value.slice(0, 24).map((s) => ({ x: intValue(s?.x), z: intValue(s?.z) }));
+  return value.slice(0, 32).map((s) => ({ x: intValue(s?.x), z: intValue(s?.z), seq: intValue(s?.seq ?? s?.moveSeq ?? 0, 0, 2_147_483_647) }));
 }
 
 export function validateActionBody(raw: any): ValidatedAction {
@@ -49,7 +49,12 @@ export function validateActionBody(raw: any): ValidatedAction {
     else if (ID_KEYS.has(k)) body[k] = intValue(body[k], 0, 2_147_483_647);
   }
 
-  if (type === "movePath") body.steps = cleanSteps(body.steps);
+  if (type === "move") body.seq = intValue(body.seq ?? body.moveSeq ?? 0, 0, 2_147_483_647);
+  if (type === "movePath") {
+    body.steps = cleanSteps(body.steps);
+    body.moveSeq = intValue(body.moveSeq ?? body.seq ?? 0, 0, 2_147_483_647);
+    body.baseSeq = intValue(body.baseSeq ?? 0, 0, 2_147_483_647);
+  }
   if (["place", "customize"].includes(type)) {
     body.kind = safeId(body.kind, String(body.kind || ""));
     body.variant = safeId(body.variant, String(body.variant || ""));
