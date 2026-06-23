@@ -1,11 +1,12 @@
 import { db, metaGet, metaSet } from "./db";
 import { getPlayer, refreshPlayer } from "./playerStore";
-import { deleteBuilding, getBuilding, refreshBuilding } from "./buildingStore";
-import { insertLoot, lootAt } from "./lootStore";
+import { deleteBuilding, getBuilding, insertBuilding, refreshBuilding } from "./buildingStore";
+import { deleteLoot, insertLoot, lootAt } from "./lootStore";
 import { adjustReputation, reputationDeltaFor, reputationDeltaText, reputationSummaryForWire, storageCapsForPlayer } from "./reputationRules";
 import { removedFeatureResponse } from "./removedFeatures";
 import { bumpEcsWorldRev, mirrorLegacyToEcsTables } from "./ecsDbAdapter";
-import { BASE_MAX, ECONOMY_RULES, GOLD_MINE_KIND, LIBRARY, MAX_HP, RAID_COST, RES_KEYS, RES_NAMES, TELEPORT_COST, TELEPORT_MS, XP, biomeAt, cheb, harvestMs, naturalDoodad, proceduralNpcAt } from "./shared";
+import { BASE_MAX, ECONOMY_RULES, GOLD_MINE_KIND, LIBRARY, MAX_HP, NORMAL_BUILDING_BUILD_MS, DECOR_BUILDING_BUILD_MS, RAID_COST, RES_KEYS, RES_NAMES, TELEPORT_COST, TELEPORT_MS, XP, biomeAt, cheb, harvestMs, naturalDoodad, proceduralNpcAt } from "./shared";
+import { cleanBuildKindResponse } from "./cleanRelease";
 
 export type EcsGameplayResult = { handled: boolean; result?: any };
 
@@ -21,6 +22,7 @@ const DIRECT_ACTIONS = new Set([
   "harvestFinish",
   "harvestCancel",
   "pickup",
+  "place",
   "repair",
   "customize",
   "customizerAccess",
@@ -89,6 +91,50 @@ function bump(reason = "ecs-gameplay") {
   try { metaSet("solcraft:ecs:lastGameplayMutation:v1", JSON.stringify({ at: now(), reason })); } catch {}
 }
 function libById(kind: string) { return (LIBRARY as any[]).find((b) => String(b?.id || "") === String(kind || "")) || null; }
+function costShort(cost: Record<string, any> = {}) {
+  return Object.entries(cost || {}).filter(([, v]) => Number(v) > 0).map(([k, v]) => `${Math.ceil(Number(v || 0))}${String((RES_NAMES as any)[k] || k)}`).join(", ");
+}
+function buildMsFor(def: any) {
+  if (!def || def.decor) return Math.max(0, Number(DECOR_BUILDING_BUILD_MS || 0));
+  return Math.max(0, Number(NORMAL_BUILDING_BUILD_MS || 0));
+}
+function buildMaxHpFor(def: any, level = 1) {
+  return Math.max(12, Math.floor(Number(def?.hp || 220) + Math.max(0, Number(level || 1) - 1) * 12));
+}
+function actionPlaceBuilding(p: PlayerRow, body: any) {
+  const kind = String(body.kind || "").trim();
+  const blocked = cleanBuildKindResponse(kind);
+  if (blocked) return err(blocked.msg || "That building is unavailable.", blocked.reasonCode || "BUILDING_UNAVAILABLE", blocked);
+  const def = libById(kind);
+  if (!def) return err("Unknown building.", "UNKNOWN_BUILDING");
+  const x = int(body.x), z = int(body.z);
+  if (capitalReserved(x, z)) return err("Build outside the capital plaza.", "CAPITAL_RESERVED");
+  const tile = (db.tiles.select().where({ x, z }).first() as any) || null;
+  if (!tile || Number(tile.owner || 0) !== Number(p.id)) return err("Choose an empty captured tile you own.", "NEED_CAPTURED_TILE");
+  const existing = (db.buildings.select().where({ x, z }).first() as any) || null;
+  if (existing) return err("That tile already has a building.", "BUILD_TILE_OCCUPIED");
+  if (int(p.x) === x && int(p.z) === z) return err("Step aside first, then place the building.", "STEP_ASIDE");
+  const miss = missing(p, def.cost || {});
+  if (miss.length) return err(`${def.name || "Building"} needs ${costShort(def.cost || {})}. Missing ${missingText(p, def.cost || {})}.`, "NOT_ENOUGH_RESOURCES", { cost: def.cost, inv: p.inv });
+  spend(p, def.cost || {});
+  const startedAt = now();
+  const buildMs = buildMsFor(def);
+  const mhp = buildMaxHpFor(def, 1);
+  const row = insertBuilding({ owner: Number(p.id), kind, x, z, nm: null, cl: null, level: 1, hp: mhp, maxHp: mhp, acc: 0, accAt: startedAt, cdUntil: startedAt + buildMs, usedAt: 0, stored: 0 }) as any;
+  try {
+    const d = db.doodads.select().where({ x, z }).first() as any;
+    if (d) d.state = "gone";
+  } catch {}
+  try {
+    const l = lootAt(x, z) as any;
+    if (l) deleteLoot(l);
+  } catch {}
+  addXp(p, Number((XP as any).build || 6));
+  refreshPlayer(p);
+  bump("place-building");
+  mirrorLegacyToEcsTables("place-building");
+  return ok({ uid: Number(row?.id || 0), x, z, kind, inv: p.inv, buildMs, note: `${def.name || "Building"} construction started.` });
+}
 function isUnderConstruction(b: BuildingRow) { return Number(b?.cdUntil || 0) > now(); }
 function markUsed(b: BuildingRow) { b.usedAt = now(); refreshBuilding(b); }
 function maxHpFor(b: BuildingRow, def: any = libById(b?.kind)) { return Math.max(10, Number(b?.maxHp || def?.hp || 18) + Math.max(0, Number(b?.level || 1) - 1) * 6); }
@@ -553,6 +599,7 @@ export function dispatchEcsGameplayAction(playerLike: PlayerRow, body: any): Ecs
     if (type === "harvestFinish") return { handled: true, result: actionHarvestFinish(p, body) };
     if (type === "harvestCancel") return { handled: true, result: actionHarvestCancel(p) };
     if (type === "pickup") return { handled: true, result: actionPickupLoot(p, body) };
+    if (type === "place") return { handled: true, result: actionPlaceBuilding(p, body) };
     if (type === "customize") return { handled: true, result: actionCustomize(p, body) };
     if (type === "customizerAccess") return { handled: true, result: actionCustomizerAccess(p, body) };
     if (type === "repair") return { handled: true, result: actionRepair(p, body) };

@@ -9,18 +9,6 @@ function q(sql: string) { try { return (db as any).query?.(sql); } catch { retur
 
 export function ensureCoinLedgerSchema() {
   try {
-    db.exec(`CREATE TABLE IF NOT EXISTS coin_ledger (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      player INTEGER NOT NULL DEFAULT 0,
-      delta INTEGER NOT NULL DEFAULT 0,
-      balanceAfter INTEGER NOT NULL DEFAULT 0,
-      reason TEXT NOT NULL DEFAULT 'adjust',
-      refType TEXT,
-      refId TEXT,
-      idempotencyKey TEXT,
-      metaJson TEXT,
-      createdAt INTEGER NOT NULL DEFAULT (strftime('%s','now') * 1000)
-    )`);
     db.exec("CREATE INDEX IF NOT EXISTS idx_coin_ledger_player_created ON coin_ledger(player, createdAt)");
     db.exec("CREATE UNIQUE INDEX IF NOT EXISTS uniq_coin_ledger_player_idem ON coin_ledger(player, idempotencyKey) WHERE idempotencyKey IS NOT NULL AND idempotencyKey != ''");
   } catch {}

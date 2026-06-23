@@ -168,6 +168,20 @@ export const db = new Database(process.env.SOLCRAFT_DB || "solcraft.db", {
     metaJson: z.union([z.string(), z.null()]).default(null),
     createdAt: z.number().default(0),
   }),
+  hard_currency_ledger: z.object({
+    player: z.number().default(0),
+    wallet: z.union([z.string(), z.null()]).default(null),
+    currency: z.string().default("SOL"),
+    deltaRaw: z.string().default("0"),
+    balanceRaw: z.string().default("0"),
+    direction: z.string().default("credit"),
+    reason: z.string().default("adjust"),
+    refType: z.union([z.string(), z.null()]).default(null),
+    refId: z.union([z.string(), z.null()]).default(null),
+    idempotencyKey: z.union([z.string(), z.null()]).default(null),
+    metaJson: z.union([z.string(), z.null()]).default(null),
+    createdAt: z.number().default(0),
+  }),
   action_idempotency: z.object({
     player: z.number().default(0),
     action: z.string().default(""),
@@ -175,6 +189,59 @@ export const db = new Database(process.env.SOLCRAFT_DB || "solcraft.db", {
     requestHash: z.string().default(""),
     responseJson: z.union([z.string(), z.null()]).default(null),
     createdAt: z.number().default(0),
+  }),
+
+  bankDeposits: z.object({
+    playerId: z.number(),
+    depositId: z.union([z.string(), z.null()]).default(null),
+    address: z.string().default(""),
+    wallet: z.union([z.string(), z.null()]).default(null),
+    createdAtMs: z.number().default(0),
+  }),
+  bankScans: z.object({
+    playerId: z.number(),
+    latestSignature: z.union([z.string(), z.null()]).default(null),
+    creditedRaw: z.string().default("0"),
+    scanned: z.number().default(0),
+    signaturesJson: z.string().default("[]"),
+    payloadJson: z.union([z.string(), z.null()]).default(null),
+    createdAtMs: z.number().default(0),
+    updatedAtMs: z.number().default(0),
+  }),
+  bankDepositEvents: z.object({
+    playerId: z.number(),
+    signature: z.string(),
+    amountRaw: z.string().default("0"),
+    amountUi: z.string().default("0"),
+    slot: z.number().default(0),
+    confirmedAt: z.number().default(0),
+  }),
+  bankWithdrawals: z.object({
+    withdrawalId: z.string(),
+    playerId: z.number().default(0),
+    wallet: z.union([z.string(), z.null()]).default(null),
+    toAddress: z.union([z.string(), z.null()]).default(null),
+    token: z.union([z.string(), z.null()]).default(null),
+    tokenAddress: z.union([z.string(), z.null()]).default(null),
+    tokenLabel: z.string().default("SOL"),
+    amountRaw: z.string().default("0"),
+    amountUi: z.string().default("0"),
+    coinAmount: z.string().default("0"),
+    status: z.string().default("pending"),
+    signature: z.union([z.string(), z.null()]).default(null),
+    sender: z.union([z.string(), z.null()]).default(null),
+    error: z.union([z.string(), z.null()]).default(null),
+    idempotencyKey: z.union([z.string(), z.null()]).default(null),
+    createdAtMs: z.number().default(0),
+    debitedAt: z.number().default(0),
+    sentAt: z.number().default(0),
+    failedAt: z.number().default(0),
+  }),
+  bankErrors: z.object({
+    action: z.string().default("bank"),
+    msg: z.string().default("Bank action failed"),
+    extraJson: z.union([z.string(), z.null()]).default(null),
+    createdAtMs: z.number().default(0),
   }),
   meta: z.object({
     k: z.string(),
@@ -184,7 +251,7 @@ export const db = new Database(process.env.SOLCRAFT_DB || "solcraft.db", {
   timestamps: true,
   /* NOTE: no `relations` on purpose — FK columns like tiles.owner
      would be shadowed by the ORM's navigation proxies when rows are
-     serialized. Integrity is enforced in the engine instead. */
+     serialized. Integrity is enforced in the ECS backend instead. */
 });
 
 db.exec("PRAGMA journal_mode = WAL");

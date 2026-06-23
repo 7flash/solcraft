@@ -8,7 +8,7 @@
    ============================================================ */
 
 export const SOLCRAFT_ECONOMY = {
-  version: "backend-consistency-rc1",
+  version: "backend-consistency-rc2",
 
   resources: {
     sharedMaterialKeys: ["w", "s", "f"] as const,
@@ -104,13 +104,29 @@ export const SOLCRAFT_ECONOMY = {
   } as const,
 
   money: {
-    gameplayCoinsWithdrawable: false,
-    depositedCraftsWithdrawable: true,
-    rewardCraftsRequireOperatorPool: true,
+    // Gameplay coins are the bank currency. Players can deposit SOL to buy
+    // coins and withdraw coins back to SOL through the capital bank when live
+    // transfers are enabled by the operator.
+    gameplayCoinsWithdrawableToSol: true,
+    solDepositsBuyGameplayCoins: true,
+    defaultCoinsPerSol: 1000,
+    minWithdrawCoins: 10,
+
+    // $CRAFTS is not deposited into the game. It stays in the connected wallet
+    // and is read externally for buffs such as reputation/tile-cap bonuses.
+    craftsHeldInWalletForBuffs: true,
+    craftsDepositsDisabled: true,
     ledgerRawUnits: true,
+    runtimeAdminEditable: true,
   } as const,
 };
 
 export type SolcraftEconomyConfig = typeof SOLCRAFT_ECONOMY;
 export const ECONOMY_RULES_SINGLE_SOURCE = SOLCRAFT_ECONOMY.economyRules;
 export const CLEAN_BUILD_COSTS_SINGLE_SOURCE = SOLCRAFT_ECONOMY.buildCosts;
+
+
+export const META_ECONOMY_SETTINGS = "solcraft:economy:settings:v1";
+export function defaultRuntimeEconomySettings() {
+  return JSON.parse(JSON.stringify(SOLCRAFT_ECONOMY));
+}

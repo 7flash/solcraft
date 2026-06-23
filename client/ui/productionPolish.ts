@@ -37,35 +37,35 @@ export const BUILDING_POLISH: Record<string, BuildingPolish> = {
   cottage: {
     id: "cottage",
     purpose: "House · first settlement anchor and travel point between your homes.",
-    requires: "3 captured tiles and one empty captured tile to place it.",
+    requires: "3 captured tiles and an empty captured tile.",
     produces: "Teleport access from the minimap/build panel; settlement identity.",
     bestNear: "Where you want a fast-travel stop.",
   },
   warehouse: {
     id: "warehouse",
     purpose: "Warehouse · the only normal building that raises shared wood/stone/food storage.",
-    requires: "3 captured tiles and one empty captured tile.",
+    requires: "3 captured tiles and an empty captured tile.",
     produces: "More total material capacity. Coins stay unlimited and separate.",
     bestNear: "Near camps, quarries, farms, and your most-used House.",
   },
   lumber: {
     id: "lumber",
     purpose: "Lumber Camp · creates renewable tree work nearby; chop and collect for wood.",
-    requires: "3 captured tiles and one empty captured tile.",
+    requires: "3 captured tiles and an empty captured tile.",
     produces: "Nearby tree nodes for wood gathering.",
     bestNear: "Forest edges and owned tiles you can patrol quickly.",
   },
   quarry: {
     id: "quarry",
     purpose: "Quarry · creates renewable rock work nearby; mine and collect for stone.",
-    requires: "3 captured tiles and one empty captured tile.",
+    requires: "3 captured tiles and an empty captured tile.",
     produces: "Nearby rock nodes for stone used in tile capture.",
     bestNear: "Open land close to storage and expansion routes.",
   },
   farm: {
     id: "farm",
     purpose: "Farm · grows food patches nearby; harvest them before fights and raids.",
-    requires: "3 captured tiles and one empty captured tile.",
+    requires: "3 captured tiles and an empty captured tile.",
     produces: "Nearby crop nodes for food gathering.",
     bestNear: "Open land close to a Warehouse.",
   },
@@ -132,7 +132,7 @@ export function buildingProductionLine(building: any) {
   const fixed = BUILDING_POLISH[id]?.produces;
   if (fixed) return fixed;
   const produces = Object.entries(building?.produces || {}).filter(([, v]) => Number(v || 0) > 0).map(([k, v]) => `${RESOURCE_ICONS[k] || ""}${v}/${k}`);
-  return produces.length ? produces.join(", ") : "No passive output; unlocks a service or world rule.";
+  return produces.length ? produces.join(", ") : "Service, landmark, or settlement effect.";
 }
 
 export function buildingBestNearLine(building: any) {
@@ -160,7 +160,7 @@ export function firstStepsGuideRows(player: any = {}) {
       category: "actions",
       glyph: "🪓",
       title: "Gather visible resources",
-      text: "Chop trees, mine rocks, and harvest crops. Drops must become visible HUD numbers when collected.",
+      text: "Chop trees, mine rocks, and harvest crops. Walk over drops to collect them into shared storage.",
       detail: `Shared storage: ${Math.floor(Number(inv.w || 0))} wood + ${Math.floor(Number(inv.s || 0))} stone + ${Math.floor(Number(inv.f || 0))} food. Coins are separate.`,
       rewardText: "Starter materials",
       done: hasGathered,
@@ -205,7 +205,7 @@ export function firstStepsGuideRows(player: any = {}) {
       glyph: "▤",
       title: "Build Warehouse when storage fills",
       text: "Wood, stone, and food share one material storage limit. Coins do not use this limit.",
-      detail: "Warehouses are the storage upgrade. Admin economy settings can tune exact cap values later.",
+      detail: "Warehouses raise the total material space for wood, stone, and food.",
       rewardText: "More storage",
       done: buildKinds.has("warehouse"),
       claimed: false,

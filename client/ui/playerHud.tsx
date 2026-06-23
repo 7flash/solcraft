@@ -18,8 +18,8 @@ function SharedStorageBar({ vm }: any) {
   const wood = `${Math.max(0, Number(vm.woodPct || 0)).toFixed(2)}%`;
   const stone = `${Math.max(0, Number(vm.stonePct || 0)).toFixed(2)}%`;
   const food = `${Math.max(0, Number(vm.foodPct || 0)).toFixed(2)}%`;
-  return <section className="player-hud__storage-card" title="Wood, stone, and food share this one storage pool. Warehouses increase it. Coins are separate and unlimited." data-tip-title="Shared storage" data-tip-body={vm.storageText + ". Warehouses are the storage upgrade; coins do not count."}>
-    <div className="player-hud__storage-head"><b>Shared storage</b><span>{vm.storageUsed}/{vm.storageLimit || "?"}</span><em>{vm.storageFree} space</em></div>
+  return <section className="player-hud__storage-card" title="Wood, stone, and food share this one storage pool. Warehouses increase it. Coins are separate and unlimited." data-tip-title="Shared storage" data-tip-body={vm.storageText + ". Warehouses raise this shared limit; coins do not count."}>
+    <div className="player-hud__storage-head"><b>Shared storage</b><span>{vm.storageUsed}/{vm.storageLimit || "?"}</span><em>{vm.storageFree} open</em></div>
     <div className="player-hud__storage-track" aria-label="Shared storage segments">
       <i className="wood" style={{ width: wood }} /><i className="stone" style={{ width: stone }} /><i className="food" style={{ width: food }} />
     </div>

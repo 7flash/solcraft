@@ -14,15 +14,6 @@ export function requestHash(payload: any) {
 
 export function ensureActionIdempotencySchema() {
   try {
-    db.exec(`CREATE TABLE IF NOT EXISTS action_idempotency (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      player INTEGER NOT NULL DEFAULT 0,
-      action TEXT NOT NULL DEFAULT '',
-      idempotencyKey TEXT NOT NULL DEFAULT '',
-      requestHash TEXT NOT NULL DEFAULT '',
-      responseJson TEXT,
-      createdAt INTEGER NOT NULL DEFAULT (strftime('%s','now') * 1000)
-    )`);
     db.exec("CREATE UNIQUE INDEX IF NOT EXISTS uniq_action_idempotency_player_action_key ON action_idempotency(player, action, idempotencyKey)");
     db.exec("CREATE INDEX IF NOT EXISTS idx_action_idempotency_created ON action_idempotency(createdAt)");
   } catch {}

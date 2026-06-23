@@ -72,6 +72,14 @@ function spectatorSpawnPoint(idx: number) { return [Math.cos(idx) * 6 | 0, Math.
 function maxResourceBag(inv: any) { const out: any = {}; for (const k of RES_KEYS) out[k] = Math.max(0, Number(inv?.[k] || 0)); return out; }
 function tileCapacityFor(p: any) { return tileCapacityForPlayer(p); }
 function resourceCaps(p: any) { return storageCapsForPlayer(p); }
+function energyNowForWire(p: any) {
+  const maxE = Math.max(1, Number(BASE_MAX || 100));
+  const regen = Math.max(0, Number(ECONOMY_RULES.energyRegenBasePerMinute || 0) / 60);
+  const base = Math.max(0, Number(p?.energy ?? maxE));
+  const at = Number(p?.energyAt || now());
+  const dt = Math.max(0, Math.min(60, (now() - at) / 1000));
+  return { energy: Math.max(0, Math.min(maxE, base + regen * dt)), maxE, regen };
+}
 function ownedTileCount(id: number) { return Number(db.tiles.select().where({ owner: id }).count() || 0); }
 function nonBombBuildingCount(id: number) { return Number((db.buildings.select().where({ owner: id }).all() as any[]).filter((b) => !String(b.kind || "").includes("bomb")).length); }
 function leaderboardRows() {
@@ -247,11 +255,12 @@ export function snapshot(p: EcsPlayerRow, q: { rev: number; ax: number; az: numb
   const [ax, az] = anchorOf(fresh.x, fresh.z);
   const worldSame = q.rev === ecsWorldRev() && q.ax === ax && q.az === az && Number(q.mapRev || 0) === ecsWorldRev();
   const ownedBuildings = (db.buildings.select().where({ owner: fresh.id }).all() as any[]);
+  const energyWire = energyNowForWire(fresh);
   const houses = ownedBuildings.filter((b) => String(b.kind || "") === "cottage" || String(b.kind || "") === "house").map((b) => ({ uid: Number(b.id), x: Number(b.x), z: Number(b.z), name: b.nm || "House" }));
   const wonders = ownedBuildings.filter((b) => String(b.kind || "") === "worldwonder").map((b) => ({ uid: Number(b.id), x: Number(b.x), z: Number(b.z), name: b.nm || "World Wonder" }));
   const me = {
     id: fresh.id, name: fresh.name, body: fresh.body, hat: fresh.hat, x: fresh.x, z: fresh.z, spawnX: fresh.spawnX, spawnZ: fresh.spawnZ,
-    appearance: safeJson(fresh.appearance, null), energy: fresh.energy || BASE_MAX, maxE: BASE_MAX, regen: ECONOMY_RULES.energyRegenBasePerMinute / 60, hp: fresh.hp || MAX_HP,
+    appearance: safeJson(fresh.appearance, null), energy: energyWire.energy, maxE: energyWire.maxE, regen: energyWire.regen, hp: fresh.hp ?? MAX_HP,
     wallet: fresh.wallet || null, tokenBalance: fresh.tokenBalance || 0, strongbox: fresh.strongbox || 0, vaultGold: fresh.vault || 0, biome: biomeAt(fresh.x, fresh.z).name,
     wonders, houses, inv: maxResourceBag(fresh.inv), pack: fresh.pack || [], equip: fresh.equip || {}, scienceCap: resourceCaps(fresh).sc,
     xp: fresh.xp || 0, level: fresh.level || 1, skillPts: fresh.skillPts || 0, skills: fresh.skills || {}, skillXp: {},
@@ -310,6 +319,7 @@ function dispatchUnlocked(p: EcsPlayerRow, body: any) {
     applyInviteCharacterGift(row, referral);
     row.profileDone = 1;
     refreshPlayer(row);
+    try { db.chat.insert({ name: "", msg: `${row.name || "A new settler"} joined the world.`, sys: 1 }); } catch {}
     return { ok: true, backend: "ecs", referral: referral || null, note: referral?.note || "Character ready." };
   }
   if (type === "profileAppearance") {
@@ -351,8 +361,19 @@ function dispatchUnlocked(p: EcsPlayerRow, body: any) {
   return out;
 }
 
+const TX_REQUIRED_ACTIONS = new Set([
+  "claim", "place", "upgrade", "demolish", "placeWonder",
+  "setupProfile", "customize", "customizerAccess", "repair", "use",
+  "talkNpc", "donateNpc", "attackNpc", "donateKeep", "fight", "raid", "attack",
+  "wallet", "profileAppearance", "profileFace",
+]);
+
 export function dispatch(p: EcsPlayerRow, body: any) {
   const type = String(body?.type || "");
+  // Movement and harvest/pickup are high-frequency ECS actions. Keep them off
+  // the global sqlite write lock; durable batching is handled by the ECS/tick
+  // path instead of wrapping every resource click in BEGIN IMMEDIATE.
+  if (!TX_REQUIRED_ACTIONS.has(type)) return dispatchUnlocked(p, body);
   return withImmediateTx(`ecs.dispatch:${type || "unknown"}:uid=${Number(p?.id || 0)}`, () => dispatchUnlocked(p, body));
 }
 
@@ -365,7 +386,7 @@ function buildingResourceTick(t = now()) {
 
 export function runWorldTick(reason = "manual") {
   const t = now();
-  if (t - ecsTickAt < 900 && reason !== "manual") return { ok: true, skipped: true, backend: "ecs", at: ecsTickAt };
+  if (t - ecsTickAt < 4900 && reason !== "manual") return { ok: true, skipped: true, backend: "ecs", at: ecsTickAt };
   ecsTickAt = t;
   try {
     const economy = withImmediateTx(`ecs.worldTick:${reason}`, () => {
@@ -386,7 +407,7 @@ export function ensureWorldTickStarted() {
   if (ecsTickStarted) return;
   ecsTickStarted = true;
   mirrorLegacyToEcsTables("boot");
-  ecsTickTimer = setInterval(() => runWorldTick("interval"), 1000);
+  ecsTickTimer = setInterval(() => runWorldTick("interval"), 5000);
   try { (ecsTickTimer as any)?.unref?.(); } catch {}
 }
 

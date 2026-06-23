@@ -2,7 +2,7 @@
 /** @jsxImportSource tradjs/client */
 /* ============================================================
    SOLCRAFT client — tradjs mount script.
-   One shared map for everyone. The server (game/engine.ts) is
+   One shared map for everyone. The server ECS backend is
    authoritative; this file renders, predicts, and asks.
 
    RENDERING MODEL (the fix for dead buttons + perf):
@@ -737,8 +737,15 @@ export default function mount() {
 
   /* chat renders through JSX; input stays inside the chat component */
   let chatLines: any[] = [];
+  function onlineChatPlayers() {
+    const rows = [];
+    if (ST.me) rows.push({ id: ST.me.id, name: ST.me.name || "You", x: ST.me.x, z: ST.me.z, self: true });
+    for (const p of ST.players || []) rows.push({ id: p.id, name: p.name || "Player", x: p.x, z: p.z, spectator: p.spectator });
+    const seen = new Set();
+    return rows.filter((p) => { const id = String(p.id); if (seen.has(id)) return false; seen.add(id); return true; }).slice(0, 24);
+  }
   function renderChat() {
-    render(<GameChatView lines={chatLines} onKeyDown={handleChatKeyDown} />, chatEl);
+    render(<GameChatView lines={chatLines} onlinePlayers={onlineChatPlayers()} onKeyDown={handleChatKeyDown} />, chatEl);
     const log = chatEl.querySelector('[data-chat-log="1"]') as any;
     if (log) log.scrollTop = log.scrollHeight;
   }
@@ -1179,10 +1186,7 @@ export default function mount() {
     try {
       const walletAuth = await connectAndSignPhantom();
       if (walletAuth.loginGate) ST.loginGate = walletAuth.loginGate;
-      const entryName = characterNameFromEntry();
-      const entryInviteCode = referralCodeFromEntry();
-      if (entryName) ST.profile.name = entryName;
-      const r = await api("/api/join", { name: entryName, referralCode: entryInviteCode, body: ST.profile.body, hat: ST.profile.hat, appearance: ST.characterProfile, walletAuth });
+      const r = await api("/api/join", { name: "", referralCode: "", body: ST.profile.body, hat: ST.profile.hat, appearance: ST.characterProfile, walletAuth });
       if (!r || !r.ok) throw new Error((r && r.msg) || "Could not join.");
       ST.auth = { pid: r.id, secret: r.secret, wallet: r.wallet || walletAuth.wallet };
       ST.walletVerified = true;
@@ -3537,7 +3541,12 @@ export default function mount() {
   const costStr = (cost) => Object.entries(cost || {}).filter(([, v]) => v).map(([k, v]) => `${v}${COSTI[k]}`).join(" ");
   const liveE = () => {
     const m = ST.me; if (!m) return 0;
-    return Math.min(m.maxE, m.energy + m.regen * (performance.now() - m.energyAt) / 1000);
+    const max = Math.max(1, Number(m.maxE || BASE_MAX || 100));
+    const base = Math.max(0, Number(m.energy ?? max));
+    const regen = Math.max(0, Number(m.regen || 0));
+    const at = Number(m.energyAt || performance.now());
+    const dt = Math.max(0, Math.min(10, (performance.now() - at) / 1000));
+    return Math.max(0, Math.min(max, base + regen * dt));
   };
   const nearForge = () => {
     if (!ST.me) return false;
@@ -3592,16 +3601,13 @@ export default function mount() {
           <section className="ui31-login-card">
             <p className="ui31-kicker"><span className="login-pulse" /> {t("login.kicker", "Shared frontier")}</p>
             <h1>{t("login.titlePrefix", "World of")} <span>{t("login.titleAccent", "SolCrafts")}</span></h1>
-            <p className="ui31-login-copy">{t("login.copy", "Capture land, gather resources, build your first House, and grow your reputation on one shared map.")}</p>
+            <p className="ui31-login-copy">{t("login.copy", "Capture land, gather resources, build your first House, and expand through reputation in a shared Solana world.")}</p>
             <div className="ui31-login-loop" aria-label={t("login.coreLoopAria", "Core loop")}>
               {tArray("login.loop", ["Gather resources", "Capture 3 tiles", "Build a House", "Grow reputation"]).map((label, i) => <div><b>{String(i + 1).padStart(2, "0")}</b><span>{label}</span></div>)}
             </div>
-            <div className="ui31-entry-fields">
-              <label><span>Character name</span><input data-entry-character-name="1" maxlength="18" placeholder="Wanderer" defaultValue={localStorage.getItem("solcraft.characterName") || ST.profile.name || ""} onInput={(e:any)=>{ try{ localStorage.setItem("solcraft.characterName", String(e.currentTarget.value||"")); }catch{} }} /></label>
-              <label><span>Invite code <em>optional</em></span><input data-entry-invite-code="1" maxlength="32" placeholder="Enter invite code" defaultValue={localStorage.getItem("solcraft.referralCode") || ""} onInput={(e:any)=>{ try{ localStorage.setItem("solcraft.referralCode", String(e.currentTarget.value||"").toUpperCase()); }catch{} }} /></label>
-            </div>
+            <p className="ui31-profile-after-wallet">New settlers choose their character name and optional invite code after Phantom connects.</p>
             <div className="ui31-login-actions">
-              <button className="ui31-play" data-click="join-game" disabled={!canJoin}>{ST.joining ? t("login.checking", "Checking…") : !hasPhantom ? t("login.installPhantom", "Install Phantom") : t("login.enterWorld", "Enter world")}</button>
+              <button className="ui31-play" data-click="join-game" disabled={!canJoin}>{ST.joining ? t("login.checking", "Checking…") : !hasPhantom ? t("login.installPhantom", "Install Phantom") : t("login.connectWallet", "Connect Wallet to Play")}</button>
               <button className="ui31-secondary" data-click="spectate-game" disabled={ST.joining}>{t("login.spectate", "Spectate")}</button>
               {ST.auth ? <button className="ui31-secondary" data-click="forget-session" disabled={ST.joining}>{t("login.forgetSession", "Forget session")}</button> : null}
             </div>
@@ -4100,8 +4106,8 @@ export default function mount() {
     return (
       <div className="modal">
         <h2>⌂ Build</h2>
-        <p className="tiny">Capture 3 tiles first, gather visible resources, then place a useful building. Every card now explains purpose, cost, requirements, output, and why it may be disabled.</p>
-        <div className="recipe-req">{captureLimitLine(m)}. Claiming costs 2🪨. Reputation clearly defines how many tiles you can capture.</div>
+        <p className="tiny">Capture 3 tiles, gather resources, then place a useful building on an empty captured tile.</p>
+        <div className="recipe-req">{captureLimitLine(m)}. Claiming uses stone; reputation raises your tile limit.</div>
         {houses.length ? <div className="card" style={{ marginBottom: 10 }}>
           <div className="card-title">House travel</div>
           <div className="tiny">Houses are your normal settlement travel points. Cast briefly, then jump between them.</div>
@@ -4228,6 +4234,28 @@ export default function mount() {
 
   function CraftModal() {
     return <div className="modal"><h2>Unavailable</h2><p className="tiny">Crafting, bombs, packs, and deployables are unavailable. Gather, capture tiles, build starter buildings, donate coins for reputation, raid carefully, and found World Wonders.</p><div className="row" style={{ marginTop: 12 }}><button className="btn" data-click="modal-close">Close</button></div></div>;
+  }
+
+  function submitIntroName() {
+    const input = document.getElementById("sc-intro-name") as HTMLInputElement | null;
+    const name = String(input?.value || "").trim().slice(0, 18);
+    if (!name) { sfx.err(); say("Choose a character name."); return; }
+    try { localStorage.setItem("solcraft.characterName", name); } catch {}
+    ST.profile.name = name;
+    const randomHue = Math.floor(Math.random() * 360);
+    const randomBody = new THREE.Color().setHSL(randomHue / 360, 0.62, 0.58).getHex();
+    act("setupProfile", { name, referralCode: referralCodeFromIntro(), body: randomBody, hat: ST.profile.hat, appearance: ST.characterProfile }).then((r) => {
+      if (r && r.ok) {
+        ST.needsProfile = false;
+        if (ST.me) { ST.me.name = name; ST.me.body = randomBody; ST.me.profileDone = true; }
+        world.refreshOwnRig();
+        ST.modal = null;
+        ST.panel = null;
+        maybeStartWalkthrough(true);
+        say(`${name} joined the world. Capture 3 tiles, then build your first House.`, 3600);
+        pollSoon(); paint(true);
+      }
+    });
   }
 
   function IntroModal() {
@@ -4422,10 +4450,10 @@ export default function mount() {
     if (!m) return <div />;
     const bank = ST.bank || m.bank || {};
     const cfg = bank.config || {};
-    const label = cfg.tokenLabel || "$CRAFTS";
+    const label = cfg.tokenLabel || "SOL";
     const deposit = bank.deposit || null;
     const depositAddress = deposit?.address || "";
-    const bankTokens = bank.bankTokens?.amountUi ?? String(Math.floor(m.inv?.g || 0));
+    const bankTokens = bank.bankTokens?.amountUi ?? bank.softCoins ?? String(Math.floor(m.inv?.g || 0));
     const walletBalance = bank.walletBalance?.amountUi || bank.walletBalanceApproxUi || String(m.tokenBalance || 0);
     const minWithdraw = Number(cfg.minWithdrawUi || 1) || 1;
     const defaultWithdraw = Math.max(minWithdraw, Math.min(Math.floor(Number(bankTokens || 0)), Math.max(minWithdraw, 100)));
@@ -4440,44 +4468,44 @@ export default function mount() {
     const scanLabel = bank.latestDepositScan?.ts ? `Last scan ${new Date(bank.latestDepositScan.ts).toLocaleTimeString()}` : "Scan after sending";
     const recent = (bank.withdrawals || []).slice(0, 4);
     const statusBad = ST.bankMsg && /failed|disabled|error|required|could not/i.test(ST.bankMsg);
-    return <UtilityShell title="Exchange" sub={`Simple ${label} wallet exchange. Deposit from Phantom into the game, or withdraw game coins back to the connected wallet.`}>
+    return <UtilityShell title="Bank" sub={`Deposit ${label} to buy coins, or withdraw coins back to your connected wallet. $CRAFTS stays in-wallet for buffs.`}>
       <div className="exchange-widget">
         <div className="exchange-hero">
           <span className="exchange-icon">↔</span>
           <div style={{ minWidth: 0, flex: 1 }}>
-            <h4>{label} exchange</h4>
-            <p>Connected wallet: <b>{m.wallet ? shortWallet(m.wallet) : "not connected"}</b>. Your deposit address is prepared automatically when the bank opens.</p>
+            <h4>{label} ↔ coins</h4>
+            <p>Connected wallet: <b>{m.wallet ? shortWallet(m.wallet) : "not connected"}</b>. $CRAFTS is not deposited; it stays in your wallet for holder buffs.</p>
           </div>
           <button className="btn" data-click="bank-refresh" disabled={ST.bankBusy}>{ST.bankBusy ? "Working…" : "Refresh"}</button>
         </div>
         <div className="exchange-balances">
-          <div className="exchange-balance"><small>In-game coins</small><b>{bankTokens}</b><em>{label}</em></div>
+          <div className="exchange-balance"><small>In-game coins</small><b>{bankTokens}</b><em>coins</em></div>
           <div className="exchange-balance"><small>Wallet balance</small><b>{walletBalance}</b><em>{label}</em></div>
         </div>
-        {!bankConfigured ? <div className="exchange-note bad">Exchange token is not configured yet. The operator must set the token mint/address on the server.</div> : null}
+        {!bankConfigured ? <div className="exchange-note bad">Bank token is not configured yet. The operator must set the SOL/token settings on the server.</div> : null}
         {!transfersLive && bankConfigured ? <div className="exchange-note warn">Withdrawals are accepting requests. Live transfers are paused until the operator enables them.</div> : null}
         {ST.bankMsg || bank.depositError ? <div className={"exchange-note " + (statusBad || bank.depositError ? "bad" : "good")}>{ST.bankMsg || bank.depositError}</div> : null}
         <div className="exchange-card deposit">
           <span className="exchange-step">1</span>
-          <div><h4>Deposit to game</h4><p>Send {label} from Phantom/Solwal to this personal address, then scan. The address is unique to this settler.</p></div>
+          <div><h4>Deposit to game</h4><p>Send {label} from Phantom/Solwal to this personal address, then scan. Confirmed deposits buy coins at the current bank rate.</p></div>
           <div className={"exchange-address" + (depositAddress ? "" : " empty")}>{depositAddress || (ST.bankBusy ? "Preparing your deposit address…" : "Deposit address will appear here")}</div>
           <div className="exchange-actions">
             <button className="btn" data-click="copy-text" data-label="Deposit address" data-copy={depositAddress} disabled={!depositAddress}>Copy address</button>
-            <button className="btn primary" data-click="bank-scan" disabled={disabled || ST.bankBusy || !depositAddress}>I sent tokens · Scan</button>
+            <button className="btn primary" data-click="bank-scan" disabled={disabled || ST.bankBusy || !depositAddress}>I sent SOL · Scan</button>
             {!depositAddress ? <button className="btn" data-click="bank-deposit" disabled={disabled || ST.bankBusy}>Prepare address</button> : null}
           </div>
-          <div className="exchange-note">{scanLabel}. Confirmed deposits credit your in-game balance.</div>
+          <div className="exchange-note">{scanLabel}. Confirmed deposits credit gameplay coins.</div>
         </div>
         <div className="exchange-card withdraw">
           <span className="exchange-step">2</span>
-          <div><h4>Withdraw to connected wallet</h4><p>Withdraw game coins directly to the wallet that signed in: <b>{shortWallet(m.wallet)}</b>.</p></div>
+          <div><h4>Withdraw to connected wallet</h4><p>Convert gameplay coins back to {label} and send it to the wallet that signed in: <b>{shortWallet(m.wallet)}</b>.</p></div>
           <div className="exchange-input-row">
-            <input id="sc-bank-withdraw-ui" type="number" min={minWithdraw} step="1" defaultValue={defaultWithdraw} placeholder={`Amount in ${label}`} />
+            <input id="sc-bank-withdraw-ui" type="number" min={minWithdraw} step="1" defaultValue={defaultWithdraw} placeholder="Coins to withdraw" />
             <button className="btn primary" disabled={disabled || ST.bankBusy || Number(bankTokens || 0) <= 0} data-click="bank-withdraw-request">Withdraw</button>
           </div>
-          <div className="exchange-note warn">Minimum {cfg.minWithdrawUi || 1} {label}. {transfersLive ? "Transfers send from the configured bank wallet." : "Your request will stay pending until live transfers are enabled."}</div>
+          <div className="exchange-note warn">Minimum {cfg.minWithdrawUi || 1} coins. {transfersLive ? "Transfers send from the configured bank wallet." : "Your request will stay pending until live transfers are enabled."}</div>
         </div>
-        {recent.length ? <details className="exchange-history"><summary>Recent withdrawals</summary><div className="mini-list" style={{ marginTop: 8 }}>{recent.map((w) => <div className="mini-row"><span>◇</span><div><b>{w.amountUi} {label}</b><div className="tiny">{cleanStatus(w)} · {shortWallet(w.to || w.wallet || "")}</div></div></div>)}</div></details> : null}
+        {recent.length ? <details className="exchange-history"><summary>Recent withdrawals</summary><div className="mini-list" style={{ marginTop: 8 }}>{recent.map((w) => <div className="mini-row"><span>◇</span><div><b>{w.coinAmount || "?"} coins → {w.amountUi} {label}</b><div className="tiny">{cleanStatus(w)} · {shortWallet(w.to || w.wallet || "")}</div></div></div>)}</div></details> : null}
       </div>
     </UtilityShell>;
   }
@@ -4748,9 +4776,9 @@ export default function mount() {
       world?.refreshConstructionProgress?.();
       const m = ST.me, e = liveE();
       const nowEl = document.getElementById("sc-e-now");
-      if (nowEl) nowEl.textContent = String(Math.floor(e));
+      if (nowEl) nowEl.textContent = String(Math.floor(Math.max(0, e)));
       const fill = document.getElementById("sc-e-fill");
-      if (fill) fill.style.width = `${(100 * e / m.maxE).toFixed(1)}%`;
+      if (fill) fill.style.width = `${Math.max(0, Math.min(100, 100 * e / Math.max(1, Number(m.maxE || 1)))).toFixed(1)}%`;
       const hpEl = document.getElementById("sc-hp-now");
       if (hpEl) hpEl.textContent = String(Math.ceil(m.hp || 0));
       const hpFill = document.getElementById("sc-hp-fill");

@@ -2,14 +2,20 @@
 /** @jsxImportSource tradjs/client */
 import { objectPreviewActionLabel, objectPreviewDescription, objectPreviewGlyph, objectPreviewPrimaryAction, objectPreviewShouldShowPrimary, objectPreviewTitle } from "./objectPreviewPanelModel";
 import { BUILDING_POLISH, costLine } from "./productionPolish";
+import { LIB_BY_ID } from "@server/shared";
 
-const BUILD_CHOICES = [
-  ["cottage", "House", "🏠", { w: 6 }],
-  ["lumber", "Lumber Camp", "🪵", { w: 12 }],
-  ["quarry", "Quarry", "⛏", { w: 12 }],
-  ["farm", "Farm", "🌾", { w: 14 }],
-  ["warehouse", "Warehouse", "▣", { w: 30 }],
-] as const;
+const BUILD_CHOICE_IDS = ["cottage", "lumber", "quarry", "farm", "warehouse"] as const;
+function buildChoice(id: string) {
+  const def = (LIB_BY_ID as any)?.[id] || {};
+  const polish = BUILDING_POLISH[id] || {};
+  return {
+    id,
+    name: def.name || (id === "cottage" ? "House" : id),
+    icon: def.glyph || (id === "cottage" ? "🏠" : id === "lumber" ? "🪵" : id === "quarry" ? "⛏" : id === "farm" ? "🌾" : "▣"),
+    cost: def.cost || {},
+    info: polish,
+  };
+}
 
 function hasCoords(p: any) {
   return p && Number.isFinite(Number(p.x)) && Number.isFinite(Number(p.z));
@@ -32,7 +38,7 @@ export function ObjectPreviewPanelView({ preview }: any) {
   return <div className="utility-pop object-preview-pop" data-stop-pointerdown="1" data-service-preview={service ? "1" : "0"} data-kind={String(p.kind || "")}> 
     <button className="utility-close" data-click="object-preview-close" aria-label="Close preview">×</button>
     <div className="mini3d-preview object-preview-stage" data-mini3d-preview="1" data-preview-kind={p.kind} aria-label={`${title} 3D preview`}><span>{glyph}</span></div>
-    {service ? <div className="owner-card ui45-preview-summary service-preview-card"><b>{glyph} {title}</b><small>Capital service building · interactions coming online</small></div> : null}
+    {service ? <div className="owner-card ui45-preview-summary service-preview-card"><b>{glyph} {title}</b><small>Capital service building</small></div> : null}
     <div className="inspect-head">
       <span className="accent-orb" />
       <div className="inspect-name">{title}</div>
@@ -44,14 +50,14 @@ export function ObjectPreviewPanelView({ preview }: any) {
         <div className="tiny">{desc}</div>
       </div>
     </div>
-    {p.kind === "buildTile" ? <div className="build-first-rule"><b>Build rule:</b> capture 3 tiles first, then place starter buildings on empty captured tiles. Buildings cost wood; claiming uses stone; reputation controls your tile limit.</div> : null}
+    {p.kind === "buildTile" ? <div className="build-first-rule"><b>Build here</b><span>Choose a starter building for this empty captured tile. Warehouses increase shared storage; Houses become travel points.</span></div> : null}
     {p.kind === "keep" && (p.maxHp || p.coins) ? <div className="ui35-rally-strip" aria-label="Shared keep rally details">
       {p.maxHp ? <span><b>{Math.max(0, Math.floor(Number(p.hp || 0)))}/{Math.floor(Number(p.maxHp || 0))}</b><em>HP when shared</em></span> : null}
       {p.coins ? <span><b>{Math.floor(Number(p.coins || 0))}🪙</b><em>reported inside</em></span> : null}
     </div> : null}
     {p.kind === "buildTile" ? <div className="ui44-build-choices" aria-label="Choose building for selected tile">
-      {BUILD_CHOICES.map(([id, name, icon, cost]) => {
-        const info = BUILDING_POLISH[id] || {};
+      {BUILD_CHOICE_IDS.map((id) => {
+        const { name, icon, cost, info } = buildChoice(id);
         return <button className="ui44-build-choice production-build-choice" data-click="build-tile-choice" data-id={id} data-tip-title={`${icon} ${name}`} data-tip-body={`${info.purpose || "City infrastructure"} Cost: ${costLine(cost)}. Requires: ${info.requires || "captured tile"}.`}>
           <b><span>{icon}</span>{name}</b>
           <small>{info.purpose || "City infrastructure."}</small>
@@ -73,9 +79,9 @@ export function ObjectPreviewPanelView({ preview }: any) {
         <button className="btn danger" data-click="object-preview-action" data-object-action="raid-keep">Raid</button>
       </> : null}
       {service ? <>
-        <button className="btn primary service-action-disabled" disabled aria-disabled="true" title="Bank interface is being wired into the capital service preview.">Open service</button>
-        <button className="btn service-action-disabled" disabled aria-disabled="true" title="Coming soon: service-specific actions from this preview.">Service actions</button>
-        <button className="btn service-action-disabled" disabled aria-disabled="true" title="Coming soon: details, upgrades, and admin service info.">Details</button>
+        <button className="btn primary service-action-disabled" disabled aria-disabled="true" title="Open this service from the capital panel.">Open service</button>
+        <button className="btn service-action-disabled" disabled aria-disabled="true" title="More actions will appear here when available.">Service actions</button>
+        <button className="btn service-action-disabled" disabled aria-disabled="true" title="More details will appear here when available.">Details</button>
       </> : null}
       {showPrimary && !service ? <button className="btn primary" data-click="object-preview-primary" data-object-action={primary}>{objectPreviewActionLabel(primary)}</button> : null}
       {p.kind === "tile" || p.kind === "shared" ? <button className="btn primary" data-click="object-preview-action" data-object-action="walk">Walk here</button> : null}

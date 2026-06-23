@@ -12,21 +12,6 @@ function asRaw(v: any): bigint { try { return BigInt(String(v || "0")); } catch 
 
 export function ensureCraftsLedgerSchema() {
   try {
-    db.exec(`CREATE TABLE IF NOT EXISTS crafts_ledger (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      player INTEGER NOT NULL DEFAULT 0,
-      wallet TEXT,
-      token TEXT,
-      amountRaw TEXT NOT NULL DEFAULT '0',
-      balanceRawAfter TEXT NOT NULL DEFAULT '0',
-      direction TEXT NOT NULL DEFAULT 'credit',
-      reason TEXT NOT NULL DEFAULT 'adjust',
-      refType TEXT,
-      refId TEXT,
-      idempotencyKey TEXT,
-      metaJson TEXT,
-      createdAt INTEGER NOT NULL DEFAULT (strftime('%s','now') * 1000)
-    )`);
     db.exec("CREATE INDEX IF NOT EXISTS idx_crafts_ledger_player_created ON crafts_ledger(player, createdAt)");
     db.exec("CREATE INDEX IF NOT EXISTS idx_crafts_ledger_wallet_created ON crafts_ledger(wallet, createdAt)");
     db.exec("CREATE UNIQUE INDEX IF NOT EXISTS uniq_crafts_ledger_player_idem ON crafts_ledger(player, idempotencyKey) WHERE idempotencyKey IS NOT NULL AND idempotencyKey != ''");

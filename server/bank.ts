@@ -1,11 +1,12 @@
 // @ts-nocheck
 import { createMeasure } from "measure-fn";
 import { db, metaGet, metaSet } from "./db";
-import { getPlayer } from "./playerStore";
+import { getPlayer, refreshPlayer } from "./playerStore";
 import { getBankDeposit, listBankDeposits, upsertBankDeposit, getBankScan, listBankScans, upsertBankScan, listBankWithdrawals, insertBankWithdrawal, updateBankWithdrawal, insertBankError, listBankErrors, bankTableAvailable } from "./bankTables";
 import { withImmediateTx } from "./dbTx";
 import { appendCoinLedger } from "./coinLedger";
 import { appendHardCurrencyLedger, hardCurrencyBalanceRaw } from "./hardCurrencyLedger";
+import { SOLCRAFT_ECONOMY } from "./economyConfig";
 
 const bankMeasure = createMeasure("bank", { maxResultLength: 220 });
 const META_BANK_SETTINGS = "solcraft:bank:settings:v1";
@@ -20,6 +21,7 @@ export type BankSettings = {
   token: string;
   tokenAddress: string;
   tokenLabel: string;
+  coinsPerSol: number;
   bankWallet: string;
   treasuryWallet: string;
   rpcEndpoint: string;
@@ -33,14 +35,15 @@ const DEFAULT_BANK: BankSettings = {
   enabled: process.env.SOLCRAFTS_BANK_ENABLED === "1",
   token: process.env.SOLCRAFTS_TOKEN || process.env.SOLCRAFTS_TOKEN_ADDRESS || process.env.SOLCRAFTS_TOKEN_MINT || process.env.SOLCRAFT_CONFIG || "solcrafts",
   tokenAddress: process.env.SOLCRAFTS_TOKEN_ADDRESS || process.env.SOLCRAFTS_TOKEN_MINT || process.env.SOLCRAFT_CONFIG || "",
-  tokenLabel: process.env.SOLCRAFTS_TOKEN_LABEL || "$CRAFTS",
+  tokenLabel: process.env.SOLCRAFTS_TOKEN_LABEL || process.env.SOLCRAFTS_BANK_TOKEN_LABEL || "SOL",
   bankWallet: process.env.SOLCRAFTS_BANK_WALLET || "@dev",
   treasuryWallet: process.env.SOLCRAFTS_MAIN_TREASURY || "@dev",
   rpcEndpoint: process.env.RPC_ENDPOINT || process.env.SOLANA_RPC_ENDPOINT || "",
   dryRunOnly: process.env.SOLCRAFTS_BANK_LIVE !== "1",
   minWithdrawUi: process.env.SOLCRAFTS_BANK_MIN_WITHDRAW_UI || "1",
-  decimals: Math.max(0, Math.min(12, Number(process.env.SOLCRAFTS_TOKEN_DECIMALS || process.env.SOLCRAFTS_LOGIN_TOKEN_DECIMALS || "6") || 6)),
-  withdrawGameCoinsEnabled: process.env.SOLCRAFTS_BANK_WITHDRAW_GAME_COINS === "1",
+  decimals: Math.max(0, Math.min(12, Number(process.env.SOLCRAFTS_TOKEN_DECIMALS || process.env.SOLCRAFTS_SOL_DECIMALS || "9") || 9)),
+  withdrawGameCoinsEnabled: process.env.SOLCRAFTS_BANK_WITHDRAW_GAME_COINS !== "0",
+  coinsPerSol: Math.max(1, Number(process.env.SOLCRAFTS_BANK_COINS_PER_SOL || SOLCRAFT_ECONOMY.money.defaultCoinsPerSol || 1000) || 1000),
 };
 
 function readJson(key: string, fallback: any) {
@@ -53,7 +56,8 @@ function sanitize(raw: any = {}): BankSettings {
     enabled: src.enabled == null ? DEFAULT_BANK.enabled : !!src.enabled,
     token: String(src.token || src.tokenAddress || DEFAULT_BANK.token).trim() || "solcrafts",
     tokenAddress: String((SOL_ADDR.test(String(src.tokenAddress || "")) ? src.tokenAddress : "") || (SOL_ADDR.test(String(src.token || "")) ? src.token : "") || DEFAULT_BANK.tokenAddress).trim(),
-    tokenLabel: String(src.tokenLabel || src.label || DEFAULT_BANK.tokenLabel).trim().slice(0, 24) || "$CRAFTS",
+    tokenLabel: String(src.tokenLabel || src.label || DEFAULT_BANK.tokenLabel).trim().slice(0, 24) || "SOL",
+    coinsPerSol: Math.max(1, Number(src.coinsPerSol ?? DEFAULT_BANK.coinsPerSol) || DEFAULT_BANK.coinsPerSol),
     bankWallet: String(src.bankWallet || DEFAULT_BANK.bankWallet).trim() || "@dev",
     treasuryWallet: String(src.treasuryWallet || DEFAULT_BANK.treasuryWallet).trim() || "@dev",
     rpcEndpoint: String(src.rpcEndpoint || DEFAULT_BANK.rpcEndpoint).trim(),
@@ -83,7 +87,10 @@ export function publicBankSettings() {
     minWithdrawUi: s.minWithdrawUi,
     decimals: s.decimals,
     withdrawGameCoinsEnabled: !!s.withdrawGameCoinsEnabled,
-    hardCurrencyWithdrawals: true,
+    hardCurrencyWithdrawals: false,
+    coinsPerSol: s.coinsPerSol,
+    solDepositsBuyGameplayCoins: true,
+    craftsBuffOnly: true,
   };
 }
 export function setBankSettings(patch: Partial<BankSettings> = {}) {
@@ -166,7 +173,6 @@ export function bankStatusForPlayer(p: any) {
   const dep = bankTableAvailable() ? getBankDeposit(p.id) : deposits()[String(p.id)] || null;
   const scan = bankTableAvailable() ? getBankScan(p.id) : scans()[String(p.id)] || null;
   const rows = withdrawalRows(p.id, 20).slice(-20).reverse();
-  const depositedRaw = hardCurrencyBalanceRaw(p.id, s.tokenLabel).toString();
   const softCoins = Math.max(0, Math.floor(Number(p?.inv?.g || 0)));
   return {
     ok: true,
@@ -174,21 +180,17 @@ export function bankStatusForPlayer(p: any) {
     wallet: p.wallet || "",
     deposit: dep,
     latestDepositScan: scan,
-    // Hard token balance comes from deposits/reward pools only. Gameplay coins are
-    // intentionally reported separately and are not withdrawable by default.
-    bankTokens: tokenUnits(depositedRaw, s),
-    depositedCrafts: tokenUnits(depositedRaw, s),
+    bankTokens: { amountRaw: String(softCoins), amountUi: String(softCoins), tokenLabel: "coins" },
     softCoins,
     walletBalance: tokenUnits(p.tokenBalanceRaw || 0, s),
     walletBalanceApproxUi: String(p.tokenBalance || 0),
     withdrawals: rows,
+    exchangeRate: { coinsPerSol: s.coinsPerSol, tokenLabel: s.tokenLabel },
     notes: [
-      `Deposited ${s.tokenLabel} is tracked separately from gameplay coins.`,
-      "Gameplay coins are soft currency for Wonders, cosmetics, and services; they are not directly withdrawable by default.",
-      `Wallet ${s.tokenLabel} is your on-chain connected-wallet balance.`,
+      `${s.tokenLabel} deposits buy gameplay coins at the admin-configured bank rate.`,
+      "Gameplay coins are withdrawable back to SOL only through the capital bank and only when live transfers are enabled.",
+      "$CRAFTS stays in the connected wallet and is read for buffs; it is not deposited into the game.",
       "Your personal deposit address is generated once and reused.",
-      "Send tokens to that address, then scan to credit your in-game balance.",
-      "Withdrawals pay to the wallet that signed in unless the server explicitly overrides it.",
     ],
   };
 }
@@ -270,24 +272,29 @@ export async function scanBankDeposits(p: any, limit = 50) {
         if (raw > 0n) creditRaw += raw;
         fresh.push({ signature: d.signature, slot: d.slot, amountRaw: String(d.amountRaw || "0"), amountUi: d.amountUi, confirmedAt: d.confirmedAt });
       }
+      let creditedCoins = 0;
       if (creditRaw > 0n) {
-        withImmediateTx(`bank.scan.credit:${p.id}`, () => {
-          appendHardCurrencyLedger({
+        const solUi = Number(rawToUi(creditRaw, s.decimals)) || 0;
+        creditedCoins = Math.max(0, Math.floor(solUi * s.coinsPerSol));
+        if (creditedCoins > 0) withImmediateTx(`bank.scan.credit:${p.id}`, () => {
+          const row = getPlayer(p.id) as any || p;
+          const before = Math.max(0, Math.floor(Number(row?.inv?.g || 0)));
+          row.inv = { ...(row.inv || {}), g: before + creditedCoins };
+          refreshPlayer(row);
+          appendCoinLedger({
             player: p.id,
-            wallet: p.wallet || "",
-            currency: s.tokenLabel,
-            deltaRaw: creditRaw.toString(),
-            reason: "bankDepositCredit",
+            delta: creditedCoins,
+            reason: "bankSolDepositCoins",
             refType: "bankDepositScan",
             refId: result.latestSignature || fresh[0]?.signature || String(Date.now()),
             idempotencyKey: `deposit:${p.id}:${result.latestSignature || fresh.map((d:any)=>d.signature).join(',')}`,
-            meta: { amountUi: rawToUi(creditRaw, s.decimals), token: s.token, tokenAddress: s.tokenAddress },
+            meta: { amountRaw: creditRaw.toString(), amountUi: rawToUi(creditRaw, s.decimals), token: s.token, tokenAddress: s.tokenAddress, coinsPerSol: s.coinsPerSol },
           });
         });
       }
       byPlayer[String(p.id)] = { ts: Date.now(), latestSignature: result.latestSignature || prev.latestSignature || null, scanned: result.scanned || 0, signatures: Array.from(seen).slice(-1000), deposits: [...(prev.deposits || []), ...fresh].slice(-200), creditedRaw: String((BigInt(prev.creditedRaw || "0") + creditRaw)), creditedUi: rawToUi(BigInt(prev.creditedRaw || "0") + creditRaw, s.decimals) };
       withImmediateTx(`bank.scan.record:${p.id}`, () => { upsertBankScan(p.id, byPlayer[String(p.id)]); if (!bankTableAvailable()) writeJson(META_BANK_SCANS, byPlayer); });
-      return { ok: true, creditedRaw: creditRaw.toString(), creditedUi: rawToUi(creditRaw, s.decimals), deposits: fresh, scan: byPlayer[String(p.id)], status: bankStatusForPlayer(p) };
+      return { ok: true, creditedRaw: creditRaw.toString(), creditedUi: rawToUi(creditRaw, s.decimals), creditedCoins, deposits: fresh, scan: byPlayer[String(p.id)], status: bankStatusForPlayer(getPlayer(p.id) || p) };
     } finally { sowl.close?.(); }
   }).catch((e: any) => ({ ok: false, reasonCode: "BANK_SCAN_FAILED", msg: String(e?.message || e || "Could not scan deposit wallet."), status: bankStatusForPlayer(p) }));
 }
@@ -297,11 +304,10 @@ export async function requestBankWithdrawal(p: any, amountUi: string | number, t
   if (!s.enabled) return { ok: false, reasonCode: "BANK_DISABLED", msg: "Bank withdrawals are not enabled yet." };
   const to = String(toWallet || p.wallet || "").trim();
   if (!SOL_ADDR.test(to)) return { ok: false, reasonCode: "WALLET_REQUIRED", msg: "Connect Phantom or provide a valid Solana wallet." };
-  const amountRaw = decimalToRaw(amountUi, s.decimals);
-  const minRaw = decimalToRaw(s.minWithdrawUi, s.decimals);
-  if (amountRaw < minRaw) return { ok: false, reasonCode: "BANK_WITHDRAW_MIN", msg: `Withdraw at least ${s.minWithdrawUi} ${s.tokenLabel}.` };
-  const spendUi = Math.floor(Number(rawToUi(amountRaw, s.decimals)) || 0);
-  if (spendUi <= 0) return { ok: false, reasonCode: "AMOUNT_REQUIRED", msg: "Enter a whole-token amount greater than zero." };
+  const spendCoins = Math.max(0, Math.floor(Number(amountUi || 0)));
+  const minCoins = Math.max(1, Math.floor(Number(s.minWithdrawUi || SOLCRAFT_ECONOMY.money.minWithdrawCoins || 10) || 10));
+  if (spendCoins < minCoins) return { ok: false, reasonCode: "BANK_WITHDRAW_MIN", msg: `Withdraw at least ${minCoins} coins.` };
+  const amountRaw = (BigInt(spendCoins) * (10n ** BigInt(s.decimals))) / BigInt(Math.max(1, Math.floor(s.coinsPerSol)));
   const idem = withdrawIdempotencyKey(p, amountRaw, to, idempotencyKeyInput);
 
   return bankMeasure.measure({ start: () => `withdraw player=${p.id} amount=${amountUi}`, end: (r: any) => ({ ok: r.ok, status: r.withdrawal?.status || r.status, signature: r.withdrawal?.signature || null, idempotencyKey: r.withdrawal?.idempotencyKey || null }), budget: 2600 }, async () => {
@@ -309,8 +315,10 @@ export async function requestBankWithdrawal(p: any, amountUi: string | number, t
     const existing = withdrawalByIdempotency(rows, p.id, idem);
     if (existing) return { ok: true, duplicate: true, withdrawal: existing, status: bankStatusForPlayer(p), msg: `Withdrawal request already exists for ${existing.amountUi} ${s.tokenLabel}.` };
 
-    const hardBalRaw = hardCurrencyBalanceRaw(p.id, s.tokenLabel);
-    if (hardBalRaw < amountRaw) return { ok: false, reasonCode: "BANK_LEDGER_LOW", msg: `Withdrawable deposited balance is ${rawToUi(hardBalRaw, s.decimals)} ${s.tokenLabel}. Gameplay coins cannot drain the token treasury.` };
+    const freshPlayer = getPlayer(p.id) as any || p;
+    const coinBal = Math.max(0, Math.floor(Number(freshPlayer?.inv?.g || 0)));
+    if (!s.withdrawGameCoinsEnabled) return { ok: false, reasonCode: "BANK_WITHDRAW_DISABLED", msg: "Coin withdrawals are paused by the operator." };
+    if (coinBal < spendCoins) return { ok: false, reasonCode: "BANK_COINS_LOW", msg: `You have ${coinBal} coins available to withdraw.` };
 
     const id = crypto.randomUUID?.() || `${Date.now()}:${p.id}`;
     const row: any = {
@@ -325,6 +333,7 @@ export async function requestBankWithdrawal(p: any, amountUi: string | number, t
       tokenLabel: s.tokenLabel,
       amountRaw: amountRaw.toString(),
       amountUi: rawToUi(amountRaw, s.decimals),
+      coinAmount: String(spendCoins),
       status: "pending",
       signature: null,
       createdAt: Date.now(),
@@ -334,18 +343,11 @@ export async function requestBankWithdrawal(p: any, amountUi: string | number, t
     };
 
     withImmediateTx(`bank.withdraw.request:${p.id}`, () => {
-      appendHardCurrencyLedger({
-        player: p.id,
-        wallet: p.wallet || "",
-        currency: s.tokenLabel,
-        deltaRaw: (-amountRaw).toString(),
-        reason: "bankWithdrawalDebit",
-        refType: "bankWithdrawal",
-        refId: id,
-        idempotencyKey: `withdraw-debit:${idem}`,
-        meta: { amountRaw: amountRaw.toString(), amountUi: row.amountUi, to },
-      });
-      appendCoinLedger({ player: p.id, delta: 0, reason: "bankWithdrawalAudit", refType: "bankWithdrawal", refId: id, idempotencyKey: `withdraw-audit:${idem}`, meta: { amountRaw: amountRaw.toString(), amountUi: row.amountUi, to, hardCurrency: true } });
+      const rowPlayer = getPlayer(p.id) as any || p;
+      const before = Math.max(0, Math.floor(Number(rowPlayer?.inv?.g || 0)));
+      rowPlayer.inv = { ...(rowPlayer.inv || {}), g: Math.max(0, before - spendCoins) };
+      refreshPlayer(rowPlayer);
+      appendCoinLedger({ player: p.id, delta: -spendCoins, reason: "bankCoinWithdrawalDebit", refType: "bankWithdrawal", refId: id, idempotencyKey: `withdraw-debit:${idem}`, meta: { amountRaw: amountRaw.toString(), amountUi: row.amountUi, coinAmount: spendCoins, to, coinsPerSol: s.coinsPerSol } });
       rows = withdrawals();
       rows.push(row);
       insertBankWithdrawal(row);
@@ -367,17 +369,11 @@ export async function requestBankWithdrawal(p: any, amountUi: string | number, t
       } finally { sowl.close?.(); }
     } catch (e: any) {
       withImmediateTx(`bank.withdraw.refund:${p.id}`, () => {
-        appendHardCurrencyLedger({
-          player: p.id,
-          wallet: p.wallet || "",
-          currency: s.tokenLabel,
-          deltaRaw: amountRaw.toString(),
-          reason: "bankWithdrawalRefund",
-          refType: "bankWithdrawal",
-          refId: id,
-          idempotencyKey: `withdraw-refund:${idem}`,
-          meta: { amountRaw: amountRaw.toString(), amountUi: row.amountUi, error: String(e?.message || e) },
-        });
+        const rowPlayer = getPlayer(p.id) as any || p;
+        const before = Math.max(0, Math.floor(Number(rowPlayer?.inv?.g || 0)));
+        rowPlayer.inv = { ...(rowPlayer.inv || {}), g: before + spendCoins };
+        refreshPlayer(rowPlayer);
+        appendCoinLedger({ player: p.id, delta: spendCoins, reason: "bankCoinWithdrawalRefund", refType: "bankWithdrawal", refId: id, idempotencyKey: `withdraw-refund:${idem}`, meta: { amountRaw: amountRaw.toString(), amountUi: row.amountUi, coinAmount: spendCoins, error: String(e?.message || e) } });
         row.status = "failed";
         row.failedAt = Date.now();
         row.error = String(e?.message || e || "Token send failed");
