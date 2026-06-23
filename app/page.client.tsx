@@ -190,6 +190,17 @@ function referralCodeForCreate() {
   return referralCodeFromIntro() || referralCodeFromEntry();
 }
 
+function readStr(el: any, key: string, fallback = "") {
+  try {
+    const v = el?.dataset ? el.dataset[key] : null;
+    return v == null || v === "" ? fallback : String(v);
+  } catch { return fallback; }
+}
+function readNum(el: any, key: string, fallback = 0) {
+  const n = Number(readStr(el, key, ""));
+  return Number.isFinite(n) ? n : fallback;
+}
+
 function spawnHarvestPulse(world: any, ch: any, progress: number) {
   try {
     if (!ch || !(ch.kind === "tree" || ch.kind === "rock" || ch.kind === "food")) return;
@@ -206,10 +217,10 @@ function loadTimeControls() {
   try {
     const raw = JSON.parse(localStorage.getItem("solcraft:time.v1") || "{}");
     return {
-      auto: raw.auto === true,
+      auto: raw.auto === false ? false : true,
       hour: Number.isFinite(Number(raw.hour)) ? Math.max(0, Math.min(23, Math.floor(Number(raw.hour)))) : 12,
     };
-  } catch { return { auto: false, hour: 12 }; }
+  } catch { return { auto: true, hour: 12 }; }
 }
 function saveTimeControls(next: any) {
   const out = { auto: next?.auto === true, hour: Math.max(0, Math.min(23, Math.floor(Number(next?.hour ?? 12)))) };
@@ -255,7 +266,7 @@ export default function mount() {
   const sfx = makeSfx();
 
   const ST = {
-    screen: "menu", auth: null, walletVerified: false, loginMsg: "", loginGate: null, profileError: "",
+    screen: "menu", auth: null, walletVerified: false, loginMsg: "", loginGate: null,
     profile: { name: "", body: BODY_COLORS[0], hat: HAT_COLORS[0], wallet: "" },
     characterProfile: loadCharacterProfile(),
     me: null, rev: 0, ax: 1e6, az: 1e6, chatId: 0, mapRev: -1,
@@ -276,6 +287,7 @@ export default function mount() {
     questTab: "actions",
     bank: null, bankBusy: false, bankMsg: "",
     walkthrough: null, // { active, step: "char" | "quests" }
+    inviteGift: null, inviteError: "", landmarkBonusPct: 0,
     wonderPrompt: "", wonderName: "", wonderFootprint: 9, wonderMode: "district", wonderPaletteId: "solar", wonderRecipe: null, wonderBusy: false, wonderPlacing: false, wonderMsg: "", wonderLastPlaceAt: 0, wonderLastPlaceKey: "",
     adminTool: "demolish", adminMsg: "", hoverCellX: 0, hoverCellZ: 0,
   };
@@ -655,8 +667,10 @@ export default function mount() {
   function pushNotice(msg, kind = "info") {
     const text = String(msg || "").trim();
     if (!text) return;
+    const nowMs = Date.now();
+    notices = notices.filter((n) => !(n.text === text && nowMs - Number(n.at || 0) < 1400));
     const id = ++noticeSeq;
-    notices = [...notices, { id, text, kind }].slice(-6);
+    notices = [...notices, { id, text, kind, at: nowMs }].slice(-3);
     renderNotices();
     setTimeout(() => {
       notices = notices.map((n) => n.id === id ? { ...n, gone: true } : n);
@@ -856,6 +870,7 @@ export default function mount() {
     }
     ST.me = nextMe;
     ST.spectator = !!snap.me.spectator;
+    ST.landmarkBonusPct = Math.max(0, Number(snap.landmarkBonusPct || snap.me?.landmarkBonusPct || 0) || 0);
     if (snap.me.appearance && !ST.modal && ST.panel !== "char") {
       ST.characterProfile = saveCharacterProfile({ ...ST.characterProfile, ...snap.me.appearance, palette: { ...(ST.characterProfile.palette || {}), ...(snap.me.appearance.palette || {}) }, parts: { ...(ST.characterProfile.parts || {}), ...(snap.me.appearance.parts || {}) } });
     }
@@ -2340,18 +2355,42 @@ export default function mount() {
       perf.measure("ui.minimap", () => drawKnownWorldMap(minimapEl, false));
     }
 
+    function updateMinimapInfo() {
+      if (!minimapEl?.isConnected) return;
+      let info = document.getElementById("sc-minimap-info");
+      if (!info) {
+        info = document.createElement("div");
+        info.id = "sc-minimap-info";
+        info.className = "minimap-info-card";
+        minimapEl.insertAdjacentElement("afterend", info);
+      }
+      const show = ST.screen === "playing" && !ST.modal && !ST.panel;
+      info.style.display = show ? "grid" : "none";
+      if (!show) return;
+      const bonus = Math.max(0, Number(ST.landmarkBonusPct || 0) || 0);
+      info.innerHTML = `<b>Landmark Bonus: +${bonus}% coins</b><span>Coins come from Keeps and NPCs.</span>`;
+    }
 
     function onResize() { renderer.setSize(W(), H()); setFrustum(); }
     window.addEventListener("resize", onResize);
 
+    function markDoodadGone(x, z) {
+      const k = key(x, z);
+      exceptions.set(k, "gone");
+      const dd = doodadPool.get(k);
+      if (dd) { scene.remove(dd.group); doodadPool.delete(k); }
+      refreshCell(Math.trunc(Number(x || 0)), Math.trunc(Number(z || 0)));
+    }
+
     return {
       applyWorld, applyPlayers, applyMe, me, cellFromEvent, buildingFromEvent, pathTo, pathToNear, tryMoveDelta,
-      blocked, buildPoolAt, doodadVisible, burst, shockwave, hoverMarker, hardSnapMe,
+      blocked, buildPoolAt, doodadVisible, burst, shockwave, hoverMarker, hardSnapMe, markDoodadGone,
       setHintCells, hideBuildGhost, showBuildGhost, refreshWindow, rebuildBuilding, animateBuildingUse, refreshConstructionProgress,
       refreshOwnRig: () => ensureRig(true),
       applyVisualQuality,
       hasPendingMove,
       tileOwner, buildPool, buildAt, lootPool, rigPool, tradePostPool, cells,
+      updateMinimapInfo,
       rotateCam: (delta = CAMERA_ROTATION_STEP) => stepCameraYaw(delta),
       refreshCameraRotation: () => {},
       refreshCameraZoom: () => setFrustum(),
@@ -2592,6 +2631,7 @@ export default function mount() {
       } else {
         act("harvestFinish", { x, z }).then((r) => {
           if (r && r.ok) {
+            world.markDoodadGone?.(x, z);
             world.burst(x, 0.4, z, kind === "tree" ? 0x52ad58 : kind === "food" ? 0xffd76e : 0xaaa69a, 12, 0.45);
             completeWalkthroughAction(kind === "tree" ? "chop" : kind === "food" ? "farm" : "mine");
             pollSoon();
@@ -3285,6 +3325,7 @@ export default function mount() {
       case "inspect-demolish": return act("demolish", { uid: ST.inspect }).then((r) => { if (r && r.ok) { sfx.demolish(); closeInspectPanel(); } });
       case "inspect-walk-near": { const uid = ST.inspect || ST.wonderViewUid; const b = uid ? world.buildPool.get(uid) : null; closeInspectPanel(); ST.modal = null; ST.wonderViewUid = null; if (b) world.pathToNear(b.x, b.z); return; }
       case "intro-submit": return submitIntroName();
+      case "invite-gift-accept": ST.modal = null; ST.inviteGift = null; maybeStartWalkthrough(true); world.refreshOwnRig?.(); paint(true); return;
       case "modal-close": ST.modal = null; ST.wonderViewUid = null; ST.wonderViewError = ""; stopWonderViewer(); paint(true); return;
       case "panel-close": ST.panel = null; ST.serviceAccess = ""; paint(true); return;
       case "char-sync": world.refreshOwnRig?.(); say(t("toast.characterSynced", "Character synced."), 900); return;
@@ -4330,38 +4371,51 @@ export default function mount() {
   function submitIntroName() {
     const input = document.getElementById("sc-intro-name") as HTMLInputElement | null;
     const name = String(input?.value || "").trim().slice(0, 18);
-    ST.profileError = "";
-    if (!name) { ST.profileError = "Choose a character name."; sfx.err(); say(ST.profileError); paint(true); return; }
+    if (!name) { ST.inviteError = "Choose a character name first."; sfx.err(); paint(true); return; }
     try { localStorage.setItem("solcraft.characterName", name); } catch {}
     ST.profile.name = name;
-    const inviteCode = referralCodeFromIntro();
+    ST.inviteError = "";
+    const code = referralCodeFromIntro();
     const randomHue = Math.floor(Math.random() * 360);
     const randomBody = new THREE.Color().setHSL(randomHue / 360, 0.62, 0.58).getHex();
-    act("setupProfile", { name, referralCode: inviteCode, body: randomBody, hat: ST.profile.hat, appearance: ST.characterProfile }).then((r) => {
-      if (r && r.ok) {
-        ST.profileError = "";
-        ST.needsProfile = false;
-        if (ST.me) { ST.me.name = name; ST.me.body = randomBody; ST.me.profileDone = true; }
-        world.refreshOwnRig();
+    act("setupProfile", { name, referralCode: code, body: randomBody, hat: ST.profile.hat, appearance: ST.characterProfile }).then((r) => {
+      if (!r || !r.ok) {
+        ST.inviteError = code
+          ? (String(r?.reasonCode || "").startsWith("REFERRAL") ? (r?.msg || "That invite code is not valid or has already been used.") : "That invite code could not be applied. Check the code or leave it empty.")
+          : (r?.msg || "Could not create your character yet.");
+        sfx.err();
+        paint(true);
+        return;
+      }
+      ST.needsProfile = false;
+      if (ST.me) { ST.me.name = name; ST.me.body = Number(r.body || r.referral?.body || randomBody) || randomBody; ST.me.hat = Number(r.hat || r.referral?.hat || ST.me.hat || ST.profile.hat) || ST.profile.hat; ST.me.profileDone = true; }
+      if (r.referral?.appearance) ST.characterProfile = saveCharacterProfile({ ...ST.characterProfile, ...r.referral.appearance });
+      world.refreshOwnRig();
+      ST.panel = null;
+      if (r.referral?.invite) {
+        ST.inviteGift = r.referral;
+        ST.modal = "invite-gift";
+        say("Invite gift unlocked. Accept it to reveal your unique character.", 2200);
+      } else {
         ST.modal = null;
-        ST.panel = null;
         maybeStartWalkthrough(true);
         say(`${name} joined the world. Capture 3 tiles, then build your first House.`, 3600);
-        pollSoon(); paint(true);
-      } else {
-        const msg = String(r?.msg || (inviteCode ? "Invite code could not be used." : "Could not create your character.")).trim();
-        ST.profileError = msg;
-        sfx.err();
-        say(msg, 3600);
-        paint(true);
       }
-    }).catch((e) => {
-      const msg = String(e?.message || e || "Could not create your character.");
-      ST.profileError = msg;
-      sfx.err();
-      say(msg, 3600);
-      paint(true);
+      pollSoon(); paint(true);
     });
+  }
+
+
+  function InviteGiftModal() {
+    const gift = ST.inviteGift || {};
+    const design = String(gift.characterDesignId || gift.atlas?.id || "Founder character");
+    return <div className="modal invite-gift-modal" style={{ width: "min(460px,94vw)" }}>
+      <div className="invite-gift-hero"><span>🎁</span><b>Invite gift unlocked</b></div>
+      <h2>Unique character design</h2>
+      <p className="tiny">Your invite code grants a one-of-one doll appearance from the character atlas. Accept the gift to reveal it, then the tutorial will begin.</p>
+      <div className="invite-gift-card"><b>{design}</b><span>{gift.note || "Special founder appearance ready."}</span></div>
+      <button className="btn primary" data-click="invite-gift-accept">Accept gift</button>
+    </div>;
   }
 
   function IntroModal() {
@@ -4370,8 +4424,8 @@ export default function mount() {
       <h2>Choose your character</h2>
       <p className="tiny">Name your character and optionally enter an invite code. Alpha invite codes may assign a one-of-one doll design from the atlas.</p>
       <div className="field"><label>Character name</label><input id="sc-intro-name" maxLength={18} placeholder="Wanderer" defaultValue={ST.profile.name || localStorage.getItem("solcraft.characterName") || (m?.name === "Wanderer" ? "" : m?.name || "")} data-keydown="intro-submit" /></div>
-      <div className="field"><label>Invite code <em>optional</em></label><input data-referral-code-input="1" className="profile-referral-input" maxLength={32} placeholder="Enter invite code" defaultValue={localStorage.getItem("solcraft.referralCode") || ""} onInput={(e:any)=>{ ST.profileError = ""; try{ localStorage.setItem("solcraft.referralCode", String(e.currentTarget.value||"").toUpperCase()); }catch{} }} /></div>
-      {ST.profileError ? <div className="profile-error" role="alert">{ST.profileError}</div> : null}
+      <div className="field"><label>Invite code <em>optional</em></label><input data-referral-code-input="1" className="profile-referral-input" maxLength={32} placeholder="Enter invite code" defaultValue={localStorage.getItem("solcraft.referralCode") || ""} onInput={(e:any)=>{ ST.inviteError = ""; try{ localStorage.setItem("solcraft.referralCode", String(e.currentTarget.value||"").toUpperCase()); }catch{} }} /></div>
+      {ST.inviteError ? <div className="invite-error" role="alert">{ST.inviteError}</div> : null}
       <div className="row" style={{ marginTop: 12 }}><button className="btn primary" style={{ width: "100%" }} data-click="intro-submit">Enter the frontier</button></div>
     </div>;
   }
@@ -4766,6 +4820,7 @@ export default function mount() {
   function ModalLayer() {
     if (ST.updateRequired) return <div className="modal-wrap"><div className="modal" style={{ width: "min(420px,94vw)", textAlign: "center" }}><h2>{t("update.title", "Update ready")}</h2><p className="tiny">{ST.updateReason || t("update.reason", "A new game build is ready. Refresh when convenient.")}</p><button className="btn primary" data-click="reload-page">{t("update.refresh", "Refresh and continue")}</button></div></div>;
     if (ST.screen === "playing" && ST.me && (ST.needsProfile || !ST.me.profileDone)) return <div className="modal-wrap"><IntroModal /></div>;
+    if (ST.screen === "playing" && ST.modal === "invite-gift") return <div className="modal-wrap"><InviteGiftModal /></div>;
     if (ST.screen !== "playing" || !ST.modal) return <div />;
     return (
       <div className="modal-wrap" data-click="modal-backdrop">
@@ -4821,7 +4876,7 @@ export default function mount() {
   function modalSig() {
     if (ST.updateRequired) return ["update", ST.updateVersion || "", ST.updateReason || ""].join("|");
     if (ST.screen !== "playing") return "none";
-    if (ST.me && (ST.needsProfile || !ST.me.profileDone)) return ["intro", ST.profile.body, ST.profile.hat, ST.profile.name, ST.profileError || "", JSON.stringify(ST.characterProfile)].join("|");
+    if (ST.me && (ST.needsProfile || !ST.me.profileDone)) return ["intro", ST.profile.body, ST.profile.hat, ST.profile.name, JSON.stringify(ST.characterProfile)].join("|");
     if (!ST.modal) return "none";
     const m = ST.me;
     const b = ST.panel === "inspect" ? world.buildPool.get(ST.inspect) : null;
@@ -4850,6 +4905,7 @@ export default function mount() {
     perf.measure("ui.hints", () => updateHints());
     chatEl.style.display = ST.screen === "playing" ? "flex" : "none";
     minimapEl.style.display = (ST.screen === "playing" && !ST.panel && !ST.modal) ? "block" : "none";
+    try { world?.updateMinimapInfo?.(); } catch {}
     vignetteEl.style.display = ST.screen === "playing" ? "block" : "none";
     if (ST.screen !== "playing" || ST.modal) hideCtx();
     let utilityRendered = false;

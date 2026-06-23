@@ -266,8 +266,12 @@ export function applyReferralCodeForNewProfile(p: any, rawCode: any, claimContex
   ensureReferralSchema();
   const refereeId = Math.trunc(Number(p?.id || 0));
   if (!refereeId) return err("auth", "AUTH");
-  const referee = playerRow(refereeId);
-  if (!referee) return err("Player not found.", "PLAYER_NOT_FOUND");
+  // In the resident-ECS runtime a brand-new character can exist in memory before
+  // the account row is checkpointed to SQLite. Use the live player row passed by
+  // setupProfile as the referee fallback so an invalid invite reports as an
+  // invite error instead of the misleading “Player not found.”
+  const referee = playerRow(refereeId) || p;
+  if (!referee) return err("Invite code could not be checked for this character.", "REFERRAL_PLAYER_UNAVAILABLE");
   if (Number(referee.profileDone || 0)) return err("Invite codes can only be used while creating your character.", "REFERRAL_ONLY_ON_CREATE");
   if (rawGet("select id from referralClaims where refereePlayerId = ?", refereeId)) return err("This character already used an invite code.", "REFERRAL_ALREADY_USED");
 
