@@ -246,11 +246,6 @@ export default function mount() {
     onOpenMap: () => { if (ST.screen === "playing") { ST.modal = "worldmap"; paint(true); } },
   });
 
-  const minimapBonusEl = document.createElement("div");
-  minimapBonusEl.className = "minimap-bonus";
-  minimapBonusEl.style.display = "none";
-  try { hudEl.appendChild(minimapBonusEl); } catch {}
-
   const perf = createPerfOverlay(root, {
     enabled: perfOverlayEnabledFromUrl(window.location.search, window.localStorage),
     label: "SolCraft client",
@@ -4839,12 +4834,6 @@ export default function mount() {
     perf.measure("ui.hints", () => updateHints());
     chatEl.style.display = ST.screen === "playing" ? "flex" : "none";
     minimapEl.style.display = (ST.screen === "playing" && !ST.panel && !ST.modal) ? "block" : "none";
-    const showMinimapBonus = ST.screen === "playing" && !ST.panel && !ST.modal;
-    minimapBonusEl.style.display = showMinimapBonus ? "grid" : "none";
-    if (showMinimapBonus) {
-      const pct = Math.max(0, Number(ST.me?.landmarkBonusPct || ST.me?.wonderBonusPct || 0));
-      minimapBonusEl.innerHTML = `<b>Landmark Bonus: +${pct}% coins</b><span>Coins come from Keeps and NPCs.</span>`;
-    }
     vignetteEl.style.display = ST.screen === "playing" ? "block" : "none";
     if (ST.screen !== "playing" || ST.modal) hideCtx();
     let utilityRendered = false;

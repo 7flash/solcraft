@@ -1,4 +1,0 @@
-/* Daylight terrain readability without switching away from the Dusk Industrial palette. */
-:root { --solcraft-world-bg: #425067; --solcraft-world-bg-2: #5d6a7e; }
-html, body, #root, main { background: radial-gradient(circle at 50% 20%, rgba(130,151,158,.42), rgba(66,80,103,.88) 42%, #222f42 100%) !important; }
-canvas { filter: saturate(1.08) brightness(1.06); }

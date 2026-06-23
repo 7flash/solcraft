@@ -9,7 +9,7 @@ import { DB_SCHEMA_VERSION, applyProductionDbSchema } from "./dbSchema";
 import { applyStartupDataMigrations } from "./dbMigration";
 import { runForwardDbMigrations } from "./dbMigrations";
 
-export const db = new Database(process.env.SOLCRAFT_DB || "solcraft.db", {
+export var db = new Database(process.env.SOLCRAFT_DB || "solcraft.db", {
   players: z.object({
     name: z.string(),
     secret: z.string(),
@@ -152,7 +152,6 @@ export const db = new Database(process.env.SOLCRAFT_DB || "solcraft.db", {
     refId: z.union([z.string(), z.null()]).default(null),
     idempotencyKey: z.union([z.string(), z.null()]).default(null),
     metaJson: z.union([z.string(), z.null()]).default(null),
-    createdAt: z.number().default(0),
   }),
   crafts_ledger: z.object({
     player: z.number().default(0),
@@ -166,7 +165,6 @@ export const db = new Database(process.env.SOLCRAFT_DB || "solcraft.db", {
     refId: z.union([z.string(), z.null()]).default(null),
     idempotencyKey: z.union([z.string(), z.null()]).default(null),
     metaJson: z.union([z.string(), z.null()]).default(null),
-    createdAt: z.number().default(0),
   }),
   hard_currency_ledger: z.object({
     player: z.number().default(0),
@@ -180,7 +178,6 @@ export const db = new Database(process.env.SOLCRAFT_DB || "solcraft.db", {
     refId: z.union([z.string(), z.null()]).default(null),
     idempotencyKey: z.union([z.string(), z.null()]).default(null),
     metaJson: z.union([z.string(), z.null()]).default(null),
-    createdAt: z.number().default(0),
   }),
   action_idempotency: z.object({
     player: z.number().default(0),
@@ -188,7 +185,6 @@ export const db = new Database(process.env.SOLCRAFT_DB || "solcraft.db", {
     idempotencyKey: z.string().default(""),
     requestHash: z.string().default(""),
     responseJson: z.union([z.string(), z.null()]).default(null),
-    createdAt: z.number().default(0),
   }),
 
   bankDeposits: z.object({
@@ -281,13 +277,25 @@ applyProductionDbSchema(db);
 runForwardDbMigrations(db);
 
 export function metaGet(k: string, dflt = ""): string {
-  const row = db.meta.select().where({ k }).first();
-  return row ? row.v : dflt;
+  // During hot reload / concurrent route evaluation, modules may briefly call
+  // meta helpers while this module is still being initialized. `db` is exported
+  // as `var` above so these helpers fail closed instead of throwing a TDZ
+  // ReferenceError and breaking unrelated routes such as atlas-runtime.
+  try {
+    if (!db?.meta) return dflt;
+    const row = db.meta.select().where({ k }).first();
+    return row ? row.v : dflt;
+  } catch {
+    return dflt;
+  }
 }
 export function metaSet(k: string, v: string) {
-  const row = db.meta.select().where({ k }).first();
-  if (row) (row as any).v = v;
-  else db.meta.insert({ k, v });
+  try {
+    if (!db?.meta) return;
+    const row = db.meta.select().where({ k }).first();
+    if (row) (row as any).v = v;
+    else db.meta.insert({ k, v });
+  } catch {}
 }
 
 export const CURRENT_DB_SCHEMA_VERSION = DB_SCHEMA_VERSION;
@@ -296,4 +304,4 @@ export function ensureDbSchemaVersion() {
   if (current < DB_SCHEMA_VERSION) metaSet("solcraft:db:schemaVersion", String(DB_SCHEMA_VERSION));
   return { current: Math.max(current, DB_SCHEMA_VERSION), target: DB_SCHEMA_VERSION };
 }
-ensureDbSchemaVersion();
+try { ensureDbSchemaVersion(); } catch {}
