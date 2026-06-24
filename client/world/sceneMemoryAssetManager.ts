@@ -1,63 +1,66 @@
 import * as THREE from "three";
 
-export type DisposeGraphOptions = {
-  /** Dispose resources that are not explicitly marked shared. Defaults true for object-local cleanup. */
-  disposeUnknown?: boolean;
-  /** Remove the object from its parent after traversal. Defaults true. */
-  removeFromParent?: boolean;
+export type DisposeObjectOptions = {
+  detach?: boolean;
+  disposeGeometry?: boolean;
+  disposeMaterial?: boolean;
+  disposeTextures?: boolean;
+  sharedGeometries?: ReadonlySet<THREE.BufferGeometry>;
+  sharedMaterials?: ReadonlySet<THREE.Material>;
+  sharedTextures?: ReadonlySet<THREE.Texture>;
 };
 
-function isSharedResource(value: any): boolean {
-  return !!value?.userData?.shared || !!value?.userData?.solcraftShared;
-}
+const TEXTURE_KEYS = [
+  "map",
+  "alphaMap",
+  "aoMap",
+  "bumpMap",
+  "displacementMap",
+  "emissiveMap",
+  "envMap",
+  "lightMap",
+  "metalnessMap",
+  "normalMap",
+  "roughnessMap",
+  "specularMap",
+  "gradientMap",
+];
 
-function disposeTexture(texture: any, disposeUnknown: boolean) {
-  if (!texture?.isTexture) return;
-  if (isSharedResource(texture)) return;
-  if (disposeUnknown || texture.userData?.disposeOnRemove) texture.dispose?.();
-}
-
-function disposeMaterial(material: any, disposeUnknown: boolean) {
-  if (!material || isSharedResource(material)) return;
-
-  for (const key of [
-    "map", "lightMap", "aoMap", "emissiveMap", "bumpMap", "normalMap",
-    "roughnessMap", "metalnessMap", "alphaMap", "envMap", "gradientMap",
-  ]) disposeTexture(material[key], disposeUnknown);
-
-  if (disposeUnknown || material.userData?.disposeOnRemove) material.dispose?.();
-}
-
-/**
- * Removes a Three.js subtree and disposes only object-owned GPU resources.
- * Shared SolCraft prism/material caches must be marked with userData.shared=true;
- * those are intentionally skipped so one removed building cannot break others.
- */
-export function safelyDisposeMeshGraph(target: THREE.Object3D | null | undefined, options: DisposeGraphOptions = {}) {
+export function disposeObject3D(target: THREE.Object3D | null | undefined, options: DisposeObjectOptions = {}) {
   if (!target) return;
-  const disposeUnknown = options.disposeUnknown !== false;
+  const opts = {
+    detach: options.detach ?? true,
+    disposeGeometry: options.disposeGeometry ?? true,
+    disposeMaterial: options.disposeMaterial ?? true,
+    disposeTextures: options.disposeTextures ?? true,
+    sharedGeometries: options.sharedGeometries,
+    sharedMaterials: options.sharedMaterials,
+    sharedTextures: options.sharedTextures,
+  };
 
   target.traverse((node: any) => {
-    if (!node) return;
-
-    if (node.geometry && !isSharedResource(node.geometry)) {
-      if (disposeUnknown || node.geometry.userData?.disposeOnRemove) node.geometry.dispose?.();
+    if (!(node?.isMesh || node?.isLine || node?.isPoints || node?.isSprite)) return;
+    const geometry = node.geometry as THREE.BufferGeometry | undefined;
+    if (opts.disposeGeometry && geometry && !opts.sharedGeometries?.has(geometry)) {
+      geometry.dispose();
     }
 
-    const material = node.material;
-    if (Array.isArray(material)) for (const mat of material) disposeMaterial(mat, disposeUnknown);
-    else disposeMaterial(material, disposeUnknown);
+    const materials = Array.isArray(node.material) ? node.material : node.material ? [node.material] : [];
+    for (const material of materials) disposeMaterial(material, opts);
   });
 
-  if (options.removeFromParent !== false) target.parent?.remove(target);
+  if (opts.detach) target.parent?.remove(target);
 }
 
-export function markObjectGraphShared(target: THREE.Object3D | null | undefined) {
-  target?.traverse?.((node: any) => {
-    if (node.geometry?.userData) node.geometry.userData.shared = true;
-    const material = node.material;
-    const mats = Array.isArray(material) ? material : material ? [material] : [];
-    for (const mat of mats) if (mat?.userData) mat.userData.shared = true;
-  });
-  return target;
+export function disposeMaterial(material: THREE.Material | null | undefined, options: DisposeObjectOptions = {}) {
+  if (!material || options.sharedMaterials?.has(material)) return;
+
+  if (options.disposeTextures ?? true) {
+    for (const key of TEXTURE_KEYS) {
+      const tex = (material as any)[key] as THREE.Texture | undefined;
+      if (tex?.isTexture && !options.sharedTextures?.has(tex)) tex.dispose();
+    }
+  }
+
+  material.dispose();
 }

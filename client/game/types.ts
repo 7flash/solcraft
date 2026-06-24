@@ -1,5 +1,37 @@
 export type ClientAuth = { id: number; secret: string; name?: string };
 export type ClientAction = { type: string; [key: string]: unknown };
+
+export type ClientDeltaList<T = any> = {
+  upsert?: T[];
+  remove?: any[];
+  removed?: any[];
+};
+
+export type ClientWorldDelta = {
+  rev?: number;
+  ax?: number;
+  az?: number;
+  full?: boolean;
+  tiles?: ClientDeltaList;
+  buildings?: ClientDeltaList;
+  doodads?: ClientDeltaList;
+  loot?: ClientDeltaList;
+  players?: ClientDeltaList;
+
+  // Flat aliases are accepted during the migration so the server can ship a
+  // simple shape first without forcing another client patch.
+  tilesUpsert?: any[];
+  tilesRemove?: any[];
+  buildingsUpsert?: any[];
+  buildingsRemove?: any[];
+  doodadsUpsert?: any[];
+  doodadsRemove?: any[];
+  lootUpsert?: any[];
+  lootRemove?: any[];
+  playersUpsert?: any[];
+  playersRemove?: any[];
+};
+
 export type ClientSnapshot = {
   rev?: number;
   me?: any;
@@ -13,7 +45,9 @@ export type ClientSnapshot = {
     loot?: any[];
     players?: any[];
     map?: any;
-  };
+    delta?: ClientWorldDelta;
+    changes?: ClientWorldDelta;
+  } & ClientWorldDelta;
   players?: any[];
   events?: any[];
   chat?: any[];

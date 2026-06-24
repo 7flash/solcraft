@@ -2,6 +2,7 @@
 import * as THREE from "three";
 import { makeBuildingGroup } from "../meshes";
 import { miniPreviewKey, miniPreviewLabel, normalizePreviewAccent } from "./miniPreviewModel";
+import { disposeObject3D } from "./sceneMemoryAssetManager";
 
 export type MiniPreviewKind = "building" | "tree" | "rock" | "food" | "trade" | "npc" | "tile" | "foundation";
 
@@ -210,11 +211,7 @@ export function disposeMiniPreview(state: PreviewState | null | undefined) {
   cancelAnimationFrame(state.raf);
   try { state.ro?.disconnect?.(); } catch {}
   try {
-    state.scene.traverse((obj: any) => {
-      obj.geometry?.dispose?.();
-      if (Array.isArray(obj.material)) obj.material.forEach((m: any) => m?.dispose?.());
-      else obj.material?.dispose?.();
-    });
+    disposeObject3D(state.scene, { detach: false });
     state.renderer.dispose();
     state.renderer.domElement?.remove?.();
   } catch {}
