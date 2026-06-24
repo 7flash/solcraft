@@ -1517,31 +1517,78 @@ export default function mount() {
     const lootPool = new Map(), rigPool = new Map(), tradePostPool = new Map(), exceptions = new Map(), tileOwner = new Map();
     const roadPool = new Map(), districtPool = new Map();
     const resourceSpriteMats = new Map(), resourceBatchMats = new Map();
+    const proceduralTextureCache = new Map();
+    function cssHex(v, fallback = "#ffd76e") {
+      if (typeof v === "number" && Number.isFinite(v)) return `#${new THREE.Color(v).getHexString()}`;
+      const s = String(v || "").trim();
+      return /^#[0-9a-f]{6}$/i.test(s) ? s : fallback;
+    }
+    function shadeHex(hex, amt = 0) {
+      const c = new THREE.Color(cssHex(hex));
+      const hsl = { h: 0, s: 0, l: 0 }; c.getHSL(hsl);
+      hsl.l = Math.max(0.04, Math.min(0.96, hsl.l + amt));
+      hsl.s = Math.max(0, Math.min(1, hsl.s * (amt > 0 ? 0.94 : 1.04)));
+      c.setHSL(hsl.h, hsl.s, hsl.l);
+      return `#${c.getHexString()}`;
+    }
+    function hashString(s) {
+      const str = String(s || ""); let h = 2166136261;
+      for (let i = 0; i < str.length; i++) { h ^= str.charCodeAt(i); h = Math.imul(h, 16777619); }
+      return h >>> 0;
+    }
+    function poly(g, pts, fill, stroke = "rgba(0,0,0,.18)") {
+      g.beginPath();
+      for (let i = 0; i < pts.length; i++) { const [x, y] = pts[i]; if (!i) g.moveTo(x, y); else g.lineTo(x, y); }
+      g.closePath(); g.fillStyle = fill; g.fill();
+      if (stroke) { g.strokeStyle = stroke; g.lineWidth = 1.25; g.stroke(); }
+    }
+    function drawIsoPrism(g, cx, cy, w, d, h, top, left = null, right = null) {
+      w = Math.max(4, w); d = Math.max(4, d); h = Math.max(4, h);
+      const hw = w / 2, hd = d / 2;
+      const p0 = [cx, cy - hd], p1 = [cx + hw, cy], p2 = [cx, cy + hd], p3 = [cx - hw, cy];
+      const q0 = [p0[0], p0[1] + h], q1 = [p1[0], p1[1] + h], q2 = [p2[0], p2[1] + h], q3 = [p3[0], p3[1] + h];
+      poly(g, [p3, p2, q2, q3], left || shadeHex(top, -0.16));
+      poly(g, [p1, p2, q2, q1], right || shadeHex(top, -0.26));
+      poly(g, [p0, p1, p2, p3], shadeHex(top, 0.12), "rgba(255,255,255,.16)");
+    }
+    function drawIsoCylinder(g, cx, cy, w, h, color) {
+      const top = shadeHex(color, 0.12), left = shadeHex(color, -0.12), right = shadeHex(color, -0.22);
+      g.fillStyle = left; g.fillRect(cx - w / 2, cy, w, h);
+      g.fillStyle = right; g.fillRect(cx, cy, w / 2, h);
+      g.beginPath(); g.ellipse(cx, cy, w / 2, w / 5, 0, 0, Math.PI * 2); g.fillStyle = top; g.fill();
+      g.strokeStyle = "rgba(0,0,0,.18)"; g.stroke();
+      g.beginPath(); g.ellipse(cx, cy + h, w / 2, w / 5, 0, 0, Math.PI); g.stroke();
+    }
     function resourceSpriteTexture(type) {
-      const c = document.createElement("canvas"); c.width = 96; c.height = 128;
+      const cacheKey = `resource:${type}:procedural25d:v2`;
+      if (proceduralTextureCache.has(cacheKey)) return proceduralTextureCache.get(cacheKey);
+      const c = document.createElement("canvas"); c.width = 128; c.height = 160;
       const g = c.getContext("2d");
       if (!g) return null;
       g.clearRect(0, 0, c.width, c.height);
-      g.shadowColor = "rgba(0,0,0,.28)"; g.shadowBlur = 8;
-      g.fillStyle = "rgba(0,0,0,.24)"; g.beginPath(); g.ellipse(48, 114, 28, 8, 0, 0, Math.PI * 2); g.fill();
-      g.shadowBlur = 0;
+      g.fillStyle = "rgba(0,0,0,.24)"; g.beginPath(); g.ellipse(64, 139, 34, 10, 0, 0, Math.PI * 2); g.fill();
       if (type === "tree") {
-        g.fillStyle = "#7a4b22"; g.fillRect(43, 66, 10, 42);
-        const grd = g.createLinearGradient(24, 18, 72, 84); grd.addColorStop(0, "#8be06e"); grd.addColorStop(1, "#176b39");
-        g.fillStyle = grd;
-        for (const [x,y,r] of [[48,34,24],[32,56,22],[62,58,24],[48,70,25]]) { g.beginPath(); g.arc(x,y,r,0,Math.PI*2); g.fill(); }
-        g.strokeStyle = "rgba(255,255,255,.18)"; g.lineWidth = 2; g.beginPath(); g.arc(40,42,17,0,Math.PI*2); g.stroke();
+        drawIsoPrism(g, 64, 98, 16, 9, 40, "#8b5628", "#6d3d1d", "#563014");
+        const blobs = [[64,46,29,"#76d85d"],[48,66,25,"#51b956"],[80,68,27,"#27944d"],[64,82,28,"#2d9a48"],[59,55,19,"#9af081"]];
+        for (const [x,y,r,col] of blobs) {
+          const grd = g.createRadialGradient(x - r * .35, y - r * .45, r * .1, x, y, r);
+          grd.addColorStop(0, shadeHex(col, .12)); grd.addColorStop(1, shadeHex(col, -.16));
+          g.fillStyle = grd; g.beginPath(); g.arc(x, y, r, 0, Math.PI * 2); g.fill();
+          g.strokeStyle = "rgba(8,56,28,.22)"; g.lineWidth = 1.5; g.stroke();
+        }
+        g.strokeStyle = "rgba(255,255,255,.18)"; g.lineWidth = 2; g.beginPath(); g.arc(53,55,16,0,Math.PI*2); g.stroke();
       } else if (type === "rock") {
-        const grd = g.createLinearGradient(24, 54, 72, 102); grd.addColorStop(0, "#d6dde2"); grd.addColorStop(1, "#66717d");
-        g.fillStyle = grd; g.beginPath(); g.moveTo(20,94); g.lineTo(34,54); g.lineTo(62,42); g.lineTo(82,78); g.lineTo(70,102); g.lineTo(31,104); g.closePath(); g.fill();
-        g.strokeStyle = "rgba(0,0,0,.24)"; g.stroke();
-        g.strokeStyle = "rgba(255,255,255,.32)"; g.beginPath(); g.moveTo(38,62); g.lineTo(52,80); g.lineTo(72,76); g.stroke();
+        drawIsoPrism(g, 64, 88, 54, 30, 30, "#cfd6dc", "#8d98a3", "#68737d");
+        poly(g, [[64,58],[91,88],[64,118],[37,88]], "rgba(255,255,255,.18)", "");
+        g.strokeStyle = "rgba(0,0,0,.20)"; g.beginPath(); g.moveTo(49,83); g.lineTo(64,102); g.lineTo(82,93); g.stroke();
       } else {
-        g.strokeStyle = "#2f6b46"; g.lineWidth = 4;
-        for (let i=0;i<7;i++){ const x=25+i*8; g.beginPath(); g.moveTo(x,104); g.lineTo(x+4,60+(i%3)*5); g.stroke(); }
-        g.fillStyle = "#ffd76e"; for (let i=0;i<7;i++){ const x=29+i*8,y=58+(i%3)*5; g.beginPath(); g.ellipse(x,y,5,10,0,0,Math.PI*2); g.fill(); }
+        for (let i = 0; i < 4; i++) {
+          const x = 44 + i * 14, y = 101 + (i % 2) * 7;
+          drawIsoPrism(g, x, y, 10, 7, 30 + (i % 3) * 4, "#2f8f46", "#216f37", "#16572a");
+          g.fillStyle = i % 2 ? "#ffe08a" : "#ffd76e"; g.beginPath(); g.ellipse(x + 2, y - 18, 6, 11, -0.2, 0, Math.PI * 2); g.fill();
+        }
       }
-      const tex = new THREE.CanvasTexture(c); tex.colorSpace = THREE.SRGBColorSpace; tex.needsUpdate = true; return tex;
+      const tex = new THREE.CanvasTexture(c); tex.colorSpace = THREE.SRGBColorSpace; tex.needsUpdate = true; proceduralTextureCache.set(cacheKey, tex); return tex;
     }
     function resourceSpriteMat(type) {
       if (!resourceSpriteMats.has(type)) {
@@ -1925,6 +1972,137 @@ export default function mount() {
       refreshWindow(true);
     }
 
+    function landmarkPalette(recipe) {
+      const raw = Array.isArray(recipe?.palette) ? recipe.palette.filter((x) => /^#[0-9a-f]{6}$/i.test(String(x))) : [];
+      const arr = raw.length ? raw.slice(0, 8) : ["#ffd76e", "#14f195", "#7dcfe8", "#9945ff", "#f6e7c8", "#c79337"];
+      while (arr.length < 6) arr.push(["#ffd76e", "#14f195", "#7dcfe8", "#9945ff", "#f6e7c8", "#c79337"][arr.length % 6]);
+      return arr;
+    }
+    function landmarkSemanticKind(recipe) {
+      const text = `${recipe?.name || ""} ${recipe?.prompt || ""}`.toLowerCase();
+      if (/school|library|academy|campus|university/.test(text)) return "school";
+      if (/dish|plate|food|meal|restaurant|kitchen|bowl/.test(text)) return "dish";
+      if (/observatory|telescope|star|astronomy|space|planetarium/.test(text)) return "observatory";
+      if (/temple|shrine|cathedral|monument|obelisk/.test(text)) return "temple";
+      if (/market|bazaar|trade|mall|shop/.test(text)) return "market";
+      if (/fountain|water|spring/.test(text)) return "fountain";
+      if (/garden|park|grove|greenhouse/.test(text)) return "garden";
+      if (/tower|spire|skyscraper|beacon/.test(text)) return "tower";
+      return "landmark";
+    }
+    function projectIsoPart(x, z, y = 0, scale = 34) {
+      return [256 + (x - z) * scale * 0.72, 326 + (x + z) * scale * 0.36 - y * scale * 0.82];
+    }
+    function drawLandmarkPart(g, recipe, part, i, progress) {
+      const pal = landmarkPalette(recipe);
+      const primitive = String(part?.primitive || part?.kind || "box").toLowerCase();
+      const pos = Array.isArray(part?.pos) ? part.pos : Array.isArray(part?.position) ? part.position : [0, 0, 0];
+      const sc = Array.isArray(part?.scale) ? part.scale : [1, 1, 1];
+      const x = Math.max(-4, Math.min(4, Number(pos[0] || 0)));
+      const y = Math.max(0, Math.min(6, Number(pos[1] || 0)));
+      const z = Math.max(-4, Math.min(4, Number(pos[2] || 0)));
+      const sx = Math.max(0.08, Math.min(3.2, Math.abs(Number(sc[0] || 1))));
+      const sy = Math.max(0.08, Math.min(5.0, Math.abs(Number(sc[1] || 1))));
+      const sz = Math.max(0.08, Math.min(3.2, Math.abs(Number(sc[2] || 1))));
+      const color = cssHex(part?.color || part?.material?.color || pal[i % pal.length], pal[i % pal.length]);
+      const [cx, cy] = projectIsoPart(x, z, y);
+      const reveal = progress >= 0.995 || i < Math.max(2, Math.ceil(64 * Math.max(0.12, progress)));
+      if (!reveal) return;
+      if (primitive.includes("cyl") || primitive.includes("sphere")) {
+        drawIsoCylinder(g, cx, cy - sy * 16, Math.max(14, sx * 32), Math.max(10, sy * 28), color);
+        return;
+      }
+      if (primitive.includes("cone") || primitive.includes("roof")) {
+        const w = Math.max(14, sx * 42), h = Math.max(18, sy * 32);
+        poly(g, [[cx, cy - h - 16], [cx + w / 2, cy], [cx, cy + 14], [cx - w / 2, cy]], shadeHex(color, 0.08));
+        return;
+      }
+      drawIsoPrism(g, cx, cy - sy * 18, Math.max(12, sx * 36), Math.max(10, sz * 24), Math.max(12, sy * 34), color);
+    }
+    function drawSemanticLandmark(g, recipe, progress) {
+      const pal = landmarkPalette(recipe);
+      const kind = landmarkSemanticKind(recipe);
+      // plaza
+      poly(g, [[256,310],[350,356],[256,408],[162,356]], shadeHex(pal[4], -0.08), "rgba(255,255,255,.18)");
+      poly(g, [[256,326],[318,356],[256,390],[194,356]], "rgba(255,255,255,.10)", "rgba(255,255,255,.10)");
+      if (kind === "school") {
+        drawIsoPrism(g, 256, 286, 142, 70, 64, pal[4]);
+        drawIsoPrism(g, 256, 224, 54, 42, 86, pal[0]);
+        poly(g, [[256,110],[300,190],[256,216],[212,190]], pal[1]);
+        for (const x of [210,236,276,302]) drawIsoPrism(g, x, 280, 16, 8, 20, "#dff6ff");
+      } else if (kind === "dish") {
+        drawIsoCylinder(g, 256, 280, 160, 28, "#f8fbef");
+        drawIsoCylinder(g, 256, 260, 96, 20, pal[2]);
+        for (const [x,y,c] of [[226,248,"#fff0c8"],[264,244,"#ffd76e"],[292,255,"#2fbf6a"]]) { g.fillStyle = c; g.beginPath(); g.ellipse(x,y,18,12,0,0,Math.PI*2); g.fill(); }
+      } else if (kind === "observatory") {
+        drawIsoCylinder(g, 256, 268, 108, 92, pal[4]);
+        g.fillStyle = pal[2]; g.beginPath(); g.ellipse(256,224,66,38,0,Math.PI,0); g.fill();
+        drawIsoPrism(g, 310, 202, 78, 18, 18, pal[2]);
+      } else if (kind === "temple") {
+        drawIsoPrism(g, 256, 300, 164, 82, 30, pal[4]);
+        for (const x of [202,238,274,310]) drawIsoCylinder(g, x, 246, 18, 72, pal[5]);
+        poly(g, [[256,146],[354,220],[256,256],[158,220]], pal[1]);
+      } else if (kind === "market") {
+        drawIsoCylinder(g, 256, 268, 76, 34, pal[1]);
+        let n = 0; for (const x of [178,226,286,334]) for (const y of [302,346]) { drawIsoPrism(g, x, y, 44, 24, 32, pal[n++ % pal.length]); }
+      } else if (kind === "fountain") {
+        drawIsoCylinder(g, 256, 302, 154, 28, pal[4]);
+        drawIsoCylinder(g, 256, 270, 86, 18, "#7dcfe8");
+        drawIsoCylinder(g, 256, 222, 30, 78, pal[5]);
+        g.strokeStyle = "rgba(125,207,232,.75)"; g.lineWidth = 4; for (const dx of [-38,0,38]) { g.beginPath(); g.moveTo(256,210); g.quadraticCurveTo(256+dx,242,256+dx,276); g.stroke(); }
+      } else if (kind === "garden") {
+        for (const [x,y,s,c] of [[205,308,1,"#2f8f46"],[306,302,.9,"#51b956"],[246,264,.8,"#76d85d"],[282,352,.75,"#27944d"]]) { drawIsoPrism(g, x, y, 14*s, 8*s, 30*s, "#7a4b22"); g.fillStyle = c; g.beginPath(); g.arc(x, y-36*s, 28*s, 0, Math.PI*2); g.fill(); }
+        drawIsoPrism(g, 256, 330, 128, 26, 10, pal[4]);
+      } else {
+        drawIsoPrism(g, 256, 300, 132, 74, 38, pal[4]);
+        drawIsoPrism(g, 256, 218, 72, 52, kind === "tower" ? 174 : 112, pal[0]);
+        poly(g, [[256,82],[302,170],[256,208],[210,170]], pal[1]);
+        drawIsoPrism(g, 256, 238, 34, 20, 24, pal[2]);
+      }
+    }
+    function landmarkTexture(recipe = {}, progress = 1) {
+      const bucket = Math.round(Math.max(0, Math.min(1, progress)) * 12);
+      const cacheKey = `landmark25d:${bucket}:${hashString(JSON.stringify(recipe || {}).slice(0, 16000))}`;
+      if (proceduralTextureCache.has(cacheKey)) return proceduralTextureCache.get(cacheKey);
+      const c = document.createElement("canvas"); c.width = 512; c.height = 512;
+      const g = c.getContext("2d"); if (!g) return null;
+      g.clearRect(0, 0, c.width, c.height);
+      g.fillStyle = "rgba(0,0,0,.28)"; g.beginPath(); g.ellipse(256, 402, 128, 34, 0, 0, Math.PI * 2); g.fill();
+      const parts = Array.isArray(recipe?.parts) ? recipe.parts.slice(0, 96).filter((p) => p && Math.abs(Number(p?.scale?.[0] || 1) * Number(p?.scale?.[1] || 1) * Number(p?.scale?.[2] || 1)) > 0.01) : [];
+      if (parts.length) {
+        poly(g, [[256,312],[360,364],[256,420],[152,364]], shadeHex(landmarkPalette(recipe)[4], -0.08), "rgba(255,255,255,.18)");
+        parts.sort((a, b) => {
+          const ap = Array.isArray(a?.pos) ? a.pos : [0,0,0], bp = Array.isArray(b?.pos) ? b.pos : [0,0,0];
+          return (Number(ap[0]||0)+Number(ap[2]||0)+Number(ap[1]||0)*0.1) - (Number(bp[0]||0)+Number(bp[2]||0)+Number(bp[1]||0)*0.1);
+        }).forEach((part, i) => drawLandmarkPart(g, recipe, part, i, progress));
+      } else {
+        drawSemanticLandmark(g, recipe, progress);
+      }
+      const name = String(recipe?.name || "Landmark").slice(0, 18);
+      if (name) {
+        g.font = "bold 22px system-ui, sans-serif"; g.textAlign = "center"; g.textBaseline = "middle";
+        g.fillStyle = "rgba(16,10,4,.62)"; g.fillRect(146, 430, 220, 34);
+        g.fillStyle = "#fff0c8"; g.fillText(name, 256, 447, 200);
+      }
+      const tex = new THREE.CanvasTexture(c); tex.colorSpace = THREE.SRGBColorSpace; tex.needsUpdate = true; proceduralTextureCache.set(cacheKey, tex); return tex;
+    }
+    function makeProceduralLandmarkGroup(recipe, opts = {}) {
+      const g = new THREE.Group();
+      const progress = Math.max(0, Math.min(1, Number(opts.buildProgress ?? 1) || 0));
+      const size = Math.max(3, Math.min(9, Number(recipe?.footprint || opts.footprint || 5) || 5));
+      const tex = landmarkTexture({ ...(recipe || {}), name: recipe?.name || opts.nm || "Landmark" }, progress);
+      const mat = new THREE.MeshBasicMaterial({ map: tex || undefined, transparent: true, depthWrite: false, depthTest: true, side: THREE.DoubleSide });
+      const plane = new THREE.Mesh(new THREE.PlaneGeometry(Math.min(4.6, 1.6 + size * 0.32), Math.min(4.8, 1.9 + size * 0.34)), mat);
+      plane.quaternion.copy(camera.quaternion);
+      plane.position.set(0, 1.15 + size * 0.035, 0);
+      plane.renderOrder = 7;
+      g.add(plane);
+      const pad = new THREE.Mesh(new THREE.PlaneGeometry(Math.max(1.4, size * 0.32), Math.max(1.4, size * 0.32)), new THREE.MeshBasicMaterial({ color: opts.plinth || 0xc79337, transparent: true, opacity: 0.45, depthWrite: true, side: THREE.DoubleSide }));
+      pad.rotation.x = -Math.PI / 2; pad.position.y = 0.04; pad.renderOrder = 3; g.add(pad);
+      g.userData.landmark25d = true;
+      return { group: g, parts: [plane, pad] };
+    }
+
     // Gold source/ruin client meshes were removed: the server now returns no runtime gold sources.
     function makeRoadBuildingGroup(b) {
       const g = new THREE.Group();
@@ -1945,7 +2123,11 @@ export default function mount() {
       const plinth = territoryTopHex(b.ownerBody || ST.me?.body || 0x14f195, ST.me && b.owner === ST.me.id);
       const cs = constructionStateForBuilding(b);
       const labelName = b.capital && ST.me && !capitalLabelVisibleForPlayer(b, ST.me.x, ST.me.z) ? "" : b.nm;
-      const { group, parts } = b.kind === "road" ? makeRoadBuildingGroup(b) : makeBuildingGroup(b.kind, { nm: labelName, cl: b.cl, plinth, wonder: wonderRecipeForWire(b), buildProgress: cs ? cs.progress : 1, buildUntil: cs ? cs.end : b.cdUntil });
+      const { group, parts } = b.kind === "road"
+        ? makeRoadBuildingGroup(b)
+        : b.kind === "worldwonder"
+          ? makeProceduralLandmarkGroup(wonderRecipeForWire(b), { nm: labelName, cl: b.cl, plinth, buildProgress: cs ? cs.progress : 1, buildUntil: cs ? cs.end : b.cdUntil })
+          : makeBuildingGroup(b.kind, { nm: labelName, cl: b.cl, plinth, wonder: wonderRecipeForWire(b), buildProgress: cs ? cs.progress : 1, buildUntil: cs ? cs.end : b.cdUntil });
       decorateBuilding(group, b);
       group.position.set(b.x, 0.22, b.z); scene.add(group);
       // Buildings are intentionally static. Triggered use pulses animate them briefly.
@@ -1982,7 +2164,11 @@ export default function mount() {
         if (!have) {
           const plinth = territoryTopHex(b.ownerBody, ST.me && b.owner === ST.me.id);
           const labelName = b.capital && ST.me && !capitalLabelVisibleForPlayer(b, ST.me.x, ST.me.z) ? "" : b.nm;
-          const { group, parts } = b.kind === "road" ? makeRoadBuildingGroup(b) : makeBuildingGroup(b.kind, { nm: labelName, cl: b.cl, plinth, wonder: wonderRecipeForWire(b), buildProgress, buildUntil: b.cdUntil });
+          const { group, parts } = b.kind === "road"
+            ? makeRoadBuildingGroup(b)
+            : b.kind === "worldwonder"
+              ? makeProceduralLandmarkGroup(wonderRecipeForWire(b), { nm: labelName, cl: b.cl, plinth, buildProgress, buildUntil: b.cdUntil })
+              : makeBuildingGroup(b.kind, { nm: labelName, cl: b.cl, plinth, wonder: wonderRecipeForWire(b), buildProgress, buildUntil: b.cdUntil });
           decorateBuilding(group, b);
           group.position.set(b.x, 0.22, b.z); scene.add(group);
           // Buildings do not idle-spin/bob/flicker; interaction triggers a short pulse instead.
