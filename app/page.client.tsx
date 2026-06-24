@@ -1434,18 +1434,45 @@ export default function mount() {
       c.userData.v = 0.2 + Math.random() * 0.25; scene.add(c); clouds.push(c);
     }
 
-    // Fixed-camera render budget: terrain is batched. The old per-cell BoxGeometry
-    // used a six-material cube per tile, which created thousands of draw calls when
-    // zoomed out. Cells remain logical for hit tests/pathing, but visuals are drawn
-    // as a handful of instanced flat layers.
-    const tileGeo = new THREE.PlaneGeometry(1.006, 1.006);
-    tileGeo.rotateX(-Math.PI / 2);
+    // Fixed-camera render budget: terrain is batched, but it must still speak the
+    // same visual language as the static world.  A flat PlaneGeometry made the world
+    // look like a texture with objects floating above it; this slab keeps a top face
+    // plus two visible sides while still drawing as only a few instanced batches.
+    const TERRAIN_TOP_Y = 0.055;
+    const STATIC_WORLD_BASE_Y = 0.070;
+    function createTerrainSlabGeometry() {
+      const pos = [];
+      const pushFace = (a, b, c, d) => pos.push(...a, ...b, ...c, ...a, ...c, ...d);
+      const A = [-0.5, 0, -0.5], B = [0.5, 0, -0.5], C = [0.5, 0, 0.5], D = [-0.5, 0, 0.5];
+      const At = [-0.5, 1, -0.5], Bt = [0.5, 1, -0.5], Ct = [0.5, 1, 0.5], Dt = [-0.5, 1, 0.5];
+      pushFace(At, Bt, Ct, Dt); // top
+      pushFace(D, C, Ct, Dt);   // near side
+      pushFace(C, B, Bt, Ct);   // right side
+      const geo = new THREE.BufferGeometry();
+      geo.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
+      geo.addGroup(0, 6, 0);
+      geo.addGroup(6, 6, 1);
+      geo.addGroup(12, 6, 2);
+      geo.computeVertexNormals();
+      geo.computeBoundingSphere();
+      return geo;
+    }
+    const tileGeo = createTerrainSlabGeometry();
     const terrainBatchRoot = new THREE.Group(); scene.add(terrainBatchRoot);
     const terrainBatchMeshes = new Map(), terrainBatchMatCache = new Map();
     const batchDummy = new THREE.Object3D();
     let terrainBatchSig = "";
     const neutralMats = () => terrainMats("sand");
     const ownerMatCache = new Map();
+    function shadeHexNumber(hex, amt = 0) {
+      const c = new THREE.Color(Number(hex) || 0x3f3120);
+      const hsl = { h: 0, s: 0, l: 0 };
+      c.getHSL(hsl);
+      hsl.l = Math.max(0.03, Math.min(0.96, hsl.l + amt));
+      hsl.s = Math.max(0, Math.min(1, hsl.s * (amt > 0 ? 0.94 : 1.04)));
+      c.setHSL(hsl.h, hsl.s, hsl.l);
+      return c.getHex();
+    }
     function territoryTopHex(color, mine) {
       const base = new THREE.Color(0x78bd7f);
       const oc = new THREE.Color(Number(color) || 0x14f195);
@@ -1468,16 +1495,20 @@ export default function mount() {
     }
     function terrainBatchMat(batchKey) {
       if (terrainBatchMatCache.has(batchKey)) return terrainBatchMatCache.get(batchKey);
-      let mat;
+      let top;
       if (batchKey === "neutral") {
-        mat = new THREE.MeshLambertMaterial({ color: 0x3f3120 });
+        top = 0x3f3120;
       } else {
         const [, mine, body] = String(batchKey).split(":");
-        mat = new THREE.MeshLambertMaterial({ color: territoryTopHex(Number(body) || 0x14f195, mine === "1") });
+        top = territoryTopHex(Number(body) || 0x14f195, mine === "1");
       }
-      mat.depthWrite = true;
-      terrainBatchMatCache.set(batchKey, mat);
-      return mat;
+      const mats = [
+        new THREE.MeshLambertMaterial({ color: shadeHexNumber(top, 0.035), depthWrite: true }),
+        new THREE.MeshLambertMaterial({ color: shadeHexNumber(top, -0.115), depthWrite: true }),
+        new THREE.MeshLambertMaterial({ color: shadeHexNumber(top, -0.205), depthWrite: true }),
+      ];
+      terrainBatchMatCache.set(batchKey, mats);
+      return mats;
     }
     function rebuildTerrainBatches(force = false) {
       const buckets = new Map();
@@ -1501,9 +1532,9 @@ export default function mount() {
         mesh.renderOrder = 0;
         for (let i = 0; i < rows.length; i++) {
           const c = rows[i];
-          batchDummy.position.set(c.cx, 0.055, c.cz);
+          batchDummy.position.set(c.cx, 0, c.cz);
           batchDummy.rotation.set(0, 0, 0);
-          batchDummy.scale.set(1, 1, 1);
+          batchDummy.scale.set(1.006, TERRAIN_TOP_Y, 1.006);
           batchDummy.updateMatrix();
           mesh.setMatrixAt(i, batchDummy.matrix);
         }
@@ -1554,7 +1585,7 @@ export default function mount() {
     const staticPrismGeo = createStaticPrismGeometry();
     function staticPrismMaterial(hex) {
       const k = cssHex(hex, "#ffd76e").toLowerCase();
-      if (!prismMatCache.has(k)) prismMatCache.set(k, new THREE.MeshBasicMaterial({ color: new THREE.Color(k), depthWrite: true, depthTest: true }));
+      if (!prismMatCache.has(k)) prismMatCache.set(k, new THREE.MeshLambertMaterial({ color: new THREE.Color(k), depthWrite: true, depthTest: true }));
       return prismMatCache.get(k);
     }
     function prismMats(top, left = null, right = null) {
@@ -1578,21 +1609,30 @@ export default function mount() {
       return mesh;
     }
     function resourcePrismRecipe(type) {
+      const y0 = STATIC_WORLD_BASE_Y;
       if (type === "tree") return [
-        { k: "trunk", ox: 0, oz: 0, y: 0.05, w: 0.16, d: 0.16, h: 0.48, top: "#8b5628", left: "#6d3d1d", right: "#563014" },
-        { k: "leaf-low", ox: 0, oz: 0, y: 0.47, w: 0.62, d: 0.52, h: 0.25, top: "#3eb45a", left: "#2f8f46", right: "#227238" },
-        { k: "leaf-mid", ox: -0.04, oz: -0.03, y: 0.69, w: 0.50, d: 0.42, h: 0.23, top: "#63d766", left: "#3eb45a", right: "#2f8f46" },
-        { k: "leaf-top", ox: 0.06, oz: 0.02, y: 0.88, w: 0.36, d: 0.32, h: 0.18, top: "#8cea73", left: "#63d766", right: "#3eb45a" },
+        // Static-world tree: no spheres/blobs/cards. It is a stack of rectangular
+        // prism slabs with two side faces and a top face, so it shares the same
+        // construction language as buildings and landmarks.
+        { k: "trunk-low", ox: 0.00, oz: 0.00, y: y0,      w: 0.15, d: 0.15, h: 0.32, top: "#8b5628", left: "#6b3d1d", right: "#4c2b15" },
+        { k: "trunk-high", ox: 0.00, oz: 0.00, y: y0+0.30, w: 0.13, d: 0.13, h: 0.23, top: "#9b6432", left: "#6b3d1d", right: "#4c2b15" },
+        { k: "leaf-plate-a", ox: 0.00, oz: 0.00, y: y0+0.48, w: 0.62, d: 0.48, h: 0.16, top: "#2fb957", left: "#238844", right: "#196b35" },
+        { k: "leaf-plate-b", ox:-0.07, oz:-0.04, y: y0+0.62, w: 0.52, d: 0.40, h: 0.15, top: "#54cf62", left: "#319c4d", right: "#20763b" },
+        { k: "leaf-plate-c", ox: 0.08, oz: 0.03, y: y0+0.75, w: 0.38, d: 0.30, h: 0.13, top: "#7de06b", left: "#4eba5d", right: "#319c4d" },
       ];
       if (type === "rock") return [
-        { k: "rock-base", ox: 0, oz: 0, y: 0.06, w: 0.58, d: 0.44, h: 0.26, top: "#cfd6dc", left: "#8d98a3", right: "#68737d" },
-        { k: "rock-chip", ox: -0.10, oz: -0.08, y: 0.29, w: 0.34, d: 0.28, h: 0.18, top: "#e1e7eb", left: "#aab3bb", right: "#7d8790" },
+        // Rocks must read as grounded chunks, not floating cubes.
+        { k: "rock-slab",  ox: 0.00, oz: 0.00, y: y0,      w: 0.62, d: 0.42, h: 0.12, top: "#c9d0d6", left: "#87919a", right: "#626d76" },
+        { k: "rock-rise",  ox:-0.10, oz:-0.06, y: y0+0.11, w: 0.36, d: 0.26, h: 0.12, top: "#e0e5e9", left: "#a5adb5", right: "#78828b" },
+        { k: "rock-chip",  ox: 0.18, oz: 0.10, y: y0+0.08, w: 0.20, d: 0.16, h: 0.08, top: "#b7c0c8", left: "#7c8790", right: "#58636c" },
       ];
       return [
-        { k: "crop-a", ox: -0.22, oz: -0.12, y: 0.05, w: 0.10, d: 0.08, h: 0.34, top: "#3faa55", left: "#2f8f46", right: "#216f37" },
-        { k: "crop-b", ox: -0.06, oz: 0.08, y: 0.05, w: 0.10, d: 0.08, h: 0.42, top: "#ffd76e", left: "#cf9d35", right: "#9d7626" },
-        { k: "crop-c", ox: 0.12, oz: -0.04, y: 0.05, w: 0.10, d: 0.08, h: 0.38, top: "#55c96a", left: "#36994c", right: "#23763a" },
-        { k: "crop-d", ox: 0.25, oz: 0.13, y: 0.05, w: 0.10, d: 0.08, h: 0.31, top: "#ffd76e", left: "#cf9d35", right: "#9d7626" },
+        // Crops are low rectangular rows; food stays geometric too.
+        { k: "crop-bed", ox: 0.00, oz: 0.00, y: y0,      w: 0.58, d: 0.42, h: 0.06, top: "#5c3a20", left: "#412713", right: "#301c0e" },
+        { k: "crop-a",   ox:-0.22, oz:-0.12, y: y0+0.06, w: 0.08, d: 0.08, h: 0.26, top: "#3faa55", left: "#2f8f46", right: "#216f37" },
+        { k: "crop-b",   ox:-0.06, oz: 0.08, y: y0+0.06, w: 0.08, d: 0.08, h: 0.31, top: "#ffd76e", left: "#cf9d35", right: "#9d7626" },
+        { k: "crop-c",   ox: 0.12, oz:-0.04, y: y0+0.06, w: 0.08, d: 0.08, h: 0.28, top: "#55c96a", left: "#36994c", right: "#23763a" },
+        { k: "crop-d",   ox: 0.25, oz: 0.13, y: y0+0.06, w: 0.08, d: 0.08, h: 0.23, top: "#ffd76e", left: "#cf9d35", right: "#9d7626" },
       ];
     }
     const resourceBatchRoot = new THREE.Group(); scene.add(resourceBatchRoot);
@@ -2069,8 +2109,8 @@ export default function mount() {
         let w = Math.max(0.08, Math.min(3.0, Math.abs(Number(sc[0] || 1)) * unit));
         let h = Math.max(0.08, Math.min(2.4, Math.abs(Number(sc[1] || 1)) * unit));
         let d = Math.max(0.08, Math.min(3.0, Math.abs(Number(sc[2] || 1)) * unit));
-        // LLM may ask for cylinders/spheres/cones. Static SolCrafts world still renders
-        // them as the same rectangular prism primitive, preserving proportions only.
+        // LLM may ask for unsupported rounded primitives. Static SolCrafts world still
+        // normalizes every part into the same prism primitive and preserves only scale.
         if (primitive.includes("roof") || primitive.includes("cone")) { h *= 0.55; w *= 1.08; d *= 1.08; }
         if (primitive.includes("sphere") || primitive.includes("cyl")) { w *= 0.88; d *= 0.88; }
         out.push({ x: px, y: py, z: pz, w, h, d, top: color });
