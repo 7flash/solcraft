@@ -25,7 +25,7 @@ import {
 } from "@server/shared";
 import {
   M, ME, buildBanner, lootMesh,
-  makeBuildingGroup, makeLabel, makeSfx,
+  makeLabel, makeSfx,
 } from "../client/meshes";
 import { loadAtlasRuntimeConfig, terrainMats, tickVisualTextures, setTerrainVisualPrefs } from "../client/textures";
 import { capitalBuildingsInView, capitalLabelVisibleForPlayer } from "../client/world/capitalLayout";
@@ -1516,8 +1516,7 @@ export default function mount() {
     const cells = new Map(), doodadPool = new Map(), buildPool = new Map(), buildAt = new Map(), npcPool = new Map();
     const lootPool = new Map(), rigPool = new Map(), tradePostPool = new Map(), exceptions = new Map(), tileOwner = new Map();
     const roadPool = new Map(), districtPool = new Map();
-    const resourceSpriteMats = new Map(), resourceBatchMats = new Map();
-    const proceduralTextureCache = new Map();
+    const prismMatCache = new Map(), prismMatsCache = new Map();
     function cssHex(v, fallback = "#ffd76e") {
       if (typeof v === "number" && Number.isFinite(v)) return `#${new THREE.Color(v).getHexString()}`;
       const s = String(v || "").trim();
@@ -1531,122 +1530,121 @@ export default function mount() {
       c.setHSL(hsl.h, hsl.s, hsl.l);
       return `#${c.getHexString()}`;
     }
-    function hashString(s) {
-      const str = String(s || ""); let h = 2166136261;
-      for (let i = 0; i < str.length; i++) { h ^= str.charCodeAt(i); h = Math.imul(h, 16777619); }
-      return h >>> 0;
+    function createStaticPrismGeometry() {
+      const pos = [];
+      const pushFace = (a, b, c, d) => {
+        pos.push(...a, ...b, ...c, ...a, ...c, ...d);
+      };
+      // One fixed-camera world primitive: top + two visible rectangular sides.
+      // Origin is the center of the footprint at the bottom of the prism.
+      const A = [-0.5, 0, -0.5], B = [0.5, 0, -0.5], C = [0.5, 0, 0.5], D = [-0.5, 0, 0.5];
+      const At = [-0.5, 1, -0.5], Bt = [0.5, 1, -0.5], Ct = [0.5, 1, 0.5], Dt = [-0.5, 1, 0.5];
+      pushFace(At, Bt, Ct, Dt); // top
+      pushFace(D, C, Ct, Dt);   // near side
+      pushFace(C, B, Bt, Ct);   // right side
+      const geo = new THREE.BufferGeometry();
+      geo.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
+      geo.addGroup(0, 6, 0);
+      geo.addGroup(6, 6, 1);
+      geo.addGroup(12, 6, 2);
+      geo.computeVertexNormals();
+      geo.computeBoundingSphere();
+      return geo;
     }
-    function poly(g, pts, fill, stroke = "rgba(0,0,0,.18)") {
-      g.beginPath();
-      for (let i = 0; i < pts.length; i++) { const [x, y] = pts[i]; if (!i) g.moveTo(x, y); else g.lineTo(x, y); }
-      g.closePath(); g.fillStyle = fill; g.fill();
-      if (stroke) { g.strokeStyle = stroke; g.lineWidth = 1.25; g.stroke(); }
+    const staticPrismGeo = createStaticPrismGeometry();
+    function staticPrismMaterial(hex) {
+      const k = cssHex(hex, "#ffd76e").toLowerCase();
+      if (!prismMatCache.has(k)) prismMatCache.set(k, new THREE.MeshBasicMaterial({ color: new THREE.Color(k), depthWrite: true, depthTest: true }));
+      return prismMatCache.get(k);
     }
-    function drawIsoPrism(g, cx, cy, w, d, h, top, left = null, right = null) {
-      w = Math.max(4, w); d = Math.max(4, d); h = Math.max(4, h);
-      const hw = w / 2, hd = d / 2;
-      const p0 = [cx, cy - hd], p1 = [cx + hw, cy], p2 = [cx, cy + hd], p3 = [cx - hw, cy];
-      const q0 = [p0[0], p0[1] + h], q1 = [p1[0], p1[1] + h], q2 = [p2[0], p2[1] + h], q3 = [p3[0], p3[1] + h];
-      poly(g, [p3, p2, q2, q3], left || shadeHex(top, -0.16));
-      poly(g, [p1, p2, q2, q1], right || shadeHex(top, -0.26));
-      poly(g, [p0, p1, p2, p3], shadeHex(top, 0.12), "rgba(255,255,255,.16)");
+    function prismMats(top, left = null, right = null) {
+      const t = shadeHex(top, 0.10), l = left || shadeHex(top, -0.16), r = right || shadeHex(top, -0.26);
+      const k = `${t}|${l}|${r}`.toLowerCase();
+      if (!prismMatsCache.has(k)) prismMatsCache.set(k, [staticPrismMaterial(t), staticPrismMaterial(l), staticPrismMaterial(r)]);
+      return prismMatsCache.get(k);
     }
-    function drawIsoCylinder(g, cx, cy, w, h, color) {
-      const top = shadeHex(color, 0.12), left = shadeHex(color, -0.12), right = shadeHex(color, -0.22);
-      g.fillStyle = left; g.fillRect(cx - w / 2, cy, w, h);
-      g.fillStyle = right; g.fillRect(cx, cy, w / 2, h);
-      g.beginPath(); g.ellipse(cx, cy, w / 2, w / 5, 0, 0, Math.PI * 2); g.fillStyle = top; g.fill();
-      g.strokeStyle = "rgba(0,0,0,.18)"; g.stroke();
-      g.beginPath(); g.ellipse(cx, cy + h, w / 2, w / 5, 0, 0, Math.PI); g.stroke();
+    function prismFaceKey(top, left = null, right = null) {
+      return `${shadeHex(top, 0.10)}|${left || shadeHex(top, -0.16)}|${right || shadeHex(top, -0.26)}`.toLowerCase();
     }
-    function resourceSpriteTexture(type) {
-      const cacheKey = `resource:${type}:procedural25d:v2`;
-      if (proceduralTextureCache.has(cacheKey)) return proceduralTextureCache.get(cacheKey);
-      const c = document.createElement("canvas"); c.width = 128; c.height = 160;
-      const g = c.getContext("2d");
-      if (!g) return null;
-      g.clearRect(0, 0, c.width, c.height);
-      g.fillStyle = "rgba(0,0,0,.24)"; g.beginPath(); g.ellipse(64, 139, 34, 10, 0, 0, Math.PI * 2); g.fill();
-      if (type === "tree") {
-        drawIsoPrism(g, 64, 98, 16, 9, 40, "#8b5628", "#6d3d1d", "#563014");
-        const blobs = [[64,46,29,"#76d85d"],[48,66,25,"#51b956"],[80,68,27,"#27944d"],[64,82,28,"#2d9a48"],[59,55,19,"#9af081"]];
-        for (const [x,y,r,col] of blobs) {
-          const grd = g.createRadialGradient(x - r * .35, y - r * .45, r * .1, x, y, r);
-          grd.addColorStop(0, shadeHex(col, .12)); grd.addColorStop(1, shadeHex(col, -.16));
-          g.fillStyle = grd; g.beginPath(); g.arc(x, y, r, 0, Math.PI * 2); g.fill();
-          g.strokeStyle = "rgba(8,56,28,.22)"; g.lineWidth = 1.5; g.stroke();
-        }
-        g.strokeStyle = "rgba(255,255,255,.18)"; g.lineWidth = 2; g.beginPath(); g.arc(53,55,16,0,Math.PI*2); g.stroke();
-      } else if (type === "rock") {
-        drawIsoPrism(g, 64, 88, 54, 30, 30, "#cfd6dc", "#8d98a3", "#68737d");
-        poly(g, [[64,58],[91,88],[64,118],[37,88]], "rgba(255,255,255,.18)", "");
-        g.strokeStyle = "rgba(0,0,0,.20)"; g.beginPath(); g.moveTo(49,83); g.lineTo(64,102); g.lineTo(82,93); g.stroke();
-      } else {
-        for (let i = 0; i < 4; i++) {
-          const x = 44 + i * 14, y = 101 + (i % 2) * 7;
-          drawIsoPrism(g, x, y, 10, 7, 30 + (i % 3) * 4, "#2f8f46", "#216f37", "#16572a");
-          g.fillStyle = i % 2 ? "#ffe08a" : "#ffd76e"; g.beginPath(); g.ellipse(x + 2, y - 18, 6, 11, -0.2, 0, Math.PI * 2); g.fill();
-        }
-      }
-      const tex = new THREE.CanvasTexture(c); tex.colorSpace = THREE.SRGBColorSpace; tex.needsUpdate = true; proceduralTextureCache.set(cacheKey, tex); return tex;
+    function addPrismMesh(group, parts, spec = {}) {
+      const top = cssHex(spec.top || spec.color || "#ffd76e");
+      const mesh = new THREE.Mesh(staticPrismGeo, prismMats(top, spec.left, spec.right));
+      mesh.position.set(Number(spec.x || 0), Number(spec.y || 0), Number(spec.z || 0));
+      mesh.scale.set(Math.max(0.01, Number(spec.w || 1)), Math.max(0.01, Number(spec.h || 1)), Math.max(0.01, Number(spec.d || 1)));
+      mesh.renderOrder = Number(spec.renderOrder || 4);
+      mesh.userData.staticPrism = true;
+      group.add(mesh);
+      parts?.push?.(mesh);
+      return mesh;
     }
-    function resourceSpriteMat(type) {
-      if (!resourceSpriteMats.has(type)) {
-        const tex = resourceSpriteTexture(type);
-        resourceSpriteMats.set(type, new THREE.SpriteMaterial({ map: tex || undefined, transparent: true, depthWrite: false, depthTest: true }));
-      }
-      return resourceSpriteMats.get(type);
-    }
-    function makeResourceSprite(type, x, z) {
-      const sprite = new THREE.Sprite(resourceSpriteMat(type));
-      const scale = type === "tree" ? 1.16 : type === "rock" ? 0.92 : 0.78;
-      sprite.scale.set(scale, scale * 1.24, 1);
-      sprite.position.set(x + (hrand(x, z, 5) - 0.5) * 0.18, 0.72, z + (hrand(x, z, 6) - 0.5) * 0.18);
-      sprite.userData.resourceSprite = true;
-      return sprite;
+    function resourcePrismRecipe(type) {
+      if (type === "tree") return [
+        { k: "trunk", ox: 0, oz: 0, y: 0.05, w: 0.16, d: 0.16, h: 0.48, top: "#8b5628", left: "#6d3d1d", right: "#563014" },
+        { k: "leaf-low", ox: 0, oz: 0, y: 0.47, w: 0.62, d: 0.52, h: 0.25, top: "#3eb45a", left: "#2f8f46", right: "#227238" },
+        { k: "leaf-mid", ox: -0.04, oz: -0.03, y: 0.69, w: 0.50, d: 0.42, h: 0.23, top: "#63d766", left: "#3eb45a", right: "#2f8f46" },
+        { k: "leaf-top", ox: 0.06, oz: 0.02, y: 0.88, w: 0.36, d: 0.32, h: 0.18, top: "#8cea73", left: "#63d766", right: "#3eb45a" },
+      ];
+      if (type === "rock") return [
+        { k: "rock-base", ox: 0, oz: 0, y: 0.06, w: 0.58, d: 0.44, h: 0.26, top: "#cfd6dc", left: "#8d98a3", right: "#68737d" },
+        { k: "rock-chip", ox: -0.10, oz: -0.08, y: 0.29, w: 0.34, d: 0.28, h: 0.18, top: "#e1e7eb", left: "#aab3bb", right: "#7d8790" },
+      ];
+      return [
+        { k: "crop-a", ox: -0.22, oz: -0.12, y: 0.05, w: 0.10, d: 0.08, h: 0.34, top: "#3faa55", left: "#2f8f46", right: "#216f37" },
+        { k: "crop-b", ox: -0.06, oz: 0.08, y: 0.05, w: 0.10, d: 0.08, h: 0.42, top: "#ffd76e", left: "#cf9d35", right: "#9d7626" },
+        { k: "crop-c", ox: 0.12, oz: -0.04, y: 0.05, w: 0.10, d: 0.08, h: 0.38, top: "#55c96a", left: "#36994c", right: "#23763a" },
+        { k: "crop-d", ox: 0.25, oz: 0.13, y: 0.05, w: 0.10, d: 0.08, h: 0.31, top: "#ffd76e", left: "#cf9d35", right: "#9d7626" },
+      ];
     }
     const resourceBatchRoot = new THREE.Group(); scene.add(resourceBatchRoot);
-    const resourceQuadGeo = new THREE.PlaneGeometry(1, 1);
     const resourceBatchMeshes = new Map();
     let resourceBatchSig = "";
-    function resourceBatchMat(type) {
-      if (!resourceBatchMats.has(type)) {
-        const tex = resourceSpriteTexture(type);
-        resourceBatchMats.set(type, new THREE.MeshBasicMaterial({ map: tex || undefined, transparent: true, depthWrite: false, depthTest: true, side: THREE.DoubleSide }));
-      }
-      return resourceBatchMats.get(type);
-    }
     function rebuildResourceBatches(force = false) {
       const buckets = new Map();
       for (const [k, d] of doodadPool) {
         if (!d || !d.type || !cells.has(k)) continue;
-        if (!buckets.has(d.type)) buckets.set(d.type, []);
-        buckets.get(d.type).push(d);
+        const recipe = resourcePrismRecipe(d.type);
+        const baseJx = (hrand(d.x, d.z, 5) - 0.5) * 0.16;
+        const baseJz = (hrand(d.x, d.z, 6) - 0.5) * 0.16;
+        const baseScale = 0.92 + hrand(d.x, d.z, 7) * 0.16;
+        for (const spec of recipe) {
+          const faceKey = prismFaceKey(spec.top, spec.left, spec.right);
+          const bucketKey = `${d.type}:${spec.k}:${faceKey}`;
+          if (!buckets.has(bucketKey)) buckets.set(bucketKey, { spec, rows: [] });
+          buckets.get(bucketKey).rows.push({
+            x: d.x + baseJx + Number(spec.ox || 0),
+            y: Number(spec.y || 0),
+            z: d.z + baseJz + Number(spec.oz || 0),
+            w: Number(spec.w || 1) * baseScale,
+            h: Number(spec.h || 1) * baseScale,
+            d: Number(spec.d || 1) * baseScale,
+          });
+        }
       }
-      const sig = [...buckets.entries()].sort(([a], [b]) => String(a).localeCompare(String(b))).map(([type, rows]) => {
-        const first = rows[0], last = rows[rows.length - 1];
-        return `${type}:${rows.length}:${first?.x},${first?.z}:${last?.x},${last?.z}`;
+      const sig = [...buckets.entries()].sort(([a], [b]) => String(a).localeCompare(String(b))).map(([bk, bucket]) => {
+        const rows = bucket.rows, first = rows[0], last = rows[rows.length - 1];
+        return `${bk}:${rows.length}:${first?.x?.toFixed?.(2)},${first?.z?.toFixed?.(2)}:${last?.x?.toFixed?.(2)},${last?.z?.toFixed?.(2)}`;
       }).join("|");
       if (!force && sig === resourceBatchSig) return;
       resourceBatchSig = sig;
       for (const mesh of resourceBatchMeshes.values()) resourceBatchRoot.remove(mesh);
       resourceBatchMeshes.clear();
-      for (const [type, rows] of buckets) {
-        const mesh = new THREE.InstancedMesh(resourceQuadGeo, resourceBatchMat(type), rows.length);
+      for (const [bucketKey, bucket] of buckets) {
+        const { spec, rows } = bucket;
+        const mesh = new THREE.InstancedMesh(staticPrismGeo, prismMats(spec.top, spec.left, spec.right), rows.length);
         mesh.frustumCulled = false;
         mesh.renderOrder = 2;
         for (let i = 0; i < rows.length; i++) {
-          const d = rows[i];
-          const scale = type === "tree" ? 1.16 : type === "rock" ? 0.92 : 0.78;
-          batchDummy.position.set(d.x + (hrand(d.x, d.z, 5) - 0.5) * 0.18, 0.72, d.z + (hrand(d.x, d.z, 6) - 0.5) * 0.18);
-          batchDummy.quaternion.copy(camera.quaternion);
-          batchDummy.scale.set(scale, scale * 1.24, 1);
+          const row = rows[i];
+          batchDummy.position.set(row.x, row.y, row.z);
+          batchDummy.rotation.set(0, 0, 0);
+          batchDummy.scale.set(row.w, row.h, row.d);
           batchDummy.updateMatrix();
           mesh.setMatrixAt(i, batchDummy.matrix);
         }
         mesh.instanceMatrix.needsUpdate = true;
+        mesh.userData.staticResourcePrismBatch = true;
         resourceBatchRoot.add(mesh);
-        resourceBatchMeshes.set(type, mesh);
+        resourceBatchMeshes.set(bucketKey, mesh);
       }
     }
     const roadGeo = new THREE.PlaneGeometry(0.70, 0.70);
@@ -1760,13 +1758,77 @@ export default function mount() {
     }
     function hideBuildGhost() { ghost.visible = false; ghost.scale.set(1, 1, 1); }
 
+
+    function makePrismBuildingGroup(kind, opts = {}) {
+      const g = new THREE.Group();
+      const parts = [];
+      const k = String(kind || "building").toLowerCase();
+      const base = cssHex(opts.cl || "#ffd76e", "#ffd76e");
+      const plinth = cssHex(opts.plinth || "#c79337", "#c79337");
+      const rows = [];
+      const add = (x, z, y, w, d, h, top, left = null, right = null) => rows.push({ x, z, y, w, d, h, top, left, right });
+      add(0, 0, 0.035, 0.86, 0.72, 0.08, plinth);
+      if (k === "cottage" || k === "house") {
+        add(0, 0, 0.14, 0.62, 0.48, 0.48, "#f1dfba");
+        add(0, -0.03, 0.62, 0.76, 0.58, 0.22, base);
+        add(0.22, 0.18, 0.86, 0.12, 0.12, 0.30, "#6f4a2b");
+      } else if (k === "lumber") {
+        add(0, 0, 0.13, 0.66, 0.46, 0.24, "#8b5628");
+        for (const z of [-0.20, 0, 0.20]) add(-0.04, z, 0.38, 0.74, 0.08, 0.12, "#a66a35", "#7e4c24", "#5f371a");
+        add(0.25, -0.18, 0.52, 0.18, 0.16, 0.38, base);
+      } else if (k === "quarry") {
+        add(0, 0, 0.13, 0.74, 0.54, 0.24, "#8d98a3");
+        add(-0.18, -0.12, 0.38, 0.42, 0.34, 0.32, "#cfd6dc", "#8d98a3", "#68737d");
+        add(0.24, 0.14, 0.34, 0.36, 0.30, 0.26, "#aab3bb", "#7d8790", "#59636c");
+      } else if (k === "farm") {
+        add(0, 0, 0.12, 0.78, 0.58, 0.12, "#6d4a2b");
+        for (const x of [-0.27, -0.09, 0.09, 0.27]) add(x, 0, 0.25, 0.08, 0.48, 0.26, x < 0 ? "#3faa55" : "#ffd76e");
+      } else if (k === "warehouse") {
+        add(0, 0, 0.13, 0.78, 0.60, 0.58, "#b78652");
+        add(0, -0.02, 0.70, 0.90, 0.70, 0.26, "#6f4a2b");
+        add(-0.28, 0.32, 0.26, 0.18, 0.10, 0.28, "#342018");
+      } else if (k === "keep") {
+        add(0, 0, 0.13, 0.88, 0.72, 0.58, "#8d98a3");
+        for (const [x,z] of [[-0.36,-0.28],[0.36,-0.28],[-0.36,0.28],[0.36,0.28]]) add(x, z, 0.62, 0.24, 0.22, 0.54, "#cfd6dc", "#8d98a3", "#68737d");
+        add(0, 0, 1.08, 0.48, 0.38, 0.24, base);
+      } else if (k === "market") {
+        add(0, 0, 0.12, 0.82, 0.58, 0.18, "#c79337");
+        add(-0.24, -0.08, 0.34, 0.34, 0.28, 0.28, base);
+        add(0.24, -0.08, 0.34, 0.34, 0.28, 0.28, "#7dcfe8");
+        add(0, 0.22, 0.34, 0.48, 0.20, 0.24, "#f6e7c8");
+      } else if (k === "bomb") {
+        add(0, 0, 0.13, 0.42, 0.36, 0.32, "#594134");
+        add(0, -0.02, 0.46, 0.24, 0.18, 0.24, "#ff7a66");
+      } else {
+        add(0, 0, 0.13, 0.72, 0.52, 0.44, base);
+        add(0, -0.03, 0.58, 0.52, 0.42, 0.32, "#f6e7c8");
+      }
+      const progress = Math.max(0, Math.min(1, Number(opts.buildProgress ?? 1) || 0));
+      const visible = progress >= 0.995 ? rows.length : Math.max(1, Math.ceil(rows.length * Math.max(0.10, progress)));
+      let maxY = 0.7;
+      for (let i = 0; i < visible; i++) {
+        const r = rows[i];
+        maxY = Math.max(maxY, r.y + r.h);
+        addPrismMesh(g, parts, { ...r, renderOrder: 4 });
+      }
+      const name = String(opts.nm || "").trim();
+      if (name) {
+        const label = makeLabel(name.slice(0, 24), "#fff0c8");
+        label.position.set(0, maxY + 0.22, 0);
+        g.add(label);
+        parts.push(label);
+      }
+      g.userData.staticPrismBuilding = true;
+      return { group: g, parts };
+    }
+
     function ensureTradePost(x, z) {
       const k = key(x, z), want = tradePostAt(x, z) && !buildPoolAt(x, z);
       const have = tradePostPool.get(k);
       if (have && want) return;
       if (have && !want) { scene.remove(have.group); tradePostPool.delete(k); return; }
       if (!want) return;
-      const { group, parts } = makeBuildingGroup("market", { nm: "Trade Post", cl: "#ffd76e", plinth: 0xc79337 });
+      const { group, parts } = makePrismBuildingGroup("market", { nm: "Trade Post", cl: "#ffd76e", plinth: 0xc79337 });
       group.position.set(x, 0.22, z);
       group.scale.setScalar(0.82);
       scene.add(group);
@@ -1990,117 +2052,115 @@ export default function mount() {
       if (/tower|spire|skyscraper|beacon/.test(text)) return "tower";
       return "landmark";
     }
-    function projectIsoPart(x, z, y = 0, scale = 34) {
-      return [256 + (x - z) * scale * 0.72, 326 + (x + z) * scale * 0.36 - y * scale * 0.82];
-    }
-    function drawLandmarkPart(g, recipe, part, i, progress) {
+    function landmarkRecipePartsAsPrisms(recipe, size) {
       const pal = landmarkPalette(recipe);
-      const primitive = String(part?.primitive || part?.kind || "box").toLowerCase();
-      const pos = Array.isArray(part?.pos) ? part.pos : Array.isArray(part?.position) ? part.position : [0, 0, 0];
-      const sc = Array.isArray(part?.scale) ? part.scale : [1, 1, 1];
-      const x = Math.max(-4, Math.min(4, Number(pos[0] || 0)));
-      const y = Math.max(0, Math.min(6, Number(pos[1] || 0)));
-      const z = Math.max(-4, Math.min(4, Number(pos[2] || 0)));
-      const sx = Math.max(0.08, Math.min(3.2, Math.abs(Number(sc[0] || 1))));
-      const sy = Math.max(0.08, Math.min(5.0, Math.abs(Number(sc[1] || 1))));
-      const sz = Math.max(0.08, Math.min(3.2, Math.abs(Number(sc[2] || 1))));
-      const color = cssHex(part?.color || part?.material?.color || pal[i % pal.length], pal[i % pal.length]);
-      const [cx, cy] = projectIsoPart(x, z, y);
-      const reveal = progress >= 0.995 || i < Math.max(2, Math.ceil(64 * Math.max(0.12, progress)));
-      if (!reveal) return;
-      if (primitive.includes("cyl") || primitive.includes("sphere")) {
-        drawIsoCylinder(g, cx, cy - sy * 16, Math.max(14, sx * 32), Math.max(10, sy * 28), color);
-        return;
+      const unit = Math.max(0.16, Math.min(0.42, Number(size || 5) / 18));
+      const raw = Array.isArray(recipe?.parts) ? recipe.parts.slice(0, 96) : [];
+      const out = [];
+      for (let i = 0; i < raw.length; i++) {
+        const part = raw[i] || {};
+        const pos = Array.isArray(part?.pos) ? part.pos : Array.isArray(part?.position) ? part.position : [part?.x || 0, part?.y || 0, part?.z || 0];
+        const sc = Array.isArray(part?.scale) ? part.scale : Array.isArray(part?.size) ? part.size : [part?.w || 1, part?.h || 1, part?.d || 1];
+        const primitive = String(part?.primitive || part?.kind || "box").toLowerCase();
+        const color = cssHex(part?.color || part?.material?.color || pal[i % pal.length], pal[i % pal.length]);
+        const px = Math.max(-5, Math.min(5, Number(pos[0] || 0))) * unit * 0.92;
+        const py = 0.10 + Math.max(0, Math.min(7, Number(pos[1] || 0))) * unit * 0.85;
+        const pz = Math.max(-5, Math.min(5, Number(pos[2] || 0))) * unit * 0.92;
+        let w = Math.max(0.08, Math.min(3.0, Math.abs(Number(sc[0] || 1)) * unit));
+        let h = Math.max(0.08, Math.min(2.4, Math.abs(Number(sc[1] || 1)) * unit));
+        let d = Math.max(0.08, Math.min(3.0, Math.abs(Number(sc[2] || 1)) * unit));
+        // LLM may ask for cylinders/spheres/cones. Static SolCrafts world still renders
+        // them as the same rectangular prism primitive, preserving proportions only.
+        if (primitive.includes("roof") || primitive.includes("cone")) { h *= 0.55; w *= 1.08; d *= 1.08; }
+        if (primitive.includes("sphere") || primitive.includes("cyl")) { w *= 0.88; d *= 0.88; }
+        out.push({ x: px, y: py, z: pz, w, h, d, top: color });
       }
-      if (primitive.includes("cone") || primitive.includes("roof")) {
-        const w = Math.max(14, sx * 42), h = Math.max(18, sy * 32);
-        poly(g, [[cx, cy - h - 16], [cx + w / 2, cy], [cx, cy + 14], [cx - w / 2, cy]], shadeHex(color, 0.08));
-        return;
-      }
-      drawIsoPrism(g, cx, cy - sy * 18, Math.max(12, sx * 36), Math.max(10, sz * 24), Math.max(12, sy * 34), color);
+      return out.sort((a, b) => (a.x + a.z + a.y * 0.2) - (b.x + b.z + b.y * 0.2));
     }
-    function drawSemanticLandmark(g, recipe, progress) {
+    function semanticLandmarkPrisms(recipe, size) {
       const pal = landmarkPalette(recipe);
       const kind = landmarkSemanticKind(recipe);
-      // plaza
-      poly(g, [[256,310],[350,356],[256,408],[162,356]], shadeHex(pal[4], -0.08), "rgba(255,255,255,.18)");
-      poly(g, [[256,326],[318,356],[256,390],[194,356]], "rgba(255,255,255,.10)", "rgba(255,255,255,.10)");
+      const stone = pal[4] || "#f6e7c8", accent = pal[0] || "#ffd76e", accent2 = pal[1] || "#14f195", glass = pal[2] || "#7dcfe8", trim = pal[5] || "#c79337";
+      const rows = [];
+      const add = (x, z, y, w, d, h, top, left = null, right = null) => rows.push({ x, z, y, w, d, h, top, left, right });
       if (kind === "school") {
-        drawIsoPrism(g, 256, 286, 142, 70, 64, pal[4]);
-        drawIsoPrism(g, 256, 224, 54, 42, 86, pal[0]);
-        poly(g, [[256,110],[300,190],[256,216],[212,190]], pal[1]);
-        for (const x of [210,236,276,302]) drawIsoPrism(g, x, 280, 16, 8, 20, "#dff6ff");
+        add(0, 0, 0.12, 1.90, 1.05, 0.58, stone);
+        add(0, -0.05, 0.70, 1.18, 0.72, 0.28, accent2);
+        add(0, -0.10, 0.98, 0.50, 0.44, 0.72, accent);
+        add(-0.62, 0.34, 0.74, 0.18, 0.12, 0.18, glass);
+        add(-0.22, 0.34, 0.74, 0.18, 0.12, 0.18, glass);
+        add(0.22, 0.34, 0.74, 0.18, 0.12, 0.18, glass);
+        add(0.62, 0.34, 0.74, 0.18, 0.12, 0.18, glass);
       } else if (kind === "dish") {
-        drawIsoCylinder(g, 256, 280, 160, 28, "#f8fbef");
-        drawIsoCylinder(g, 256, 260, 96, 20, pal[2]);
-        for (const [x,y,c] of [[226,248,"#fff0c8"],[264,244,"#ffd76e"],[292,255,"#2fbf6a"]]) { g.fillStyle = c; g.beginPath(); g.ellipse(x,y,18,12,0,0,Math.PI*2); g.fill(); }
+        add(0, 0, 0.12, 1.85, 1.28, 0.16, "#f8fbef");
+        add(0, 0, 0.30, 1.15, 0.78, 0.14, glass);
+        add(-0.34, -0.06, 0.46, 0.34, 0.22, 0.14, "#fff0c8");
+        add(0.12, -0.12, 0.46, 0.34, 0.22, 0.14, "#ffd76e");
+        add(0.42, 0.18, 0.46, 0.24, 0.22, 0.14, "#2fbf6a");
       } else if (kind === "observatory") {
-        drawIsoCylinder(g, 256, 268, 108, 92, pal[4]);
-        g.fillStyle = pal[2]; g.beginPath(); g.ellipse(256,224,66,38,0,Math.PI,0); g.fill();
-        drawIsoPrism(g, 310, 202, 78, 18, 18, pal[2]);
+        add(0, 0, 0.12, 1.24, 1.08, 0.70, stone);
+        add(0, 0, 0.82, 0.88, 0.72, 0.42, glass);
+        add(0.44, -0.28, 1.08, 0.84, 0.22, 0.22, glass);
+        add(-0.38, 0.36, 0.84, 0.32, 0.26, 0.56, accent);
       } else if (kind === "temple") {
-        drawIsoPrism(g, 256, 300, 164, 82, 30, pal[4]);
-        for (const x of [202,238,274,310]) drawIsoCylinder(g, x, 246, 18, 72, pal[5]);
-        poly(g, [[256,146],[354,220],[256,256],[158,220]], pal[1]);
+        add(0, 0, 0.10, 2.08, 1.16, 0.28, stone);
+        for (const x of [-0.76, -0.28, 0.28, 0.76]) add(x, 0.05, 0.38, 0.18, 0.18, 0.78, trim);
+        add(0, 0.02, 1.12, 2.24, 1.02, 0.28, accent2);
+        add(0, -0.08, 1.40, 1.42, 0.72, 0.34, accent);
       } else if (kind === "market") {
-        drawIsoCylinder(g, 256, 268, 76, 34, pal[1]);
-        let n = 0; for (const x of [178,226,286,334]) for (const y of [302,346]) { drawIsoPrism(g, x, y, 44, 24, 32, pal[n++ % pal.length]); }
+        add(0, 0, 0.10, 1.78, 1.18, 0.18, stone);
+        let n = 0;
+        for (const x of [-0.58, 0, 0.58]) for (const z of [-0.28, 0.34]) {
+          add(x, z, 0.30, 0.42, 0.30, 0.34, pal[n++ % pal.length]);
+          add(x, z, 0.66, 0.50, 0.36, 0.16, pal[n++ % pal.length]);
+        }
       } else if (kind === "fountain") {
-        drawIsoCylinder(g, 256, 302, 154, 28, pal[4]);
-        drawIsoCylinder(g, 256, 270, 86, 18, "#7dcfe8");
-        drawIsoCylinder(g, 256, 222, 30, 78, pal[5]);
-        g.strokeStyle = "rgba(125,207,232,.75)"; g.lineWidth = 4; for (const dx of [-38,0,38]) { g.beginPath(); g.moveTo(256,210); g.quadraticCurveTo(256+dx,242,256+dx,276); g.stroke(); }
+        add(0, 0, 0.10, 1.84, 1.22, 0.20, stone);
+        add(0, 0, 0.32, 1.24, 0.82, 0.12, glass);
+        add(0, 0, 0.46, 0.32, 0.26, 0.80, trim);
+        add(-0.34, 0, 0.80, 0.20, 0.16, 0.30, glass);
+        add(0.34, 0, 0.80, 0.20, 0.16, 0.30, glass);
       } else if (kind === "garden") {
-        for (const [x,y,s,c] of [[205,308,1,"#2f8f46"],[306,302,.9,"#51b956"],[246,264,.8,"#76d85d"],[282,352,.75,"#27944d"]]) { drawIsoPrism(g, x, y, 14*s, 8*s, 30*s, "#7a4b22"); g.fillStyle = c; g.beginPath(); g.arc(x, y-36*s, 28*s, 0, Math.PI*2); g.fill(); }
-        drawIsoPrism(g, 256, 330, 128, 26, 10, pal[4]);
+        add(0, 0, 0.08, 1.86, 1.20, 0.12, stone);
+        for (const [x,z,h,c] of [[-0.55,-0.24,.52,"#2f8f46"],[0.42,-0.12,.44,"#51b956"],[-0.10,0.34,.38,"#76d85d"],[0.68,0.38,.32,"#27944d"]]) {
+          add(x, z, 0.22, 0.13, 0.12, 0.38, "#7a4b22");
+          add(x, z, 0.58, 0.44, 0.34, h, c);
+        }
       } else {
-        drawIsoPrism(g, 256, 300, 132, 74, 38, pal[4]);
-        drawIsoPrism(g, 256, 218, 72, 52, kind === "tower" ? 174 : 112, pal[0]);
-        poly(g, [[256,82],[302,170],[256,208],[210,170]], pal[1]);
-        drawIsoPrism(g, 256, 238, 34, 20, 24, pal[2]);
+        add(0, 0, 0.10, 1.76, 1.06, 0.32, stone);
+        add(0, 0, 0.42, 0.86, 0.72, kind === "tower" ? 1.65 : 1.05, accent);
+        add(0, 0, kind === "tower" ? 2.06 : 1.46, 1.02, 0.86, 0.30, accent2);
+        add(0, -0.02, kind === "tower" ? 2.38 : 1.78, 0.42, 0.36, 0.40, glass);
       }
-    }
-    function landmarkTexture(recipe = {}, progress = 1) {
-      const bucket = Math.round(Math.max(0, Math.min(1, progress)) * 12);
-      const cacheKey = `landmark25d:${bucket}:${hashString(JSON.stringify(recipe || {}).slice(0, 16000))}`;
-      if (proceduralTextureCache.has(cacheKey)) return proceduralTextureCache.get(cacheKey);
-      const c = document.createElement("canvas"); c.width = 512; c.height = 512;
-      const g = c.getContext("2d"); if (!g) return null;
-      g.clearRect(0, 0, c.width, c.height);
-      g.fillStyle = "rgba(0,0,0,.28)"; g.beginPath(); g.ellipse(256, 402, 128, 34, 0, 0, Math.PI * 2); g.fill();
-      const parts = Array.isArray(recipe?.parts) ? recipe.parts.slice(0, 96).filter((p) => p && Math.abs(Number(p?.scale?.[0] || 1) * Number(p?.scale?.[1] || 1) * Number(p?.scale?.[2] || 1)) > 0.01) : [];
-      if (parts.length) {
-        poly(g, [[256,312],[360,364],[256,420],[152,364]], shadeHex(landmarkPalette(recipe)[4], -0.08), "rgba(255,255,255,.18)");
-        parts.sort((a, b) => {
-          const ap = Array.isArray(a?.pos) ? a.pos : [0,0,0], bp = Array.isArray(b?.pos) ? b.pos : [0,0,0];
-          return (Number(ap[0]||0)+Number(ap[2]||0)+Number(ap[1]||0)*0.1) - (Number(bp[0]||0)+Number(bp[2]||0)+Number(bp[1]||0)*0.1);
-        }).forEach((part, i) => drawLandmarkPart(g, recipe, part, i, progress));
-      } else {
-        drawSemanticLandmark(g, recipe, progress);
-      }
-      const name = String(recipe?.name || "Landmark").slice(0, 18);
-      if (name) {
-        g.font = "bold 22px system-ui, sans-serif"; g.textAlign = "center"; g.textBaseline = "middle";
-        g.fillStyle = "rgba(16,10,4,.62)"; g.fillRect(146, 430, 220, 34);
-        g.fillStyle = "#fff0c8"; g.fillText(name, 256, 447, 200);
-      }
-      const tex = new THREE.CanvasTexture(c); tex.colorSpace = THREE.SRGBColorSpace; tex.needsUpdate = true; proceduralTextureCache.set(cacheKey, tex); return tex;
+      const scale = Math.max(0.9, Math.min(1.45, Number(size || 5) / 6));
+      return rows.map((p) => ({ ...p, x: p.x * scale, z: p.z * scale, y: p.y * scale, w: p.w * scale, d: p.d * scale, h: p.h * scale }));
     }
     function makeProceduralLandmarkGroup(recipe, opts = {}) {
       const g = new THREE.Group();
+      const parts = [];
       const progress = Math.max(0, Math.min(1, Number(opts.buildProgress ?? 1) || 0));
       const size = Math.max(3, Math.min(9, Number(recipe?.footprint || opts.footprint || 5) || 5));
-      const tex = landmarkTexture({ ...(recipe || {}), name: recipe?.name || opts.nm || "Landmark" }, progress);
-      const mat = new THREE.MeshBasicMaterial({ map: tex || undefined, transparent: true, depthWrite: false, depthTest: true, side: THREE.DoubleSide });
-      const plane = new THREE.Mesh(new THREE.PlaneGeometry(Math.min(4.6, 1.6 + size * 0.32), Math.min(4.8, 1.9 + size * 0.34)), mat);
-      plane.quaternion.copy(camera.quaternion);
-      plane.position.set(0, 1.15 + size * 0.035, 0);
-      plane.renderOrder = 7;
-      g.add(plane);
-      const pad = new THREE.Mesh(new THREE.PlaneGeometry(Math.max(1.4, size * 0.32), Math.max(1.4, size * 0.32)), new THREE.MeshBasicMaterial({ color: opts.plinth || 0xc79337, transparent: true, opacity: 0.45, depthWrite: true, side: THREE.DoubleSide }));
-      pad.rotation.x = -Math.PI / 2; pad.position.y = 0.04; pad.renderOrder = 3; g.add(pad);
-      g.userData.landmark25d = true;
-      return { group: g, parts: [plane, pad] };
+      const pal = landmarkPalette(recipe);
+      const pad = Math.max(1.65, Math.min(4.15, 1.30 + size * 0.30));
+      addPrismMesh(g, parts, { x: 0, y: 0.035, z: 0, w: pad, d: pad * 0.78, h: 0.08, top: opts.plinth || pal[5] || "#c79337", left: shadeHex(opts.plinth || pal[5] || "#c79337", -0.14), right: shadeHex(opts.plinth || pal[5] || "#c79337", -0.26), renderOrder: 3 });
+      const fromRecipe = landmarkRecipePartsAsPrisms(recipe, size);
+      const rows = (fromRecipe.length ? fromRecipe : semanticLandmarkPrisms(recipe, size));
+      const visible = progress >= 0.995 ? rows.length : Math.max(1, Math.ceil(rows.length * Math.max(0.10, progress)));
+      let maxY = 0.8;
+      for (let i = 0; i < visible; i++) {
+        const row = rows[i];
+        maxY = Math.max(maxY, Number(row.y || 0) + Number(row.h || 0));
+        addPrismMesh(g, parts, { ...row, renderOrder: 5 });
+      }
+      const name = String(opts.nm || recipe?.name || "").trim();
+      if (name) {
+        const label = makeLabel(name.slice(0, 28), "#fff0c8");
+        label.position.set(0, maxY + 0.28, 0);
+        g.add(label);
+        parts.push(label);
+      }
+      g.userData.landmarkPrismWorld = true;
+      return { group: g, parts };
     }
 
     // Gold source/ruin client meshes were removed: the server now returns no runtime gold sources.
@@ -2127,7 +2187,7 @@ export default function mount() {
         ? makeRoadBuildingGroup(b)
         : b.kind === "worldwonder"
           ? makeProceduralLandmarkGroup(wonderRecipeForWire(b), { nm: labelName, cl: b.cl, plinth, buildProgress: cs ? cs.progress : 1, buildUntil: cs ? cs.end : b.cdUntil })
-          : makeBuildingGroup(b.kind, { nm: labelName, cl: b.cl, plinth, wonder: wonderRecipeForWire(b), buildProgress: cs ? cs.progress : 1, buildUntil: cs ? cs.end : b.cdUntil });
+          : makePrismBuildingGroup(b.kind, { nm: labelName, cl: b.cl, plinth, wonder: wonderRecipeForWire(b), buildProgress: cs ? cs.progress : 1, buildUntil: cs ? cs.end : b.cdUntil });
       decorateBuilding(group, b);
       group.position.set(b.x, 0.22, b.z); scene.add(group);
       // Buildings are intentionally static. Triggered use pulses animate them briefly.
@@ -2168,7 +2228,7 @@ export default function mount() {
             ? makeRoadBuildingGroup(b)
             : b.kind === "worldwonder"
               ? makeProceduralLandmarkGroup(wonderRecipeForWire(b), { nm: labelName, cl: b.cl, plinth, buildProgress, buildUntil: b.cdUntil })
-              : makeBuildingGroup(b.kind, { nm: labelName, cl: b.cl, plinth, wonder: wonderRecipeForWire(b), buildProgress, buildUntil: b.cdUntil });
+              : makePrismBuildingGroup(b.kind, { nm: labelName, cl: b.cl, plinth, wonder: wonderRecipeForWire(b), buildProgress, buildUntil: b.cdUntil });
           decorateBuilding(group, b);
           group.position.set(b.x, 0.22, b.z); scene.add(group);
           // Buildings do not idle-spin/bob/flicker; interaction triggers a short pulse instead.
