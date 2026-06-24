@@ -1439,7 +1439,7 @@ export default function mount() {
     // look like a texture with objects floating above it; this slab keeps a top face
     // plus two visible sides while still drawing as only a few instanced batches.
     const TERRAIN_TOP_Y = 0.055;
-    const STATIC_WORLD_BASE_Y = 0.070;
+    const STATIC_WORLD_BASE_Y = TERRAIN_TOP_Y - 0.002;
     function createTerrainSlabGeometry() {
       const pos = [];
       const pushFace = (a, b, c, d) => pos.push(...a, ...b, ...c, ...a, ...c, ...d);
@@ -1614,17 +1614,17 @@ export default function mount() {
         // Static-world tree: no spheres/blobs/cards. It is a stack of rectangular
         // prism slabs with two side faces and a top face, so it shares the same
         // construction language as buildings and landmarks.
-        { k: "trunk-low", ox: 0.00, oz: 0.00, y: y0,      w: 0.15, d: 0.15, h: 0.32, top: "#8b5628", left: "#6b3d1d", right: "#4c2b15" },
-        { k: "trunk-high", ox: 0.00, oz: 0.00, y: y0+0.30, w: 0.13, d: 0.13, h: 0.23, top: "#9b6432", left: "#6b3d1d", right: "#4c2b15" },
-        { k: "leaf-plate-a", ox: 0.00, oz: 0.00, y: y0+0.48, w: 0.62, d: 0.48, h: 0.16, top: "#2fb957", left: "#238844", right: "#196b35" },
-        { k: "leaf-plate-b", ox:-0.07, oz:-0.04, y: y0+0.62, w: 0.52, d: 0.40, h: 0.15, top: "#54cf62", left: "#319c4d", right: "#20763b" },
-        { k: "leaf-plate-c", ox: 0.08, oz: 0.03, y: y0+0.75, w: 0.38, d: 0.30, h: 0.13, top: "#7de06b", left: "#4eba5d", right: "#319c4d" },
+        { k: "trunk-low", ox: 0.00, oz: 0.00, y: y0,      w: 0.14, d: 0.14, h: 0.34, top: "#8b5628", left: "#6b3d1d", right: "#4c2b15" },
+        { k: "trunk-high", ox: 0.00, oz: 0.00, y: y0+0.30, w: 0.12, d: 0.12, h: 0.20, top: "#9b6432", left: "#6b3d1d", right: "#4c2b15" },
+        { k: "leaf-slab-a", ox: 0.00, oz: 0.00, y: y0+0.47, w: 0.64, d: 0.46, h: 0.12, top: "#2f9f4f", left: "#237d3f", right: "#165d2f" },
+        { k: "leaf-slab-b", ox:-0.05, oz:-0.03, y: y0+0.58, w: 0.52, d: 0.36, h: 0.12, top: "#47b85a", left: "#2f9148", right: "#20703a" },
+        { k: "leaf-slab-c", ox: 0.06, oz: 0.02, y: y0+0.69, w: 0.38, d: 0.26, h: 0.10, top: "#6acb63", left: "#45a856", right: "#2c8346" },
       ];
       if (type === "rock") return [
         // Rocks must read as grounded chunks, not floating cubes.
-        { k: "rock-slab",  ox: 0.00, oz: 0.00, y: y0,      w: 0.62, d: 0.42, h: 0.12, top: "#c9d0d6", left: "#87919a", right: "#626d76" },
-        { k: "rock-rise",  ox:-0.10, oz:-0.06, y: y0+0.11, w: 0.36, d: 0.26, h: 0.12, top: "#e0e5e9", left: "#a5adb5", right: "#78828b" },
-        { k: "rock-chip",  ox: 0.18, oz: 0.10, y: y0+0.08, w: 0.20, d: 0.16, h: 0.08, top: "#b7c0c8", left: "#7c8790", right: "#58636c" },
+        { k: "rock-slab",  ox: 0.00, oz: 0.00, y: y0,      w: 0.66, d: 0.44, h: 0.08, top: "#bfc7ce", left: "#858f98", right: "#616c75" },
+        { k: "rock-step",  ox:-0.11, oz:-0.07, y: y0+0.075, w: 0.42, d: 0.28, h: 0.08, top: "#d7dde2", left: "#9da6ae", right: "#747f88" },
+        { k: "rock-chip",  ox: 0.19, oz: 0.11, y: y0+0.055, w: 0.22, d: 0.16, h: 0.06, top: "#aeb7bf", left: "#7b858e", right: "#58636c" },
       ];
       return [
         // Crops are low rectangular rows; food stays geometric too.
@@ -1727,7 +1727,7 @@ export default function mount() {
     function decorateBuilding(g, b) {
       const lv = b.level || 1;
       for (let i = 0; i < lv - 1; i++) {
-        const pip = new THREE.Mesh(new THREE.OctahedronGeometry(0.035), ME(0xffd76e, 0xffb43d, 1));
+        const pip = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.06, 0.06), ME(0xffd76e, 0xffb43d, 1));
         pip.position.set(-0.36 + i * 0.12, 0.07, 0.43); g.add(pip);
       }
       const pct = b.maxHp ? Math.max(0, Math.min(1, b.hp / b.maxHp)) : 1;
@@ -1809,9 +1809,16 @@ export default function mount() {
       const add = (x, z, y, w, d, h, top, left = null, right = null) => rows.push({ x, z, y, w, d, h, top, left, right });
       add(0, 0, 0.035, 0.86, 0.72, 0.08, plinth);
       if (k === "cottage" || k === "house") {
-        add(0, 0, 0.14, 0.62, 0.48, 0.48, "#f1dfba");
-        add(0, -0.03, 0.62, 0.76, 0.58, 0.22, base);
-        add(0.22, 0.18, 0.86, 0.12, 0.12, 0.30, "#6f4a2b");
+        // House is built from grounded rectangular prisms only. The player's color
+        // appears on the territory plinth/trim, not as a huge neon roof block.
+        add(0, 0, 0.12, 0.64, 0.48, 0.40, "#ead8aa", "#c9b274", "#a78f58");
+        add(0, 0.255, 0.20, 0.16, 0.045, 0.22, "#4b2d1d", "#3b2114", "#28150d");
+        add(-0.21, -0.252, 0.34, 0.12, 0.045, 0.11, "#9bd7e3", "#68a8b8", "#4f8492");
+        add(0.21, -0.252, 0.34, 0.12, 0.045, 0.11, "#9bd7e3", "#68a8b8", "#4f8492");
+        add(0, -0.02, 0.52, 0.84, 0.62, 0.09, "#6f3f26", "#5a301c", "#3d2114");
+        add(0, -0.04, 0.61, 0.68, 0.50, 0.10, "#8d5230", "#6b3c23", "#482817");
+        add(0, -0.06, 0.71, 0.48, 0.34, 0.08, "#a96439", "#7a4528", "#52301d");
+        add(0.26, 0.14, 0.62, 0.10, 0.10, 0.24, "#5c3622", "#432516", "#2d180e");
       } else if (k === "lumber") {
         add(0, 0, 0.13, 0.66, 0.46, 0.24, "#8b5628");
         for (const z of [-0.20, 0, 0.20]) add(-0.04, z, 0.38, 0.74, 0.08, 0.12, "#a66a35", "#7e4c24", "#5f371a");
@@ -1869,7 +1876,7 @@ export default function mount() {
       if (have && !want) { scene.remove(have.group); tradePostPool.delete(k); return; }
       if (!want) return;
       const { group, parts } = makePrismBuildingGroup("market", { nm: "Trade Post", cl: "#ffd76e", plinth: 0xc79337 });
-      group.position.set(x, 0.22, z);
+      group.position.set(x, 0, z);
       group.scale.setScalar(0.82);
       scene.add(group);
       // Trade posts stay visually calm; use-trigger animation handles feedback.
@@ -2229,7 +2236,7 @@ export default function mount() {
           ? makeProceduralLandmarkGroup(wonderRecipeForWire(b), { nm: labelName, cl: b.cl, plinth, buildProgress: cs ? cs.progress : 1, buildUntil: cs ? cs.end : b.cdUntil })
           : makePrismBuildingGroup(b.kind, { nm: labelName, cl: b.cl, plinth, wonder: wonderRecipeForWire(b), buildProgress: cs ? cs.progress : 1, buildUntil: cs ? cs.end : b.cdUntil });
       decorateBuilding(group, b);
-      group.position.set(b.x, 0.22, b.z); scene.add(group);
+      group.position.set(b.x, 0, b.z); scene.add(group);
       // Buildings are intentionally static. Triggered use pulses animate them briefly.
       const next = { ...b, group, parts, sig: String(Date.now()) };
       buildPool.set(uid, next); indexBuildAt(next);
@@ -2270,7 +2277,7 @@ export default function mount() {
               ? makeProceduralLandmarkGroup(wonderRecipeForWire(b), { nm: labelName, cl: b.cl, plinth, buildProgress, buildUntil: b.cdUntil })
               : makePrismBuildingGroup(b.kind, { nm: labelName, cl: b.cl, plinth, wonder: wonderRecipeForWire(b), buildProgress, buildUntil: b.cdUntil });
           decorateBuilding(group, b);
-          group.position.set(b.x, 0.22, b.z); scene.add(group);
+          group.position.set(b.x, 0, b.z); scene.add(group);
           // Buildings do not idle-spin/bob/flicker; interaction triggers a short pulse instead.
           have = { group, parts, sig, x: b.x, z: b.z, kind: b.kind, owner: b.owner, uid: b.uid, ownerBody: b.ownerBody, usedAt: Number(b.usedAt || 0) };
           buildPool.set(b.uid, have);
