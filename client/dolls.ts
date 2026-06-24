@@ -126,6 +126,21 @@ export const DEFAULT_DOLL_PALETTE: Required<DollPalette> = {
 const portraitCache = new Map<string, string>();
 const textureCache = new Map<string, THREE.CanvasTexture>();
 const atlasImageCache = new Map<string, HTMLImageElement>();
+const PORTRAIT_CACHE_MAX = 96;
+const DOLL_TEXTURE_CACHE_MAX = 96;
+const ATLAS_IMAGE_CACHE_MAX = 12;
+
+function rememberLru<K, V>(map: Map<K, V>, key: K, value: V, max: number, dispose?: (v: V) => void) {
+  if (map.has(key)) map.delete(key);
+  map.set(key, value);
+  while (map.size > max) {
+    const oldest = map.keys().next().value;
+    const v = map.get(oldest);
+    map.delete(oldest);
+    if (v && dispose) dispose(v);
+  }
+  return value;
+}
 
 let runtimeCache: RuntimeDoll | null = null;
 let runtimePromise: Promise<RuntimeDoll | null> | null = null;
@@ -224,7 +239,7 @@ function loadImage(src: string): Promise<HTMLImageElement> {
     const img = new Image();
     img.crossOrigin = "anonymous";
     img.onload = () => {
-      atlasImageCache.set(src, img);
+      rememberLru(atlasImageCache, src, img, ATLAS_IMAGE_CACHE_MAX);
       resolve(img);
     };
     img.onerror = () => reject(new Error("Doll atlas image load failed"));
@@ -623,7 +638,7 @@ export async function dollPortraitDataUrl(config: DollConfig = {}, size = 256) {
   const canvas = document.createElement("canvas");
   await composeDollCanvas(canvas, config, size);
   const url = canvas.toDataURL("image/png");
-  portraitCache.set(key, url);
+  rememberLru(portraitCache, key, url, PORTRAIT_CACHE_MAX);
   return url;
 }
 
@@ -639,7 +654,7 @@ export function dollTexture(config: DollConfig = {}, size = 256) {
   const tex = new THREE.CanvasTexture(canvas);
   tex.needsUpdate = true;
   if ("colorSpace" in tex && THREE.SRGBColorSpace) tex.colorSpace = THREE.SRGBColorSpace;
-  textureCache.set(key, tex);
+  rememberLru(textureCache, key, tex, DOLL_TEXTURE_CACHE_MAX, (t) => t.dispose?.());
 
   composeDollCanvas(canvas, config, size).then(() => {
     tex.image = canvas;

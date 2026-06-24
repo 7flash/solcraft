@@ -46,13 +46,50 @@ let runtimeSig = "boot";
 const texCache = new Map<string, THREE.Texture>();
 const matCache = new Map<string, THREE.Material>();
 const animatedMaps: THREE.Texture[] = [];
+const TEX_CACHE_MAX = 180;
+const MAT_CACHE_MAX = 260;
+let terrainClearTimer: any = null;
 let TERRAIN_PREFS = { warmth: 0.72, texture: 0.08 };
+
+function disposeCachedValue(value: any) {
+  if (!value) return;
+  if (Array.isArray(value)) { for (const v of value) disposeCachedValue(v); return; }
+  value.dispose?.();
+}
+function trimCache(map: Map<string, any>, max: number) {
+  while (map.size > max) {
+    const key = map.keys().next().value;
+    const value = map.get(key);
+    map.delete(key);
+    disposeCachedValue(value);
+  }
+}
+function rememberTexture(key: string, value: THREE.Texture) {
+  if (texCache.has(key)) texCache.delete(key);
+  texCache.set(key, value);
+  trimCache(texCache, TEX_CACHE_MAX);
+  return value;
+}
+function rememberMaterial(key: string, value: any) {
+  if (matCache.has(key)) matCache.delete(key);
+  matCache.set(key, value);
+  trimCache(matCache, MAT_CACHE_MAX);
+  return value;
+}
+function scheduleTerrainCacheClear() {
+  if (typeof window === "undefined") { clearCaches(); return; }
+  if (terrainClearTimer) window.clearTimeout(terrainClearTimer);
+  terrainClearTimer = window.setTimeout(() => { terrainClearTimer = null; clearCaches(); }, 180);
+}
+
 export function setTerrainVisualPrefs(v: any = {}) {
   TERRAIN_PREFS = {
     warmth: Math.max(0, Math.min(1, Number(v.warmth ?? TERRAIN_PREFS.warmth))),
     texture: Math.max(0, Math.min(1, Number(v.texture ?? TERRAIN_PREFS.texture))),
   };
-  clearCaches();
+  // Sliders can fire dozens of input events per second; rebuild procedural
+  // terrain textures only after the drag settles, not per pointer tick.
+  scheduleTerrainCacheClear();
 }
 function mixHex(a: string, b: string, t: number) {
   const ca = new THREE.Color(a), cb = new THREE.Color(b);
@@ -67,8 +104,9 @@ export const MATERIAL_SLOT: Record<string, [number, number]> = {
 };
 
 function clearCaches() {
-  texCache.forEach((t) => t.dispose?.());
-  matCache.forEach((m) => m.dispose?.());
+  if (terrainClearTimer && typeof window !== "undefined") { window.clearTimeout(terrainClearTimer); terrainClearTimer = null; }
+  texCache.forEach((t) => disposeCachedValue(t));
+  matCache.forEach((m) => disposeCachedValue(m));
   texCache.clear();
   matCache.clear();
   animatedMaps.length = 0;
@@ -121,7 +159,7 @@ function makeCanvasTexture(key: string, size: number, draw: Function, repeat = 1
   tex.repeat.set(repeat, repeat);
   if ("colorSpace" in tex && THREE.SRGBColorSpace) tex.colorSpace = THREE.SRGBColorSpace;
   tex.needsUpdate = true;
-  texCache.set(k, tex);
+  rememberTexture(k, tex);
   return tex;
 }
 
@@ -163,7 +201,7 @@ function atlasCellTexture(atlas: string, name: string, slot: [number, number], r
   tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
   tex.repeat.set(repeat, repeat);
   tex.needsUpdate = true;
-  texCache.set(key, tex);
+  rememberTexture(key, tex);
 
   const img = new Image();
   img.crossOrigin = "anonymous";
@@ -320,7 +358,7 @@ export function terrainMaterial(kind = "sand", color?: number, opts: any = {}) {
     metalness: 0,
     ...opts,
   });
-  matCache.set(key, mat);
+  rememberMaterial(key, mat);
   return mat;
 }
 
@@ -334,7 +372,7 @@ export function terrainMats(kind = "sand", ownerColor?: number) {
   const side = cachedStandardMaterial(sideColor, { roughness: 1 });
   const top = terrainMaterial(k, tint, { repeat: 1 });
   const arr = [side, side, top, side, side, side];
-  matCache.set(key, arr as any);
+  rememberMaterial(key, arr as any);
   return arr;
 }
 
@@ -349,7 +387,7 @@ export function cachedStandardMaterial(color: number, opts: any = {}) {
   const cached = matCache.get(key) as THREE.MeshStandardMaterial | undefined;
   if (cached) return cached;
   const mat = new THREE.MeshStandardMaterial({ color, roughness: 0.82, metalness: 0, ...opts });
-  matCache.set(key, mat);
+  rememberMaterial(key, mat);
   return mat;
 }
 
@@ -367,7 +405,7 @@ export function texturedMaterial(kind: string, color = 0xffffff, opts: any = {})
     metalness: kind === "metal" ? 0.25 : 0,
     ...extra,
   });
-  matCache.set(key, mat);
+  rememberMaterial(key, mat);
   return mat;
 }
 

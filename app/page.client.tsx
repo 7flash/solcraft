@@ -48,8 +48,6 @@ import { ActionRibbon } from "../client/ui/actionRibbons";
 import { InspectPanelView } from "../client/ui/inspectPanel";
 import { ObjectPreviewPanelView } from "../client/ui/objectPreviewPanel";
 import { CharacterPanelView } from "../client/ui/characterPanel";
-import { InventoryPanelView } from "../client/ui/inventoryPanel";
-import { SkillsPanelView } from "../client/ui/skillsPanel";
 import { QuestPanelView } from "../client/ui/questPanel";
 import { UtilityShell } from "../client/ui/utilityShell";
 import { MorePanelView } from "../client/ui/morePanel";
@@ -61,6 +59,8 @@ import { toolCursorForState } from "../client/ui/toolCursor";
 import { PlayerHudView } from "../client/ui/playerHud";
 import { TopChromeView } from "../client/ui/topChrome";
 import { disposeMiniPreviews, syncMiniPreviewPanels } from "../client/world/miniPreview";
+import { safelyDisposeMeshGraph } from "../client/world/sceneMemoryAssetManager";
+import { SpatialVisibilityGrid } from "../client/world/spatialVisibilityGrid";
 import { WorldMapModalView } from "../client/ui/worldMapModal";
 import { PlayerModalView } from "../client/ui/playerModal";
 import { renderKnownWorldMap, tileFromCanvasEvent } from "../client/world/mapCanvas";
@@ -1547,6 +1547,9 @@ export default function mount() {
     const cells = new Map(), doodadPool = new Map(), buildPool = new Map(), buildAt = new Map(), npcPool = new Map();
     const lootPool = new Map(), rigPool = new Map(), tradePostPool = new Map(), exceptions = new Map(), tileOwner = new Map();
     const roadPool = new Map(), districtPool = new Map();
+    const buildVisibility = new SpatialVisibilityGrid<any>(8);
+    const lootVisibility = new SpatialVisibilityGrid<any>(8);
+    const npcVisibility = new SpatialVisibilityGrid<any>(8);
     const prismMatCache = new Map(), prismMatsCache = new Map();
     function cssHex(v, fallback = "#ffd76e") {
       if (typeof v === "number" && Number.isFinite(v)) return `#${new THREE.Color(v).getHexString()}`;
@@ -1583,9 +1586,14 @@ export default function mount() {
       return geo;
     }
     const staticPrismGeo = createStaticPrismGeometry();
+    staticPrismGeo.userData.shared = true;
     function staticPrismMaterial(hex) {
       const k = cssHex(hex, "#ffd76e").toLowerCase();
-      if (!prismMatCache.has(k)) prismMatCache.set(k, new THREE.MeshLambertMaterial({ color: new THREE.Color(k), depthWrite: true, depthTest: true }));
+      if (!prismMatCache.has(k)) {
+        const mat = new THREE.MeshLambertMaterial({ color: new THREE.Color(k), depthWrite: true, depthTest: true });
+        mat.userData.shared = true;
+        prismMatCache.set(k, mat);
+      }
       return prismMatCache.get(k);
     }
     function prismMats(top, left = null, right = null) {
@@ -1890,7 +1898,7 @@ export default function mount() {
       const want = npc && !hiddenByWorld && !buildPoolAt(x, z) && !tradePostAt(x, z);
       const have = npcPool.get(k);
       if (have && want && have.id === npc.id) return;
-      if (have) { scene.remove(have.group); npcPool.delete(k); }
+      if (have) { npcVisibility.remove(have); safelyDisposeMeshGraph(have.group); npcPool.delete(k); }
       if (!want) return;
       const g = new THREE.Group();
       const base = new THREE.Mesh(new THREE.CylinderGeometry(0.28, 0.34, 0.08, 10), M(0x5a4b35, { roughness: 1 }));
@@ -1907,7 +1915,9 @@ export default function mount() {
       g.add(makeLabel(npc.name, "#fff0b8"));
       g.position.set(x, 0.18, z);
       scene.add(g);
-      npcPool.set(k, { group: g, id: npc.id, ...npc });
+      const row = { group: g, id: npc.id, ...npc };
+      npcPool.set(k, row);
+      npcVisibility.insert(row);
     }
     const doodadVisible = (x, z) => {
       const k = key(x, z);
@@ -2039,16 +2049,12 @@ export default function mount() {
       ensureDoodad(x, z);
     }
     let winX = 1e9, winZ = 1e9;
-    function syncWorldVisibility() {
+    function syncWorldVisibility(force = false) {
       const px = Math.round(me.x), pz = Math.round(me.z), r = currentTileLoadRadius();
-      for (const b of buildPool.values()) {
-        if (!b?.group) continue;
-        // Buildings must never float on unloaded terrain. Keep their visibility
-        // tied to the same ground window as the tile meshes.
-        b.group.visible = cheb(b.x, b.z, px, pz) <= r + 1 && cells.has(key(b.x, b.z));
-      }
-      for (const l of lootPool.values()) if (l?.group) l.group.visible = cheb(l.x, l.z, px, pz) <= r + 1 && cells.has(key(l.x, l.z));
-      for (const npc of npcPool.values()) if (npc?.group) npc.group.visible = cheb(npc.x, npc.z, px, pz) <= r + 1 && cells.has(key(npc.x, npc.z));
+      const visibleNearLoadedCell = (o: any) => cheb(o.x, o.z, px, pz) <= r + 1 && cells.has(key(o.x, o.z));
+      buildVisibility.refresh(px, pz, r + 1, { force, predicate: visibleNearLoadedCell });
+      lootVisibility.refresh(px, pz, r + 1, { force, predicate: visibleNearLoadedCell });
+      npcVisibility.refresh(px, pz, r + 1, { force, predicate: visibleNearLoadedCell });
       updateWonderDistrictRoads();
     }
     function refreshWindow(force = false) {
@@ -2061,7 +2067,7 @@ export default function mount() {
         if (cheb(cx, cz, px, pz) > r + 2) {
           cells.delete(k);
           const d = doodadPool.get(k); if (d) doodadPool.delete(k);
-          const tp = tradePostPool.get(k); if (tp) { scene.remove(tp.group); tradePostPool.delete(k); } const npc = npcPool.get(k); if (npc) { scene.remove(npc.group); npcPool.delete(k); }
+          const tp = tradePostPool.get(k); if (tp) { safelyDisposeMeshGraph(tp.group); tradePostPool.delete(k); } const npc = npcPool.get(k); if (npc) { npcVisibility.remove(npc); safelyDisposeMeshGraph(npc.group); npcPool.delete(k); }
           const rd = roadPool.get(k); if (rd) { scene.remove(rd); roadPool.delete(k); }
         }
       }
@@ -2069,7 +2075,7 @@ export default function mount() {
         for (let z = pz - r; z <= pz + r; z++) refreshCell(x, z);
       rebuildTerrainBatches(force);
       rebuildResourceBatches(force);
-      syncWorldVisibility();
+      syncWorldVisibility(true);
     }
     loadAtlasRuntimeConfig().then(() => { ownerMatCache.clear(); terrainBatchMatCache.clear(); terrainBatchSig = ""; for (const [, c] of cells) c.owner = -1; refreshWindow(true); }).catch(() => {});
 
@@ -2239,7 +2245,9 @@ export default function mount() {
       group.position.set(b.x, 0, b.z); scene.add(group);
       // Buildings are intentionally static. Triggered use pulses animate them briefly.
       const next = { ...b, group, parts, sig: String(Date.now()) };
-      buildPool.set(uid, next); indexBuildAt(next);
+      buildPool.set(uid, next);
+      buildVisibility.insert(next);
+      indexBuildAt(next);
     }
 
     let lastWorldPaintRev = -1;
@@ -2281,11 +2289,14 @@ export default function mount() {
           // Buildings do not idle-spin/bob/flicker; interaction triggers a short pulse instead.
           have = { group, parts, sig, x: b.x, z: b.z, kind: b.kind, owner: b.owner, uid: b.uid, ownerBody: b.ownerBody, usedAt: Number(b.usedAt || 0) };
           buildPool.set(b.uid, have);
+          buildVisibility.insert(have);
           indexBuildAt(have);
           const dd = doodadPool.get(key(b.x, b.z));
           if (dd) { doodadPool.delete(key(b.x, b.z)); rebuildResourceBatches(true); }
         }
-        have.uid = b.uid; indexBuildAt(have);
+        have.uid = b.uid;
+        buildVisibility.update(have);
+        indexBuildAt(have);
         if (have.usedAt && Number(b.usedAt || 0) > Number(have.usedAt || 0)) animateBuildingUse(b.uid);
         Object.assign(have, { acc: b.acc, accAt: b.accAt, cdUntil: b.cdUntil, constructAt: b.constructAt || 0, constructUntil: b.constructUntil || 0, usedAt: Number(b.usedAt || 0), ownerName: b.ownerName, ownerFace: b.ownerFace || null, nm: b.nm, cl: b.cl, level: b.level, hp: b.hp, maxHp: b.maxHp, stored: b.stored || 0, ownerBody: b.ownerBody, wonder: wonderRecipeForWire(b) || null, buildBucket });
       }
@@ -2299,11 +2310,14 @@ export default function mount() {
         ring.rotation.x = -Math.PI / 2; ring.position.y = -0.1; g.add(ring);
         g.position.set(l.x, 0.52, l.z); g.scale.setScalar(0.01); scene.add(g);
         anims.push({ kind: "in", obj: g, t: 0, dur: 0.35 });
-        lootPool.set(l.id, { id: l.id, group: g, x: l.x, z: l.z, kind: l.kind, gid: l.gid });
+        const row = { id: l.id, group: g, x: l.x, z: l.z, kind: l.kind, gid: l.gid };
+        lootPool.set(l.id, row);
+        lootVisibility.insert(row);
       }
       for (const [id, l] of [...lootPool]) {
         if (lootSeen.has(id)) continue;
-        anims.push({ kind: "up", obj: l.group, t: 0, dur: 0.3, done: () => scene.remove(l.group) });
+        lootVisibility.remove(l);
+        anims.push({ kind: "up", obj: l.group, t: 0, dur: 0.3, done: () => safelyDisposeMeshGraph(l.group) });
         lootPool.delete(id);
       }
       // Gold Sources/Ruins are deprecated server-side; coins now arrive as loot/pickups.
@@ -2406,7 +2420,10 @@ export default function mount() {
     function removeBuild(uid, boom = false) {
       const b = buildPool.get(uid); if (!b) return;
       if (boom) { burst(b.x, 0.5, b.z, 0xd6604f, 16, 0.6); shockwave(b.x, b.z, 0xff8a5e); }
-      scene.remove(b.group); clearBuildAt(b); buildPool.delete(uid);
+      buildVisibility.remove(b);
+      safelyDisposeMeshGraph(b.group);
+      clearBuildAt(b);
+      buildPool.delete(uid);
       updateWonderDistrictRoads();
     }
     function animateBuildingUse(uid) {
@@ -5123,17 +5140,6 @@ export default function mount() {
     </UtilityShell>;
   }
 
-  function InventoryPanel() {
-    return <UtilityShell title="Inventory" sub="Resources, gear, tools, and usable items. Use elixirs from the 7 Use ribbon.">
-      <InventoryPanelView player={ST.me} />
-    </UtilityShell>;
-  }
-
-  function SkillsPanel() {
-    return <UtilityShell title="Skills" sub="Skills train automatically from play. Chop and mine for Gathering/Efficiency, build for Masonry, claim for Vigor, siege/craft tools for Siegecraft.">
-      <SkillsPanelView player={ST.me} />
-    </UtilityShell>;
-  }
 
   function BankPanel() {
     const m = ST.me;
