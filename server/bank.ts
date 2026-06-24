@@ -88,6 +88,7 @@ export function publicBankSettings() {
     decimals: s.decimals,
     withdrawGameCoinsEnabled: !!s.withdrawGameCoinsEnabled,
     hardCurrencyWithdrawals: false,
+    principalBoundedWithdrawals: true,
     coinsPerSol: s.coinsPerSol,
     solDepositsBuyGameplayCoins: true,
     craftsBuffOnly: true,
@@ -168,27 +169,83 @@ function bankPlayerById(id: any) {
   return Number.isFinite(n) ? getPlayer(n) as any : null;
 }
 
+function asRawBigInt(value: any): bigint {
+  try { return BigInt(String(value || "0")); } catch { return 0n; }
+}
+
+function nonFailedWithdrawalStatus(status: any) {
+  const s = String(status || "pending").toLowerCase();
+  return !["failed", "refunded", "refund", "cancelled", "canceled", "rejected", "void"].includes(s);
+}
+
+function depositedPrincipalRawForPlayer(playerId: number): bigint {
+  const scan = bankTableAvailable() ? getBankScan(playerId) : scans()[String(playerId)] || null;
+  return asRawBigInt(scan?.creditedRaw || "0");
+}
+
+function nonFailedWithdrawnRawForPlayer(playerId: number): bigint {
+  return withdrawalRows(playerId, 5000)
+    .filter((r: any) => nonFailedWithdrawalStatus(r?.status))
+    .reduce((sum: bigint, r: any) => sum + asRawBigInt(r?.amountRaw || "0"), 0n);
+}
+
+function withdrawablePrincipalRawForPlayer(playerId: number): bigint {
+  const remaining = depositedPrincipalRawForPlayer(playerId) - nonFailedWithdrawnRawForPlayer(playerId);
+  return remaining > 0n ? remaining : 0n;
+}
+
+function coinAmountForRaw(raw: bigint, s = bankSettings()) {
+  if (raw <= 0n) return 0;
+  const coins = (raw * BigInt(Math.max(1, Math.floor(s.coinsPerSol)))) / (10n ** BigInt(s.decimals));
+  return Math.max(0, Math.floor(Number(coins.toString()) || 0));
+}
+
+function bankPrincipalStatus(playerId: number, s = bankSettings()) {
+  const depositedRaw = depositedPrincipalRawForPlayer(playerId);
+  const withdrawnRaw = nonFailedWithdrawnRawForPlayer(playerId);
+  const withdrawableRaw = withdrawablePrincipalRawForPlayer(playerId);
+  return {
+    depositedRaw: depositedRaw.toString(),
+    depositedUi: rawToUi(depositedRaw, s.decimals),
+    withdrawnRaw: withdrawnRaw.toString(),
+    withdrawnUi: rawToUi(withdrawnRaw, s.decimals),
+    withdrawableRaw: withdrawableRaw.toString(),
+    withdrawableUi: rawToUi(withdrawableRaw, s.decimals),
+    withdrawableCoins: coinAmountForRaw(withdrawableRaw, s),
+    tokenLabel: s.tokenLabel,
+  };
+}
+
 export function bankStatusForPlayer(p: any) {
   const s = bankSettings();
   const dep = bankTableAvailable() ? getBankDeposit(p.id) : deposits()[String(p.id)] || null;
   const scan = bankTableAvailable() ? getBankScan(p.id) : scans()[String(p.id)] || null;
   const rows = withdrawalRows(p.id, 20).slice(-20).reverse();
   const softCoins = Math.max(0, Math.floor(Number(p?.inv?.g || 0)));
+  const principal = bankPrincipalStatus(p.id, s);
+  const withdrawableCoins = Math.min(softCoins, principal.withdrawableCoins);
   return {
     ok: true,
     config: publicBankSettings(),
     wallet: p.wallet || "",
     deposit: dep,
     latestDepositScan: scan,
-    bankTokens: { amountRaw: String(softCoins), amountUi: String(softCoins), tokenLabel: "coins" },
+    // Legacy field kept for older UI: this is now the principal-bounded
+    // withdrawable coin amount, not the player's total gameplay coin purse.
+    bankTokens: { amountRaw: String(withdrawableCoins), amountUi: String(withdrawableCoins), tokenLabel: "coins" },
     softCoins,
+    gameplayCoins: softCoins,
+    withdrawableCoins,
+    depositedPrincipal: principal,
+    withdrawablePrincipal: { amountRaw: principal.withdrawableRaw, amountUi: principal.withdrawableUi, tokenLabel: s.tokenLabel },
     walletBalance: tokenUnits(p.tokenBalanceRaw || 0, s),
     walletBalanceApproxUi: String(p.tokenBalance || 0),
     withdrawals: rows,
     exchangeRate: { coinsPerSol: s.coinsPerSol, tokenLabel: s.tokenLabel },
     notes: [
-      `${s.tokenLabel} deposits buy gameplay coins at the admin-configured bank rate.`,
-      "Gameplay coins are withdrawable back to SOL only through the capital bank and only when live transfers are enabled.",
+      `${s.tokenLabel} deposits buy non-withdrawable gameplay coins at the admin-configured bank rate.`,
+      "Withdrawals are capped by your own scanned deposit principal minus prior non-failed withdrawals.",
+      "Gameplay faucets can raise your coin purse, but they do not raise the SOL withdrawal cap.",
       "$CRAFTS stays in the connected wallet and is read for buffs; it is not deposited into the game.",
       "Your personal deposit address is generated once and reused.",
     ],
@@ -317,8 +374,13 @@ export async function requestBankWithdrawal(p: any, amountUi: string | number, t
 
     const freshPlayer = getPlayer(p.id) as any || p;
     const coinBal = Math.max(0, Math.floor(Number(freshPlayer?.inv?.g || 0)));
-    if (!s.withdrawGameCoinsEnabled) return { ok: false, reasonCode: "BANK_WITHDRAW_DISABLED", msg: "Coin withdrawals are paused by the operator." };
-    if (coinBal < spendCoins) return { ok: false, reasonCode: "BANK_COINS_LOW", msg: `You have ${coinBal} coins available to withdraw.` };
+    const principal = bankPrincipalStatus(p.id, s);
+    const withdrawableRaw = asRawBigInt(principal.withdrawableRaw);
+    const withdrawableCoins = Math.min(coinBal, principal.withdrawableCoins);
+    if (!s.withdrawGameCoinsEnabled) return { ok: false, reasonCode: "BANK_WITHDRAW_DISABLED", msg: "Principal-bounded withdrawals are paused by the operator." };
+    if (amountRaw <= 0n) return { ok: false, reasonCode: "BANK_WITHDRAW_TOO_SMALL", msg: "That amount is too small to withdraw at the current exchange rate." };
+    if (amountRaw > withdrawableRaw) return { ok: false, reasonCode: "BANK_PRINCIPAL_LOW", msg: `Only ${withdrawableCoins} coins are withdrawable. Gameplay-earned coins cannot increase the SOL withdrawal cap.`, status: bankStatusForPlayer(freshPlayer) };
+    if (coinBal < spendCoins) return { ok: false, reasonCode: "BANK_COINS_LOW", msg: `You have ${coinBal} gameplay coins available.` };
 
     const id = crypto.randomUUID?.() || `${Date.now()}:${p.id}`;
     const row: any = {
@@ -347,7 +409,7 @@ export async function requestBankWithdrawal(p: any, amountUi: string | number, t
       const before = Math.max(0, Math.floor(Number(rowPlayer?.inv?.g || 0)));
       rowPlayer.inv = { ...(rowPlayer.inv || {}), g: Math.max(0, before - spendCoins) };
       refreshPlayer(rowPlayer);
-      appendCoinLedger({ player: p.id, delta: -spendCoins, reason: "bankCoinWithdrawalDebit", refType: "bankWithdrawal", refId: id, idempotencyKey: `withdraw-debit:${idem}`, meta: { amountRaw: amountRaw.toString(), amountUi: row.amountUi, coinAmount: spendCoins, to, coinsPerSol: s.coinsPerSol } });
+      appendCoinLedger({ player: p.id, delta: -spendCoins, reason: "bankCoinWithdrawalDebit", refType: "bankWithdrawal", refId: id, idempotencyKey: `withdraw-debit:${idem}`, meta: { amountRaw: amountRaw.toString(), amountUi: row.amountUi, coinAmount: spendCoins, to, coinsPerSol: s.coinsPerSol, principalBeforeRaw: principal.withdrawableRaw } });
       rows = withdrawals();
       rows.push(row);
       insertBankWithdrawal(row);

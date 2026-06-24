@@ -31,9 +31,9 @@ function readParams(req: Request, body: any) {
   const headerPid = req.headers.get("x-solcraft-player") || req.headers.get("x-player-id") || "";
   const headerSecret = req.headers.get("x-solcraft-secret") || req.headers.get("x-player-secret") || bearerSecret(req) || "";
 
-  // GET query support is kept for older clients, but the client should use POST
-  // or headers so the player secret is not written to access/proxy logs.
-  const pid = readIntFrom(body?.pid ?? body?.playerId ?? (headerPid || url.searchParams.get("pid")), 0);
+  // GET query support remains only for older clients. New clients use POST or
+  // headers so the player secret is not written to access/proxy/referrer logs.
+  const pid = readIntFrom(body?.pid ?? body?.playerId ?? headerPid ?? url.searchParams.get("pid"), 0);
   const secret = String(body?.secret || headerSecret || url.searchParams.get("secret") || "");
 
   return {

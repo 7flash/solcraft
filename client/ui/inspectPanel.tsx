@@ -36,7 +36,8 @@ export function InspectPanelView(props: any) {
   const isBank = String(b.kind || "") === "vault";
   const isCustomizer = String(b.kind || "") === "alchemy";
   const tokenLabel = bank?.config?.tokenLabel || "$CRAFTS";
-  const inGameCoins = bank?.bankTokens?.amountUi ?? String(Math.floor(Number(player?.inv?.g || 0)));
+  const inGameCoins = bank?.gameplayCoins ?? bank?.softCoins ?? String(Math.floor(Number(player?.inv?.g || 0)));
+  const withdrawableCoins = bank?.bankTokens?.amountUi ?? bank?.withdrawableCoins ?? "0";
   const walletCoins = bank?.walletBalance?.amountUi || bank?.walletBalanceApproxUi || String(player?.tokenBalance || 0);
   const walletText = player?.wallet ? String(player.wallet).slice(0, 4) + "…" + String(player.wallet).slice(-4) : "not connected";
   const customizerCost = Math.max(0, Number(bank?.customizerCost || 1) || 1);
@@ -99,7 +100,8 @@ export function InspectPanelView(props: any) {
     {isBank ? <section className="service-card bank" aria-label="Bank building actions">
       <div className="panel-section-head"><b>Bank service</b><span>{walletText}</span></div>
       <div className="bank-balance-grid">
-        <span><small>In game</small><b>{inGameCoins}</b><em>{tokenLabel}</em></span>
+        <span><small>Gameplay</small><b>{inGameCoins}</b><em>coins</em></span>
+        <span><small>Withdrawable</small><b>{withdrawableCoins}</b><em>coins</em></span>
         <span><small>Wallet</small><b>{walletCoins}</b><em>{tokenLabel}</em></span>
       </div>
       <div className="service-action-row">
@@ -107,7 +109,7 @@ export function InspectPanelView(props: any) {
         <button className="panel-button" disabled data-click="inspect-bank-deposit-disabled">Deposit</button>
         <button className="panel-button" disabled data-click="inspect-bank-withdraw-disabled">Withdraw</button>
       </div>
-      <p className="panel-muted">Deposit and Withdraw stay inside the bank screen so wallet, amount, and pending status are visible before signing.</p>
+      <p className="panel-muted">Deposit and Withdraw stay inside the bank screen. Withdrawals are capped by scanned deposit principal, so gameplay faucets cannot cash out.</p>
     </section> : null}
 
     {isCustomizer ? <section className="service-card tailor" aria-label="Character customizer actions">

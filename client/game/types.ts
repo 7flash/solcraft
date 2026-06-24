@@ -17,9 +17,6 @@ export type ClientWorldDelta = {
   doodads?: ClientDeltaList;
   loot?: ClientDeltaList;
   players?: ClientDeltaList;
-
-  // Flat aliases are accepted during the migration so the server can ship a
-  // simple shape first without forcing another client patch.
   tilesUpsert?: any[];
   tilesRemove?: any[];
   buildingsUpsert?: any[];

@@ -621,8 +621,8 @@ export const ECONOMY = {
   energy: `Energy fuels movement, gathering, claiming, sieging, and destroying. Movement costs ${ECONOMY_RULES.moveEnergy}⚡ per tile and refills quickly, while the Return Scroll is infinite with a cast delay. Everyone has a ${ECONOMY_RULES.energyCap} energy bar. Refills use a concave $CRAFTS holding curve: citizens get a real floor, committed holders get more throughput, and whales hit a hard cap.`,
   crafts: `The refill curve is absolute, not rank-griefable: ${ECONOMY_RULES.energyRegenBasePerMinute}⚡/min floor plus a capped ${ECONOMY_RULES.energyRegenBonusPerMinute}⚡/min bonus at ${ECONOMY_RULES.energyRefHold.toLocaleString()} $CRAFTS.`,
   resources: `Wood, stone, and food are gathered from the world and share one material storage pool. Natural nodes do not regenerate on the same harvested tile; Lumber Camps, Quarries, and Farms create more nearby work. Warehouses increase shared storage.`,
-  gold: `Coins are separate from material storage. Landmarks increase global coin production for everyone, and the capital bank can exchange gameplay coins with SOL when enabled by the operator.`,
-  redeem: `Gameplay coins can be exchanged through the capital Bank. $CRAFTS stays in your connected wallet and is read for holder buffs such as tile capacity.`,
+  gold: `Coins are separate from material storage. Landmarks can increase gameplay coin flow, but the capital bank only lets players withdraw against their own scanned SOL deposit principal.`,
+  redeem: `The capital Bank can scan SOL deposits into gameplay coins. Withdrawals are capped by your personal deposited principal; gameplay-earned coins are utility only.`,
   land: "Tile capture is free and does not require connected borders. Your $CRAFTS holder profile sets how much land you can own; Houses are your travel points.",
 } as const;
 

@@ -130,8 +130,8 @@ export const SOLCRAFT_ECONOMY = {
   } as const,
 
   money: {
-    // Gameplay coins are the bank currency. Players can deposit SOL to buy
-    // coins and withdraw coins back to SOL through the capital bank when live
+    // SOL deposits buy gameplay coins. Withdrawals are principal-bounded:
+    // gameplay faucets never increase the amount of SOL a player can withdraw
     // transfers are enabled by the operator.
     gameplayCoinsWithdrawableToSol: true,
     solDepositsBuyGameplayCoins: true,

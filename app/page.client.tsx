@@ -6,10 +6,10 @@
    authoritative; this file renders, predicts, and asks.
 
    RENDERING MODEL:
-   The HUD is split into independent REGIONS, each with its own
-   DOM root. Structural UI should be reconciled by tradjs at the
-   region level; high-frequency values should move through the
-   micro-store / direct bindings instead of JSON signatures.
+   The HUD is split into independent REGIONS, each with its own DOM root.
+   Structural UI is reconciled by tradjs at the region level; high-frequency
+   scalar values use direct bindings / micro-store helpers. Do not add JSON
+   signature gates for settled state.
    ============================================================ */
 import { render } from "tradjs/client";
 import * as THREE from "three";
@@ -860,6 +860,51 @@ export default function mount() {
   }
   const pollSoon = () => { clearTimeout(pollSoonT); pollSoonT = setTimeout(() => poll(true), 120); };
 
+  const worldSnapshotCache = { tiles: [], buildings: [], doodads: [], loot: [], players: [] };
+  function entityKeyForWorldList(name, item) {
+    if (!item) return "";
+    if (name === "buildings") return String(item.uid ?? item.id ?? "");
+    if (name === "loot") return String(item.id ?? `${item.x},${item.z}:${item.kind || "loot"}`);
+    if (name === "players") return String(item.id ?? "");
+    return `${Number(item.x || 0)},${Number(item.z || 0)}`;
+  }
+  function removeKeyForWorldList(name, item) {
+    if (item == null) return "";
+    if (typeof item === "string" || typeof item === "number") return String(item);
+    if (Array.isArray(item)) return `${Number(item[0] || 0)},${Number(item[1] || 0)}`;
+    return entityKeyForWorldList(name, item);
+  }
+  function mergeWorldList(name, full, deltaList, flatUpsert, flatRemove) {
+    const current = Array.isArray(worldSnapshotCache[name]) ? worldSnapshotCache[name] : [];
+    if (Array.isArray(full)) {
+      worldSnapshotCache[name] = full.slice();
+      return worldSnapshotCache[name];
+    }
+    const upsert = deltaList?.upsert ?? flatUpsert;
+    const remove = deltaList?.remove ?? deltaList?.removed ?? flatRemove;
+    if (!Array.isArray(upsert) && !Array.isArray(remove)) return current;
+    const byKey = new Map(current.map((item) => [entityKeyForWorldList(name, item), item]));
+    if (Array.isArray(remove)) for (const item of remove) byKey.delete(removeKeyForWorldList(name, item));
+    if (Array.isArray(upsert)) for (const item of upsert) {
+      const k = entityKeyForWorldList(name, item);
+      if (k) byKey.set(k, { ...(byKey.get(k) || {}), ...item });
+    }
+    worldSnapshotCache[name] = Array.from(byKey.values());
+    return worldSnapshotCache[name];
+  }
+  function materializeWorldPayload(w) {
+    if (!w) return w;
+    const d = w.delta || w.changes || w;
+    return {
+      ...w,
+      tiles: mergeWorldList("tiles", w.tiles, d.tiles, d.tilesUpsert, d.tilesRemove),
+      buildings: mergeWorldList("buildings", w.buildings, d.buildings, d.buildingsUpsert, d.buildingsRemove),
+      doodads: mergeWorldList("doodads", w.doodads, d.doodads, d.doodadsUpsert, d.doodadsRemove),
+      loot: mergeWorldList("loot", w.loot, d.loot, d.lootUpsert, d.lootRemove),
+      players: mergeWorldList("players", w.players, d.players, d.playersUpsert, d.playersRemove),
+    };
+  }
+
   function applySnap(snap) {
     const requiredRaw = String(snap.requiredVersion || snap.me?.requiredVersion || "");
     const required = Number(requiredRaw || 0) || 0;
@@ -910,7 +955,8 @@ export default function mount() {
       ST.rev = snap.world.rev; ST.ax = snap.world.ax; ST.az = snap.world.az;
       ST.offers = snap.world.offers;
       if (snap.world.map) { ST.map = { players: ST.map?.players || [], ...snap.world.map }; ST.mapRev = snap.world.map.rev ?? snap.world.rev ?? ST.mapRev; }
-      world.applyWorld(snap.world);
+      const worldPayload = materializeWorldPayload(snap.world);
+      world.applyWorld(worldPayload);
     }
     if (snap.mapPlayers) ST.map = { ...(ST.map || {}), players: mergeMinimapPlayers(snap.mapPlayers, ST.players, ST.me) };
     maybeStartWalkthrough(false);
@@ -2036,8 +2082,12 @@ export default function mount() {
       ensureDoodad(x, z);
     }
     let winX = 1e9, winZ = 1e9;
-    function syncWorldVisibility() {
+    let visX = 1e9, visZ = 1e9, visR = -1, visWorldRev = -1;
+    function syncWorldVisibility(force = false) {
       const px = Math.round(me.x), pz = Math.round(me.z), r = currentTileLoadRadius();
+      const rev = Number(lastWorldPaintRev || 0);
+      if (!force && px === visX && pz === visZ && r === visR && rev === visWorldRev) return;
+      visX = px; visZ = pz; visR = r; visWorldRev = rev;
       for (const b of buildPool.values()) {
         if (!b?.group) continue;
         // Buildings must never float on unloaded terrain. Keep their visibility
@@ -5140,7 +5190,9 @@ export default function mount() {
     const label = cfg.tokenLabel || "SOL";
     const deposit = bank.deposit || null;
     const depositAddress = deposit?.address || "";
-    const bankTokens = bank.bankTokens?.amountUi ?? bank.softCoins ?? String(Math.floor(m.inv?.g || 0));
+    const gameplayCoins = bank.gameplayCoins ?? bank.softCoins ?? String(Math.floor(m.inv?.g || 0));
+    const bankTokens = bank.bankTokens?.amountUi ?? bank.withdrawableCoins ?? "0";
+    const principalUi = bank.withdrawablePrincipal?.amountUi || bank.depositedPrincipal?.withdrawableUi || "0";
     const walletBalance = bank.walletBalance?.amountUi || bank.walletBalanceApproxUi || String(m.tokenBalance || 0);
     const minWithdraw = Number(cfg.minWithdrawUi || 1) || 1;
     const defaultWithdraw = Math.max(minWithdraw, Math.min(Math.floor(Number(bankTokens || 0)), Math.max(minWithdraw, 100)));
@@ -5155,7 +5207,7 @@ export default function mount() {
     const scanLabel = bank.latestDepositScan?.ts ? `Last scan ${new Date(bank.latestDepositScan.ts).toLocaleTimeString()}` : "Scan after sending";
     const recent = (bank.withdrawals || []).slice(0, 4);
     const statusBad = ST.bankMsg && /failed|disabled|error|required|could not/i.test(ST.bankMsg);
-    return <UtilityShell title="Bank" sub={`Deposit ${label} to buy coins, or withdraw coins back to your connected wallet. $CRAFTS stays in-wallet for buffs.`}>
+    return <UtilityShell title="Bank" sub={`Deposit ${label} to buy gameplay coins. Withdrawals are capped by your own deposited principal, not by gameplay faucets.`}>
       <div className="exchange-widget">
         <div className="exchange-hero">
           <span className="exchange-icon">↔</span>
@@ -5166,7 +5218,8 @@ export default function mount() {
           <button className="btn" data-click="bank-refresh" disabled={ST.bankBusy}>{ST.bankBusy ? "Working…" : "Refresh"}</button>
         </div>
         <div className="exchange-balances">
-          <div className="exchange-balance"><small>In-game coins</small><b>{bankTokens}</b><em>coins</em></div>
+          <div className="exchange-balance"><small>Gameplay coins</small><b>{gameplayCoins}</b><em>utility</em></div>
+          <div className="exchange-balance"><small>Withdrawable cap</small><b>{bankTokens}</b><em>coins · {principalUi} {label}</em></div>
           <div className="exchange-balance"><small>Wallet balance</small><b>{walletBalance}</b><em>{label}</em></div>
         </div>
         {!bankConfigured ? <div className="exchange-note bad">Bank token is not configured yet. The operator must set the SOL/token settings on the server.</div> : null}
@@ -5185,12 +5238,12 @@ export default function mount() {
         </div>
         <div className="exchange-card withdraw">
           <span className="exchange-step">2</span>
-          <div><h4>Withdraw to connected wallet</h4><p>Convert gameplay coins back to {label} and send it to the wallet that signed in: <b>{shortWallet(m.wallet)}</b>.</p></div>
+          <div><h4>Withdraw deposited principal</h4><p>Withdraw only the principal backed by your own scanned deposits. Gameplay-earned coins remain utility coins and cannot increase this cap. Destination: <b>{shortWallet(m.wallet)}</b>.</p></div>
           <div className="exchange-input-row">
             <input id="sc-bank-withdraw-ui" type="number" min={minWithdraw} step="1" defaultValue={defaultWithdraw} placeholder="Coins to withdraw" />
             <button className="btn primary" disabled={disabled || ST.bankBusy || Number(bankTokens || 0) <= 0} data-click="bank-withdraw-request">Withdraw</button>
           </div>
-          <div className="exchange-note warn">Minimum {cfg.minWithdrawUi || 1} coins. {transfersLive ? "Transfers send from the configured bank wallet." : "Your request will stay pending until live transfers are enabled."}</div>
+          <div className="exchange-note warn">Minimum {cfg.minWithdrawUi || 1} coins. Available now: {bankTokens} principal-backed coins. {transfersLive ? "Transfers send from the configured bank wallet." : "Your request will stay pending until live transfers are enabled."}</div>
         </div>
         {recent.length ? <details className="exchange-history"><summary>Recent withdrawals</summary><div className="mini-list" style={{ marginTop: 8 }}>{recent.map((w) => <div className="mini-row"><span>◇</span><div><b>{w.coinAmount || "?"} coins → {w.amountUi} {label}</b><div className="tiny">{cleanStatus(w)} · {shortWallet(w.to || w.wallet || "")}</div></div></div>)}</div></details> : null}
       </div>
@@ -5410,12 +5463,7 @@ export default function mount() {
     const forceSet = only ? new Set(Array.isArray(only) ? only : [only]) : null;
     for (let i = 0; i < regions.length; i++) {
       const r = regions[i];
-      const forced = force && (!forceSet || forceSet.has(r.name));
-      const sigStart = performance.now();
-      const s = sigFns[i]();
-      perf.record(`ui.sig.${r.name}`, performance.now() - sigStart);
-      if (!forced && s === r.sig) continue;
-      r.sig = s;
+      if (forceSet && !forceSet.has(r.name)) continue;
       const regionStart = performance.now();
       render(r.view(), r.root);
       const regionMs = performance.now() - regionStart;
