@@ -91,7 +91,7 @@ export function InspectPanelView(props: any) {
       <div className="keep-raid-track"><i style={{ width: `${Math.max(2, keepPressure.hpPct * 100).toFixed(0)}%` }} /></div>
       <div className="keep-raid-grid">
         <span><b>{keepPressure.regenLabel}</b><em>{keepPressure.nextRegenLabel}</em></span>
-        <span><b>{keepPressure.hitsLabel}</b><em>if the group keeps pressure</em></span>
+        <span><b>{keepPressure.hitsLabel}</b><em>{keepPressure.raidEstimateLabel || "if the group keeps pressure"}</em></span>
         <span><b>{keepPressure.coinChipLabel}</b><em>{keepPressure.storedLabel}</em></span>
         <span><b>{keepPressure.raidHealthLabel}</b><em>Food restores health over time</em></span>
       </div>
