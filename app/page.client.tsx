@@ -2228,6 +2228,7 @@ export default function mount() {
     const pick = world.pickFromEvent?.(ev) || { building: world.buildingFromEvent?.(ev), doodad: world.doodadFromEvent?.(ev), raw: world.cellFromEvent(ev) };
     const hitB = pick.building;
     const hitD = pick.doodad;
+    const hitP = pick.player;
     const rawCell = pick.raw || world.cellFromEvent(ev);
     const c = pick.cell || (hitB?.b ? { x: hitB.b.x, z: hitB.b.z } : hitD ? { x: hitD.x, z: hitD.z } : rawCell);
     if (c) { ST.hoverCellX = c.x; ST.hoverCellZ = c.z; }
@@ -2261,6 +2262,7 @@ export default function mount() {
     const pick = world.pickFromEvent?.(ev) || { building: world.buildingFromEvent?.(ev), doodad: world.doodadFromEvent?.(ev), raw: world.cellFromEvent(ev) };
     const hitB = pick.building;
     const hitD = pick.doodad;
+    const hitP = pick.player;
     const rawCell = pick.raw || world.cellFromEvent(ev);
     const c = pick.cell || (hitB?.b ? { x: hitB.b.x, z: hitB.b.z } : hitD ? { x: hitD.x, z: hitD.z } : rawCell);
     if (hitB?.b?.capital) { openCapitalService(hitB.b); return; }
@@ -2276,10 +2278,11 @@ export default function mount() {
         return;
       }
       if (c) {
-        const targetPlayer = (ST.players || []).find((q) => q && q.id !== ST.me?.id && q.x === c.x && q.z === c.z);
+        const targetPlayer = hitP?.player || (ST.players || []).find((q) => q && q.id !== ST.me?.id && Math.trunc(Number(q.x)) === Math.trunc(Number(c.x)) && Math.trunc(Number(q.z)) === Math.trunc(Number(c.z)));
         if (targetPlayer) {
-          if (cheb(c.x, c.z, world.me.x, world.me.z) <= 1) act("fight", { targetId: targetPlayer.id }).then((r) => { if (r?.ok) { sfx.hit(); pollSoon(); } });
-          else world.pathToNear(c.x, c.z);
+          const tx = Math.trunc(Number(targetPlayer.x ?? c.x)), tz = Math.trunc(Number(targetPlayer.z ?? c.z));
+          if (cheb(tx, tz, world.me.x, world.me.z) <= 1) act("fight", { targetId: targetPlayer.id }).then((r) => { if (r?.ok) { sfx.hit(); pollSoon(); } });
+          else world.pathToNear(tx, tz);
           return;
         }
         sfx.err(); say(t("toast.swordSelected", "Sword selected — click a Keep, building, or nearby settler."), 1500);
@@ -2311,6 +2314,7 @@ export default function mount() {
     }
     if (ST.tool === "none" && c) {
       if (hitB) { openBuildingInspect(hitB); return; }
+      if (hitP?.player) { ST.inspectPlayer = hitP.player; ST.modal = "player"; paint(true); return; }
       const found = hitD || world.resolveDoodadCell?.(c.x, c.z);
       const d = found?.kind || world.doodadVisible(c.x, c.z);
       if (d && !world.buildPoolAt(found?.x ?? c.x, found?.z ?? c.z)) { openObjectPreview(worldObjectPreviewForCell(found || c)); return; }
@@ -3761,6 +3765,10 @@ export default function mount() {
       <div className="guide-list">{visible.map((row) => <GuideCard key={row.id} row={row} compact={false} />)}</div>
       <div className="row" style={{ marginTop: 12 }}><button className="btn" data-click="modal-close">Close</button><button className="btn primary" data-click="toggle-panel" data-panel="quests">Open Guide</button></div>
     </div>;
+  }
+
+  function PlayerModal() {
+    return <PlayerModalView target={ST.inspectPlayer} player={ST.me} worldPlayer={world?.me || ST.me} />;
   }
 
   function OptionsModal() {

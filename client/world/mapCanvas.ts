@@ -80,13 +80,31 @@ function drawLegend(ctx: any, width: number, height: number) {
   ctx.beginPath(); ctx.arc(16, y, 3, 0, Math.PI * 2); ctx.fill();
   ctx.fillStyle = "#9945ff"; ctx.fillRect(47, y - 3, 6, 6);
   ctx.fillStyle = "#d3aa63"; ctx.fillRect(91, y - 2, 10, 4);
-  ctx.fillStyle = "#f29c72"; ctx.beginPath(); ctx.arc(132, y, 3, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = "#2f952f"; ctx.beginPath(); ctx.arc(132, y, 3, 0, Math.PI * 2); ctx.fill();
   ctx.fillStyle = "rgba(243,234,215,.82)";
   ctx.fillText("you", 22, y);
   ctx.fillText("wonder", 58, y);
   ctx.fillText("road", 104, y);
-  ctx.fillText("player", 138, y);
+  ctx.fillText("res", 138, y);
   ctx.restore();
+}
+
+function mapLootColor(kind: any) {
+  const k = String(kind || "").toLowerCase();
+  if (k === "gold" || k === "coins" || k === "coin") return "#ffd76e";
+  if (k === "tree" || k === "wood") return "#2f952f";
+  if (k === "rock" || k === "stone") return "#aeb8bd";
+  if (k === "food" || k === "crop") return "#ceb443";
+  return "#7dcfe8";
+}
+
+function buildingMapStyle(b: any, meId: any) {
+  const k = String(b?.kind || "").toLowerCase();
+  if (k === "worldwonder") return { color: "#9945ff", size: 1.15, shape: "rect" };
+  if (k === "keep") return { color: "#ff705c", size: 1.00, shape: "rect" };
+  if (k === "bomb") return { color: "#ffb36c", size: 0.82, shape: "rect" };
+  if (k === "tradepost" || k === "trade") return { color: "#d3aa63", size: 0.82, shape: "diamond" };
+  return { color: b?.owner === meId ? "#f6ead6" : "#37404b", size: 0.75, shape: "rect" };
 }
 
 export function renderKnownWorldMap(canvas: any, data: WorldMapDrawData, options: WorldMapDrawOptions = {}) {
@@ -163,16 +181,25 @@ export function renderKnownWorldMap(canvas: any, data: WorldMapDrawData, options
   }
 
   for (const b of buildings) {
-    ctx.fillStyle = b?.kind === "worldwonder" ? "#9945ff" : b?.kind === "keep" ? "#ff705c" : b?.kind === "bomb" ? "#ffb36c" : b?.owner === meId ? "#f6ead6" : "#37404b";
-    const s = b?.kind === "worldwonder" ? Math.max(4, scale * 1.15) : Math.max(2, scale * 0.75);
-    ctx.fillRect(px(b?.x) + scale * 0.12, pz(b?.z) + scale * 0.12, s, s);
+    const st = buildingMapStyle(b, meId);
+    ctx.fillStyle = st.color;
+    const s = Math.max(st.shape === "diamond" ? 2.5 : 2, scale * st.size);
+    const x = px(b?.x) + scale * 0.5;
+    const z = pz(b?.z) + scale * 0.5;
+    if (st.shape === "diamond") {
+      ctx.beginPath();
+      ctx.moveTo(x, z - s * 0.62); ctx.lineTo(x + s * 0.62, z); ctx.lineTo(x, z + s * 0.62); ctx.lineTo(x - s * 0.62, z);
+      ctx.closePath(); ctx.fill();
+    } else {
+      ctx.fillRect(px(b?.x) + scale * 0.12, pz(b?.z) + scale * 0.12, s, s);
+    }
   }
 
   for (const l of loot) {
-    if (l?.kind !== "gold") continue;
-    ctx.fillStyle = "#ffd76e";
+    ctx.fillStyle = mapLootColor(l?.kind);
+    const r = Math.max(String(l?.kind || "") === "gold" ? 1.6 : 1.25, scale * (String(l?.kind || "") === "gold" ? 0.28 : 0.22));
     ctx.beginPath();
-    ctx.arc(px(l.x) + scale * 0.5, pz(l.z) + scale * 0.5, Math.max(1.6, scale * 0.28), 0, Math.PI * 2);
+    ctx.arc(px(l.x) + scale * 0.5, pz(l.z) + scale * 0.5, r, 0, Math.PI * 2);
     ctx.fill();
   }
 
@@ -184,9 +211,11 @@ export function renderKnownWorldMap(canvas: any, data: WorldMapDrawData, options
     const z = pz(q?.z) + scale * 0.5;
     const ghost = !!q?.spectator;
     ctx.globalAlpha = ghost ? 0.58 : active ? 1 : 0.35;
-    ctx.fillStyle = isMe ? "#ffffff" : ghost ? "#9fdcff" : hexFromColorNumber(q?.body, "#f29c72");
+    ctx.fillStyle = q?.npc ? "#ceb443" : isMe ? "#ffffff" : ghost ? "#9fdcff" : hexFromColorNumber(q?.body, "#f29c72");
     ctx.beginPath();
-    ctx.arc(x, z, isMe ? Math.max(4, scale * 0.55) : Math.max(2.4, scale * 0.42), 0, Math.PI * 2);
+    const pr = isMe ? Math.max(4, scale * 0.55) : Math.max(2.4, scale * 0.42);
+    if (q?.npc) { ctx.moveTo(x, z - pr); ctx.lineTo(x + pr * 0.9, z + pr * 0.72); ctx.lineTo(x - pr * 0.9, z + pr * 0.72); ctx.closePath(); }
+    else ctx.arc(x, z, pr, 0, Math.PI * 2);
     ctx.fill();
     ctx.strokeStyle = isMe ? "#14f195" : ghost ? "rgba(189,238,255,.9)" : "rgba(255,255,255,.75)";
     ctx.lineWidth = isMe ? 2 : 1;
