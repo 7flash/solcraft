@@ -1106,7 +1106,7 @@ export default function mount() {
 
   function worldMapData(expanded = false) {
     const canvasMini = world?.minimapSnapshot?.() || null;
-    const fallbackTiles = Array.isArray(canvasMini?.tiles) && canvasMini.tiles.length ? canvasMini.tiles : (world?.cells ? Array.from(world.cells.values()).map((c) => ({ x: c.cx ?? c.x, z: c.cz ?? c.z, owner: c.owner || 0 })) : []);
+    const fallbackTiles = Array.isArray(canvasMini?.tiles) && canvasMini.tiles.length ? canvasMini.tiles : (world?.visibleCells ? world.visibleCells() : (world?.cells ? Array.from(world.cells.values()).map((c) => ({ x: c.cx ?? c.x, z: c.cz ?? c.z, owner: c.owner || 0 })) : []));
     const fallbackBuildings = Array.isArray(canvasMini?.buildings) && canvasMini.buildings.length ? canvasMini.buildings : (world?.buildPool ? Array.from(world.buildPool.values()).map((b) => ({ x: b.x, z: b.z, kind: b.kind, owner: b.owner, uid: b.uid })) : []);
     const fallbackLoot = Array.isArray(canvasMini?.loot) && canvasMini.loot.length ? canvasMini.loot : (world?.lootPool ? Array.from(world.lootPool.values()).map((l) => ({ x: l.x, z: l.z, kind: l.kind, id: l.id })) : []);
     // After the Canvas renderer swap, ST.map can be a stale or sparse server
@@ -1816,8 +1816,9 @@ export default function mount() {
     ev.preventDefault();
     hideCtx();
     if (ST.modal) return;
-    const hitB = world.buildingFromEvent(ev);
-    const c = world.cellFromEvent(ev);
+    const pick = world.pickFromEvent?.(ev) || { building: world.buildingFromEvent?.(ev), doodad: world.doodadFromEvent?.(ev), raw: world.cellFromEvent(ev) };
+    const hitB = pick.building;
+    const c = pick.cell || pick.raw || world.cellFromEvent(ev);
     if (hitB) { openBuildingInspect(hitB); return; }
     if (c) {
       const found = world.resolveDoodadCell?.(c.x, c.z);
@@ -2218,10 +2219,11 @@ export default function mount() {
 
   function onPointerMove(ev) {
     if (ST.screen !== "playing") return;
-    const hitB = world.buildingFromEvent?.(ev);
-    const hitD = world.doodadFromEvent?.(ev);
-    const rawCell = world.cellFromEvent(ev);
-    const c = hitB?.b ? { x: hitB.b.x, z: hitB.b.z } : hitD ? { x: hitD.x, z: hitD.z } : rawCell;
+    const pick = world.pickFromEvent?.(ev) || { building: world.buildingFromEvent?.(ev), doodad: world.doodadFromEvent?.(ev), raw: world.cellFromEvent(ev) };
+    const hitB = pick.building;
+    const hitD = pick.doodad;
+    const rawCell = pick.raw || world.cellFromEvent(ev);
+    const c = pick.cell || (hitB?.b ? { x: hitB.b.x, z: hitB.b.z } : hitD ? { x: hitD.x, z: hitD.z } : rawCell);
     if (c) { ST.hoverCellX = c.x; ST.hoverCellZ = c.z; }
     if (!c) { ST.hoverIntent = "walk"; syncToolCursor(); world.hoverMarker.visible = false; world.hideBuildGhost(); hideTip(); return; }
     ST.hoverIntent = hitB ? "building" : (hitD?.kind || hoverIntentForCell(c));
@@ -2250,10 +2252,11 @@ export default function mount() {
     if (ev.button === 2) { ev.preventDefault(); return; }
     if (ST.screen !== "playing" || ST.modal || ST.updateRequired) return;
     sfx.resume();
-    const hitB = world.buildingFromEvent(ev);
-    const hitD = world.doodadFromEvent?.(ev);
-    const rawCell = world.cellFromEvent(ev);
-    const c = hitB?.b ? { x: hitB.b.x, z: hitB.b.z } : hitD ? { x: hitD.x, z: hitD.z } : rawCell;
+    const pick = world.pickFromEvent?.(ev) || { building: world.buildingFromEvent?.(ev), doodad: world.doodadFromEvent?.(ev), raw: world.cellFromEvent(ev) };
+    const hitB = pick.building;
+    const hitD = pick.doodad;
+    const rawCell = pick.raw || world.cellFromEvent(ev);
+    const c = pick.cell || (hitB?.b ? { x: hitB.b.x, z: hitB.b.z } : hitD ? { x: hitD.x, z: hitD.z } : rawCell);
     if (hitB?.b?.capital) { openCapitalService(hitB.b); return; }
     if (ST.mode === "admin" && ST.tool === "admin" && isAdminPlayer() && c) {
       if (ST.adminTool === "spawnKeep") adminSpawnKeep("here", c);

@@ -83,6 +83,7 @@ export function createCanvasPrismWorld(opts: CanvasWorldOptions) {
   const maxInFlight = 4;
 
   const me = { id: 0, x: 0, z: 0, name: "", body: 0x14f195, hat: 0x7dcfe8, walking: false, walkPhase: 0, facingX: 0, facingZ: 1 };
+  let lastAuthoritative = { x: 0, z: 0 };
   const remotes: any[] = [];
   const playersById = new Map<any, any>();
   const tileOwner = new Map<string, any>();
@@ -447,18 +448,24 @@ export function createCanvasPrismWorld(opts: CanvasWorldOptions) {
       inFlight = Math.max(0, inFlight - 1);
       if (!r || !r.ok) {
         opts.onError?.();
-        if (Number.isFinite(r?.x) && Number.isFinite(r?.z)) hardSnapMe(r.x, r.z);
+        const rx = Number(r?.x), rz = Number(r?.z);
+        // The Three renderer used authoritative mesh/raycast state, so a
+        // rejected move naturally corrected on the next scene update. Canvas is
+        // fully local between polls; roll back immediately to the last known
+        // server position if the rejection did not include coordinates.
+        hardSnapMe(Number.isFinite(rx) ? rx : lastAuthoritative.x, Number.isFinite(rz) ? rz : lastAuthoritative.z);
         opts.pollSoon?.();
         return;
       }
       ackSeq = Math.max(ackSeq, Number(r.ackSeq || r.acceptedSeq || seq) || seq);
       const serverX = Number(r.x ?? (Array.isArray(r.path) && r.path.length ? r.path[r.path.length - 1]?.x : NaN));
       const serverZ = Number(r.z ?? (Array.isArray(r.path) && r.path.length ? r.path[r.path.length - 1]?.z : NaN));
+      if (Number.isFinite(serverX) && Number.isFinite(serverZ)) lastAuthoritative = { x: Math.trunc(serverX), z: Math.trunc(serverZ) };
       if (!pendingPath.length && inFlight === 0 && Number.isFinite(serverX) && Number.isFinite(serverZ)) {
         const drift = Math.max(Math.abs(Math.trunc(serverX) - me.x), Math.abs(Math.trunc(serverZ) - me.z));
         if (drift > 1) hardSnapMe(serverX, serverZ);
       }
-    }).catch(() => { inFlight = Math.max(0, inFlight - 1); });
+    }).catch(() => { inFlight = Math.max(0, inFlight - 1); hardSnapMe(lastAuthoritative.x, lastAuthoritative.z); });
     return true;
   }
   function stepTo(x: number, z: number) {
@@ -499,6 +506,7 @@ export function createCanvasPrismWorld(opts: CanvasWorldOptions) {
       const tx = Math.trunc(sx), tz = Math.trunc(sz);
       // Server snapshots can arrive behind the local optimistic canvas walk.
       // Do not yank the player back unless the drift is clearly impossible.
+      lastAuthoritative = { x: tx, z: tz };
       if (!hasPendingMove() || Math.max(Math.abs(tx - me.x), Math.abs(tz - me.z)) > 8) {
         me.x = tx; me.z = tz;
       }
@@ -581,6 +589,16 @@ export function createCanvasPrismWorld(opts: CanvasWorldOptions) {
       players: [me, ...remotes].map((p:any) => ({ id: p.id, x: p.x, z: p.z, body: p.body, name: p.name, lastSeen: Date.now() })),
     };
   }
+  function pickFromEvent(ev: PointerEvent | MouseEvent) {
+    const building = buildingFromEvent(ev);
+    const doodad = doodadFromEvent(ev);
+    const raw = cellFromEvent(ev);
+    const cell = building?.b ? { x: building.b.x, z: building.b.z } : doodad ? { x: doodad.x, z: doodad.z } : raw;
+    return { cell, building, doodad, raw };
+  }
+  function worldToScreen(x:number, z:number, y = 0) { return proj(Number(x), Number(y), Number(z)); }
+  function screenToWorldPoint(sx:number, sy:number) { return screenToWorld(Number(sx), Number(sy)); }
+  function visibleCells() { return Array.from(cells.values()).map((c:any) => ({ x: c.cx ?? c.x, z: c.cz ?? c.z, owner: c.owner || 0 })); }
   function updateMinimapInfo() { /* world map/minimap UI is still handled by existing canvas map code. */ }
   function dispose() { disposed = true; cancelAnimationFrame(raf); window.removeEventListener("resize", resize); try { canvas.remove(); } catch {} }
 
@@ -588,7 +606,7 @@ export function createCanvasPrismWorld(opts: CanvasWorldOptions) {
   resize(); updateProjection(); applyMe(ST.me); rebuildCells(true); raf = requestAnimationFrame(tick);
 
   return {
-    applyWorld, applyPlayers, applyMe, me, cellFromEvent, buildingFromEvent, pathTo, pathToNear, tryMoveDelta,
+    applyWorld, applyPlayers, applyMe, me, cellFromEvent, buildingFromEvent, pickFromEvent, worldToScreen, screenToWorldPoint, visibleCells, pathTo, pathToNear, tryMoveDelta,
     blocked, buildPoolAt, doodadVisible, doodadAt, resolveDoodadCell, doodadFromEvent, burst, floatText, shockwave, hoverMarker, hardSnapMe, markDoodadGone, removeBuild,
     setHintCells, hideBuildGhost, showBuildGhost, refreshWindow, rebuildBuilding: (uid:any) => {}, animateBuildingUse: (uid:any) => { const b=buildPool.get(uid); if (b) floatText(b.x,b.z,"used","#ffd76e"); }, refreshConstructionProgress: () => {},
     refreshOwnRig: () => {}, applyVisualQuality: () => {}, hasPendingMove, canIssueMove, minimapSnapshot,
