@@ -61,6 +61,8 @@ import { PlayerHudView } from "../client/ui/playerHud";
 import { TopChromeView } from "../client/ui/topChrome";
 import { disposeMiniPreviews, syncMiniPreviewPanels } from "../client/world/miniPreview";
 import { SpatialGridCache } from "../client/world/spatialGridCache";
+import { buildingRecipeFor, recipeVisibleParts } from "../client/world/buildingRecipes";
+import { maxRecipeHeight, renderRecipeParts } from "../client/world/buildingRecipeRenderer";
 import { WorldMapModalView } from "../client/ui/worldMapModal";
 import { PlayerModalView } from "../client/ui/playerModal";
 import { renderKnownWorldMap, tileFromCanvasEvent } from "../client/world/mapCanvas";
@@ -1561,7 +1563,7 @@ export default function mount() {
       return `owned:${mine ? 1 : 0}:${Math.trunc(Number(t.body) || 0)}`;
     }
     function terrainTopForBatchKey(batchKey) {
-      if (batchKey === "neutral") return 0x354f3d;
+      if (batchKey === "neutral") return 0x3e5f49;
       const [, mine, body] = String(batchKey).split(":");
       return territoryTopHex(Number(body) || 0x14f195, mine === "1");
     }
@@ -1573,8 +1575,8 @@ export default function mount() {
       const n = hrand(c.cx, c.cz, 91) - 0.5;
       const broad = hrand(Math.floor(c.cx / 4), Math.floor(c.cz / 4), 133) - 0.5;
       const owned = batchKey !== "neutral";
-      hsl.l = Math.max(0.06, Math.min(0.62, hsl.l + n * (owned ? 0.018 : 0.038) + broad * (owned ? 0.010 : 0.024)));
-      hsl.s = Math.max(0.10, Math.min(0.82, hsl.s * (owned ? 0.92 : 0.86)));
+      hsl.l = Math.max(0.08, Math.min(0.66, hsl.l + n * (owned ? 0.020 : 0.052) + broad * (owned ? 0.012 : 0.038)));
+      hsl.s = Math.max(0.12, Math.min(0.78, hsl.s * (owned ? 0.90 : 0.82)));
       out.setHSL(hsl.h, hsl.s, hsl.l);
       return out;
     }
@@ -1619,6 +1621,60 @@ export default function mount() {
         if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
         terrainBatchRoot.add(mesh);
         terrainBatchMeshes.set(bk, mesh);
+      }
+    }
+
+    // The previous pass removed the screaming black grid, but a perfectly flat
+    // green field made buildings feel like they were floating in a void.  This
+    // detail layer adds sparse, deterministic, low-opacity ground marks: enough
+    // scale/context to read the floor without bringing the debug lattice back.
+    const groundDetailRoot = new THREE.Group(); scene.add(groundDetailRoot);
+    const groundDetailGeo = new THREE.PlaneGeometry(1, 1);
+    const groundDetailMats = [
+      new THREE.MeshBasicMaterial({ color: 0x496c52, transparent: true, opacity: 0.105, depthWrite: false, side: THREE.DoubleSide }),
+      new THREE.MeshBasicMaterial({ color: 0x2b4737, transparent: true, opacity: 0.100, depthWrite: false, side: THREE.DoubleSide }),
+      new THREE.MeshBasicMaterial({ color: 0x6e694c, transparent: true, opacity: 0.055, depthWrite: false, side: THREE.DoubleSide }),
+    ];
+    const groundDetailMeshes = new Map();
+    let groundDetailSig = "";
+    function rebuildGroundDetails(force = false) {
+      const buckets = new Map();
+      for (const [k, c] of cells) {
+        const n = hrand(c.cx, c.cz, 211);
+        const occupied = !!buildAt.get(k) || !!doodadPool.get(k) || !!tradePostPool.get(k);
+        if (occupied) continue;
+        if (n > 0.42) continue;
+        const type = n < 0.13 ? 2 : n < 0.27 ? 1 : 0;
+        if (!buckets.has(type)) buckets.set(type, []);
+        buckets.get(type).push(c);
+      }
+      const sig = [...buckets.entries()].sort(([a], [b]) => Number(a) - Number(b)).map(([type, rows]) => {
+        const first = rows[0], last = rows[rows.length - 1];
+        return `${type}:${rows.length}:${first?.cx},${first?.cz}:${last?.cx},${last?.cz}`;
+      }).join("|");
+      if (!force && sig === groundDetailSig) return;
+      groundDetailSig = sig;
+      for (const mesh of groundDetailMeshes.values()) groundDetailRoot.remove(mesh);
+      groundDetailMeshes.clear();
+      for (const [type, rows] of buckets) {
+        const mesh = new THREE.InstancedMesh(groundDetailGeo, groundDetailMats[type] || groundDetailMats[0], rows.length);
+        mesh.frustumCulled = false;
+        mesh.renderOrder = 1;
+        for (let i = 0; i < rows.length; i++) {
+          const c = rows[i];
+          const jx = (hrand(c.cx, c.cz, 212) - 0.5) * 0.42;
+          const jz = (hrand(c.cx, c.cz, 213) - 0.5) * 0.42;
+          const sx = type === 2 ? 0.56 : 0.18 + hrand(c.cx, c.cz, 214) * 0.22;
+          const sz = type === 2 ? 0.30 : 0.035 + hrand(c.cx, c.cz, 215) * 0.055;
+          batchDummy.position.set(c.cx + jx, TERRAIN_TOP_Y + 0.012, c.cz + jz);
+          batchDummy.rotation.set(-Math.PI / 2, 0, hrand(c.cx, c.cz, 216) * Math.PI);
+          batchDummy.scale.set(sx, sz, 1);
+          batchDummy.updateMatrix();
+          mesh.setMatrixAt(i, batchDummy.matrix);
+        }
+        mesh.instanceMatrix.needsUpdate = true;
+        groundDetailRoot.add(mesh);
+        groundDetailMeshes.set(type, mesh);
       }
     }
 
@@ -1669,13 +1725,13 @@ export default function mount() {
       return prismMatCache.get(k);
     }
     function prismMats(top, left = null, right = null) {
-      const t = shadeHex(top, 0.10), l = left || shadeHex(top, -0.16), r = right || shadeHex(top, -0.26);
+      const t = shadeHex(top, 0.08), l = left || shadeHex(top, -0.10), r = right || shadeHex(top, -0.18);
       const k = `${t}|${l}|${r}`.toLowerCase();
       if (!prismMatsCache.has(k)) prismMatsCache.set(k, [staticPrismMaterial(t), staticPrismMaterial(l), staticPrismMaterial(r)]);
       return prismMatsCache.get(k);
     }
     function prismFaceKey(top, left = null, right = null) {
-      return `${shadeHex(top, 0.10)}|${left || shadeHex(top, -0.16)}|${right || shadeHex(top, -0.26)}`.toLowerCase();
+      return `${shadeHex(top, 0.08)}|${left || shadeHex(top, -0.10)}|${right || shadeHex(top, -0.18)}`.toLowerCase();
     }
     function addPrismMesh(group, parts, spec = {}) {
       const top = cssHex(spec.top || spec.color || "#ffd76e");
@@ -1805,7 +1861,18 @@ export default function mount() {
       m.rotation.x = -Math.PI / 2; m.position.set(x, 0.24, z); scene.add(m);
       waves.push({ m, t: 0, dur: 0.55 });
     }
+    const buildingShadowGeo = new THREE.CircleGeometry(0.46, 30);
+    const buildingShadowMat = new THREE.MeshBasicMaterial({ color: 0x08140f, transparent: true, opacity: 0.20, depthWrite: false, side: THREE.DoubleSide });
     function decorateBuilding(g, b) {
+      if (b?.kind !== "road") {
+        const sh = new THREE.Mesh(buildingShadowGeo, buildingShadowMat);
+        sh.rotation.x = -Math.PI / 2;
+        sh.position.y = STATIC_WORLD_BASE_Y + 0.010;
+        const s = b?.kind === "worldwonder" ? 2.2 : b?.kind === "keep" ? 1.35 : b?.kind === "warehouse" ? 1.08 : 0.96;
+        sh.scale.set(s * 1.35, s * 0.78, 1);
+        sh.renderOrder = 1;
+        g.add(sh);
+      }
       const lv = b.level || 1;
       for (let i = 0; i < lv - 1; i++) {
         const pip = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.06, 0.06), ME(0xffd76e, 0xffb43d, 1));
@@ -1825,9 +1892,9 @@ export default function mount() {
     const player = new THREE.Group();
     let rig = null, rigSig = "";
     player.position.set(0, 0.22, 0); scene.add(player);
-    const aura = new THREE.Mesh(new THREE.CircleGeometry(0.40, 32), new THREE.MeshBasicMaterial({ color: 0x06100b, transparent: true, opacity: 0.34, depthWrite: false }));
-    aura.rotation.x = -Math.PI / 2; aura.position.y = 0.008; aura.scale.set(1.18, 0.72, 1); player.add(aura);
-    const plight = new THREE.PointLight(0xd6c66a, 0.18, 3.4); plight.position.y = 0.9; player.add(plight);
+    const aura = new THREE.Mesh(new THREE.CircleGeometry(0.34, 32), new THREE.MeshBasicMaterial({ color: 0x0b1d15, transparent: true, opacity: 0.22, depthWrite: false }));
+    aura.rotation.x = -Math.PI / 2; aura.position.y = 0.010; aura.scale.set(1.02, 0.58, 1); player.add(aura);
+    const plight = new THREE.PointLight(0xd6c66a, 0.12, 3.0); plight.position.y = 0.9; player.add(plight);
     function heldToolForState() {
       if (ST.tool === "wood") return "axe";
       if (ST.tool === "stone") return "pickaxe";
@@ -1846,7 +1913,7 @@ export default function mount() {
       rigSig = sig;
       if (rig) { rig.traverse?.((o) => o?.userData?.dispose?.()); player.remove(rig); }
       rig = makePlayerBillboard({ body: ST.me.body, hat: ST.me.hat, heldTool, palette: ST.characterProfile?.palette, name: ST.me.name });
-      rig.scale?.setScalar?.(1.14);
+      rig.scale?.setScalar?.(1.18);
       player.add(rig);
     }
     const homeBanner = new THREE.Group(); let bannerOwner = 0; scene.add(homeBanner);
@@ -1885,69 +1952,67 @@ export default function mount() {
       const g = new THREE.Group();
       const parts = [];
       const k = String(kind || "building").toLowerCase();
-      const base = cssHex(opts.cl || "#ffd76e", "#ffd76e");
-      const plinth = cssHex(opts.plinth || "#c79337", "#c79337");
-      const rows = [];
-      const add = (x, z, y, w, d, h, top, left = null, right = null) => rows.push({ x, z, y, w, d, h, top, left, right });
-      add(0, 0, 0.035, 0.86, 0.72, 0.08, plinth);
-      if (k === "cottage" || k === "house") {
-        // House is built from grounded rectangular prisms only. The player's color
-        // appears on the territory plinth/trim, not as a huge neon roof block.
-        add(0, 0, 0.12, 0.64, 0.48, 0.40, "#ead8aa", "#c9b274", "#a78f58");
-        add(0, 0.255, 0.20, 0.16, 0.045, 0.22, "#4b2d1d", "#3b2114", "#28150d");
-        add(-0.21, -0.252, 0.34, 0.12, 0.045, 0.11, "#9bd7e3", "#68a8b8", "#4f8492");
-        add(0.21, -0.252, 0.34, 0.12, 0.045, 0.11, "#9bd7e3", "#68a8b8", "#4f8492");
-        add(0, -0.02, 0.52, 0.84, 0.62, 0.09, "#6f3f26", "#5a301c", "#3d2114");
-        add(0, -0.04, 0.61, 0.68, 0.50, 0.10, "#8d5230", "#6b3c23", "#482817");
-        add(0, -0.06, 0.71, 0.48, 0.34, 0.08, "#a96439", "#7a4528", "#52301d");
-        add(0.26, 0.14, 0.62, 0.10, 0.10, 0.24, "#5c3622", "#432516", "#2d180e");
-      } else if (k === "lumber") {
-        add(0, 0, 0.13, 0.66, 0.46, 0.24, "#8b5628");
-        for (const z of [-0.20, 0, 0.20]) add(-0.04, z, 0.38, 0.74, 0.08, 0.12, "#a66a35", "#7e4c24", "#5f371a");
-        add(0.25, -0.18, 0.52, 0.18, 0.16, 0.38, base);
-      } else if (k === "quarry") {
-        add(0, 0, 0.13, 0.74, 0.54, 0.24, "#8d98a3");
-        add(-0.18, -0.12, 0.38, 0.42, 0.34, 0.32, "#cfd6dc", "#8d98a3", "#68737d");
-        add(0.24, 0.14, 0.34, 0.36, 0.30, 0.26, "#aab3bb", "#7d8790", "#59636c");
-      } else if (k === "farm") {
-        add(0, 0, 0.12, 0.78, 0.58, 0.12, "#6d4a2b");
-        for (const x of [-0.27, -0.09, 0.09, 0.27]) add(x, 0, 0.25, 0.08, 0.48, 0.26, x < 0 ? "#3faa55" : "#ffd76e");
-      } else if (k === "warehouse") {
-        add(0, 0, 0.13, 0.78, 0.60, 0.58, "#b78652");
-        add(0, -0.02, 0.70, 0.90, 0.70, 0.26, "#6f4a2b");
-        add(-0.28, 0.32, 0.26, 0.18, 0.10, 0.28, "#342018");
-      } else if (k === "keep") {
-        add(0, 0, 0.13, 0.88, 0.72, 0.58, "#8d98a3");
-        for (const [x,z] of [[-0.36,-0.28],[0.36,-0.28],[-0.36,0.28],[0.36,0.28]]) add(x, z, 0.62, 0.24, 0.22, 0.54, "#cfd6dc", "#8d98a3", "#68737d");
-        add(0, 0, 1.08, 0.48, 0.38, 0.24, base);
-      } else if (k === "market") {
-        add(0, 0, 0.12, 0.82, 0.58, 0.18, "#c79337");
-        add(-0.24, -0.08, 0.34, 0.34, 0.28, 0.28, base);
-        add(0.24, -0.08, 0.34, 0.34, 0.28, 0.28, "#7dcfe8");
-        add(0, 0.22, 0.34, 0.48, 0.20, 0.24, "#f6e7c8");
-      } else if (k === "bomb") {
-        add(0, 0, 0.13, 0.42, 0.36, 0.32, "#594134");
-        add(0, -0.02, 0.46, 0.24, 0.18, 0.24, "#ff7a66");
-      } else {
-        add(0, 0, 0.13, 0.72, 0.52, 0.44, base);
-        add(0, -0.03, 0.58, 0.52, 0.42, 0.32, "#f6e7c8");
-      }
+      const base = cssHex(opts.cl || "#d6604f", "#d6604f");
+      const plinth = cssHex(opts.plinth || "#3f3920", "#3f3920");
+
+      // Advanced buildings are now data recipes: every structure is assembled
+      // from the same fixed-camera prism primitive, but each building kind gets
+      // a handcrafted stack of foundation/body/roof/trim/accent parts.  This is
+      // what lets us reach the richer screenshot style without abandoning the
+      // strict prism renderer or adding arbitrary mesh geometry.
+      const recipe = buildingRecipeFor(k, {
+        color: base,
+        plinth,
+        name: opts.nm,
+        buildProgress: opts.buildProgress,
+      });
       const progress = Math.max(0, Math.min(1, Number(opts.buildProgress ?? 1) || 0));
-      const visible = progress >= 0.995 ? rows.length : Math.max(1, Math.ceil(rows.length * Math.max(0.10, progress)));
-      let maxY = 0.7;
-      for (let i = 0; i < visible; i++) {
-        const r = rows[i];
-        maxY = Math.max(maxY, r.y + r.h);
-        addPrismMesh(g, parts, { ...r, renderOrder: 4 });
+      const visibleRecipe = recipeVisibleParts(recipe, progress);
+      renderRecipeParts(visibleRecipe, (r) => addPrismMesh(g, parts, {
+        x: r.x,
+        z: r.z,
+        y: r.y,
+        w: r.w,
+        d: r.d,
+        h: r.h,
+        top: r.top,
+        left: r.left,
+        right: r.right,
+        renderOrder: 4,
+      }), 4);
+
+      // AI/generated wonders may provide a recipe of box parts from the server.
+      // Keep that path additive: the curated base/anchor comes first, then the
+      // AI landmark parts sit on top in the same prism language.
+      if (k === "worldwonder" && opts.wonder && Array.isArray(opts.wonder.parts)) {
+        const yBase = Math.max(0.95, maxRecipeHeight(visibleRecipe) * 0.70);
+        for (let i = 0; i < Math.min(80, opts.wonder.parts.length); i++) {
+          const wp = opts.wonder.parts[i] || {};
+          if (wp.primitive && wp.primitive !== "box") continue;
+          const pos = Array.isArray(wp.pos) ? wp.pos : [0, 0, 0];
+          const scale = Array.isArray(wp.scale) ? wp.scale : [0.5, 0.5, 0.5];
+          addPrismMesh(g, parts, {
+            x: Number(pos[0] || 0) * 0.58,
+            y: yBase + Number(pos[1] || 0) * 0.34,
+            z: Number(pos[2] || 0) * 0.58,
+            w: Math.max(0.06, Number(scale[0] || 0.35) * 0.58),
+            h: Math.max(0.06, Number(scale[1] || 0.35) * 0.34),
+            d: Math.max(0.06, Number(scale[2] || 0.35) * 0.58),
+            top: cssHex(wp.color || base, base),
+            renderOrder: 5,
+          });
+        }
       }
+
       const name = String(opts.nm || "").trim();
       if (name) {
         const label = makeLabel(name.slice(0, 24), "#fff0c8");
-        label.position.set(0, maxY + 0.22, 0);
+        label.position.set(0, maxRecipeHeight(visibleRecipe) + 0.24, 0);
         g.add(label);
         parts.push(label);
       }
       g.userData.staticPrismBuilding = true;
+      g.userData.recipeKind = k;
       return { group: g, parts };
     }
 
@@ -2166,10 +2231,11 @@ export default function mount() {
       for (let x = px - r; x <= px + r; x++)
         for (let z = pz - r; z <= pz + r; z++) refreshCell(x, z);
       rebuildTerrainBatches(force);
+      rebuildGroundDetails(force);
       rebuildResourceBatches(force);
       syncWorldVisibility();
     }
-    loadAtlasRuntimeConfig().then(() => { ownerMatCache.clear(); terrainBatchMatCache.clear(); terrainBatchSig = ""; for (const [, c] of cells) c.owner = -1; refreshWindow(true); }).catch(() => {});
+    loadAtlasRuntimeConfig().then(() => { ownerMatCache.clear(); terrainBatchMatCache.clear(); terrainBatchSig = ""; groundDetailSig = ""; for (const [, c] of cells) c.owner = -1; refreshWindow(true); }).catch(() => {});
 
     function hardSnapMe(x, z) {
       walkQueue.length = 0; netMoveQueue.length = 0; walking = false; moveBusy = false; pendingWalk = null; inFlightMoveBatches = 0; lastAckMoveSeq = moveSeq; activeMoveToken = ++moveToken;
