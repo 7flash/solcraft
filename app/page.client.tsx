@@ -1842,6 +1842,12 @@ export default function mount() {
     }
     return null;
   }
+  function resourceOnExactTile(x, z) {
+    // Canvas resources are drawn larger than one authoritative tile. For build
+    // validation, use the exact server tile only; otherwise a visually large
+    // tree blocks neighboring empty cells and makes placement feel broken.
+    return world.doodadAtCell?.(x, z)?.kind || false;
+  }
   function setTool(t) { ST.tool = t; updateHints(); paint(); }
   function doGather(kind) {
     const next = kind === "stone" ? "stone" : "wood";
@@ -1972,14 +1978,14 @@ export default function mount() {
     if (def?.id === "road") return "Road building is disabled in this build.";
     if (tradePostAt(x, z)) return "A trade post occupies this tile.";
     if (world.buildPoolAt(x, z)) return "Occupied.";
-    if (world.doodadVisible(x, z)) return "Clear the tree or rock on the center tile first.";
+    if (resourceOnExactTile(x, z)) return "Clear the tree or rock on the center tile first.";
     if (world.me.x === x && world.me.z === z) return "Step aside first.";
     for (const [dx, dz] of padOffsetsForDef(def)) {
       const sx = x + dx, sz = z + dz;
       const st = world.tileOwner.get(key(sx, sz));
       if (!st || st.owner !== ST.me.id) return `Claim the full ${padName} first.`;
       if (world.buildPoolAt(sx, sz)) return `The ${padName} is blocked by another building.`;
-      if (world.doodadVisible(sx, sz)) return `Clear trees and rocks from the ${padName} first.`;
+      if (resourceOnExactTile(sx, sz)) return `Clear trees and rocks from the ${padName} first.`;
       if (tradePostAt(sx, sz)) return `A public trade post sits in that ${padName}.`;
     }
     return null;
@@ -2003,7 +2009,7 @@ export default function mount() {
     const keepPad = isNeutralKeepSiegeTile(x, z);
     if (!tile || (!ownTile && !keepPad)) return "Deploy tools on your territory or the neutral 3×3 siege yard around a Keep.";
     if (world.buildPoolAt(x, z)) return "Something is already standing here.";
-    if (world.doodadVisible(x, z)) return "Clear trees and rocks before placing a tool.";
+    if (resourceOnExactTile(x, z)) return "Clear trees and rocks before placing a tool.";
     if (tradePostAt(x, z)) return "Merchant says no boom on the welcome mat.";
     if (includeResources && craftedToolCount(spec.id) <= 0) return `Craft a ${spec.name} first.`;
     return null;
@@ -2041,7 +2047,7 @@ export default function mount() {
     if (!t || Number(t.owner || 0) !== Number(ST.me.id)) return "Need a captured tile";
     if (capitalBlocksPlayerTerritory(c.x, c.z)) return "Capital reserve";
     if (world.buildPoolAt(c.x, c.z)) return "Tile occupied";
-    if (world.doodadVisible(c.x, c.z)) return "Clear the resource first";
+    if (resourceOnExactTile(c.x, c.z)) return "Clear the resource first";
     return "";
   }
   function canOpenBuildTile(c) { return !buildTileProblem(c); }
