@@ -1596,18 +1596,18 @@ export default function mount() {
       return arr;
     }
     function buildingPlinthHex(b) {
-      // Keep foundations visually separate from claimed terrain.  Passing the
-      // owner's tile color into building plinths made roof/foundation top faces
-      // blend into the ground, especially in the capital cluster.  Ownership now
-      // lives in small accents/flags; foundations stay stone/umber by building type.
+      // Keep foundations visually separate from claimed terrain.  This is a
+      // material boundary, not an owner-color boundary: ownership belongs in
+      // flags/accent lights, while plinths stay warm stone/brass so top faces
+      // never melt into the green terrain plane.
       const k = String(b?.kind || "building").toLowerCase();
-      if (k === "quarry") return "#6b7166";
-      if (k === "bank" || k === "vault" || k === "goldmine") return "#74643d";
-      if (k === "farm" || k === "granary" || k === "windmill") return "#6e5632";
-      if (k === "lumber" || k === "sawmill") return "#65472c";
-      if (k === "keep" || k === "watchtower" || k.includes("gate")) return "#696044";
-      if (k === "worldwonder" || k === "obelisk" || k === "shrine") return "#6e623e";
-      return "#67583a";
+      if (k === "quarry") return "#81745a";
+      if (k === "bank" || k === "vault" || k === "goldmine") return "#8d7240";
+      if (k === "farm" || k === "granary" || k === "windmill") return "#80633b";
+      if (k === "lumber" || k === "sawmill") return "#7a5633";
+      if (k === "keep" || k === "watchtower" || k.includes("gate")) return "#82754f";
+      if (k === "worldwonder" || k === "obelisk" || k === "shrine") return "#8a7845";
+      return "#7f6840";
     }
     function terrainBatchKeyForCell(k) {
       const t = tileOwner.get(k);
@@ -1686,9 +1686,10 @@ export default function mount() {
     const groundDetailGeo = new THREE.PlaneGeometry(1, 1);
     groundDetailGeo.userData.shared = true;
     const groundDetailMats = [
-      new THREE.MeshBasicMaterial({ color: 0x66896a, transparent: true, opacity: 0.165, depthWrite: false, side: THREE.DoubleSide }),
-      new THREE.MeshBasicMaterial({ color: 0x2c4a39, transparent: true, opacity: 0.150, depthWrite: false, side: THREE.DoubleSide }),
-      new THREE.MeshBasicMaterial({ color: 0x9a8a59, transparent: true, opacity: 0.112, depthWrite: false, side: THREE.DoubleSide }),
+      new THREE.MeshBasicMaterial({ color: 0x6f8c70, transparent: true, opacity: 0.155, depthWrite: false, side: THREE.DoubleSide }),
+      new THREE.MeshBasicMaterial({ color: 0x263d32, transparent: true, opacity: 0.140, depthWrite: false, side: THREE.DoubleSide }),
+      new THREE.MeshBasicMaterial({ color: 0xa28c5a, transparent: true, opacity: 0.128, depthWrite: false, side: THREE.DoubleSide }),
+      new THREE.MeshBasicMaterial({ color: 0x182d25, transparent: true, opacity: 0.105, depthWrite: false, side: THREE.DoubleSide }),
     ];
     for (const mat of groundDetailMats) mat.userData.shared = true;
     const groundDetailMeshes = new Map();
@@ -1699,8 +1700,8 @@ export default function mount() {
         const n = hrand(c.cx, c.cz, 211);
         const occupied = !!buildAt.get(k) || !!doodadPool.get(k) || !!tradePostPool.get(k);
         if (occupied) continue;
-        if (n > 0.64) continue;
-        const type = n < 0.13 ? 2 : n < 0.27 ? 1 : 0;
+        if (n > 0.72) continue;
+        const type = n < 0.08 ? 2 : n < 0.20 ? 3 : n < 0.38 ? 1 : 0;
         if (!buckets.has(type)) buckets.set(type, []);
         buckets.get(type).push(c);
       }
@@ -1720,8 +1721,8 @@ export default function mount() {
           const c = rows[i];
           const jx = (hrand(c.cx, c.cz, 212) - 0.5) * 0.42;
           const jz = (hrand(c.cx, c.cz, 213) - 0.5) * 0.42;
-          const sx = type === 2 ? 0.56 : 0.18 + hrand(c.cx, c.cz, 214) * 0.22;
-          const sz = type === 2 ? 0.30 : 0.035 + hrand(c.cx, c.cz, 215) * 0.055;
+          const sx = type === 2 ? 0.50 : type === 3 ? 0.055 : 0.16 + hrand(c.cx, c.cz, 214) * 0.20;
+          const sz = type === 2 ? 0.26 : type === 3 ? 0.055 : 0.030 + hrand(c.cx, c.cz, 215) * 0.050;
           batchDummy.position.set(c.cx + jx, TERRAIN_TOP_Y + 0.012, c.cz + jz);
           batchDummy.rotation.set(-Math.PI / 2, 0, hrand(c.cx, c.cz, 216) * Math.PI);
           batchDummy.scale.set(sx, sz, 1);
@@ -1790,13 +1791,18 @@ export default function mount() {
       return prismMatCache.get(k);
     }
     function prismMats(top, left = null, right = null) {
-      const t = shadeHex(top, 0.09), l = liftDarkHex(left || shadeHex(top, -0.06), 0.20), r = liftDarkHex(right || shadeHex(top, -0.11), 0.17);
+      // next12: the reference look depends on clear material separation.  Top
+      // faces get a minimum lightness floor and side faces are kept readable so
+      // towers do not collapse into black silhouettes.
+      const t = liftDarkHex(shadeHex(top, 0.10), 0.28);
+      const l = liftDarkHex(left || shadeHex(top, -0.06), 0.24);
+      const r = liftDarkHex(right || shadeHex(top, -0.11), 0.20);
       const k = `${t}|${l}|${r}`.toLowerCase();
       if (!prismMatsCache.has(k)) prismMatsCache.set(k, [staticPrismMaterial(t), staticPrismMaterial(l), staticPrismMaterial(r)]);
       return prismMatsCache.get(k);
     }
     function prismFaceKey(top, left = null, right = null) {
-      return `${shadeHex(top, 0.09)}|${liftDarkHex(left || shadeHex(top, -0.06), 0.20)}|${liftDarkHex(right || shadeHex(top, -0.11), 0.17)}`.toLowerCase();
+      return `${liftDarkHex(shadeHex(top, 0.10), 0.28)}|${liftDarkHex(left || shadeHex(top, -0.06), 0.24)}|${liftDarkHex(right || shadeHex(top, -0.11), 0.20)}`.toLowerCase();
     }
     function addPrismMesh(group, parts, spec = {}) {
       const top = cssHex(spec.top || spec.color || "#ffd76e");
@@ -1906,7 +1912,7 @@ export default function mount() {
     }
     const buildingShadowGeo = new THREE.CircleGeometry(0.46, 30);
     buildingShadowGeo.userData.shared = true;
-    const buildingShadowMat = new THREE.MeshBasicMaterial({ color: 0x08140f, transparent: true, opacity: 0.145, depthWrite: false, side: THREE.DoubleSide });
+    const buildingShadowMat = new THREE.MeshBasicMaterial({ color: 0x08140f, transparent: true, opacity: 0.118, depthWrite: false, side: THREE.DoubleSide });
     buildingShadowMat.userData.shared = true;
     function disposeSceneObject(obj) {
       disposeObject3D(obj, { detach: true });
@@ -1940,7 +1946,7 @@ export default function mount() {
     const player = new THREE.Group();
     let rig = null, rigSig = "";
     player.position.set(0, 0.22, 0); scene.add(player);
-    const aura = new THREE.Mesh(new THREE.CircleGeometry(0.34, 32), new THREE.MeshBasicMaterial({ color: 0x0b1d15, transparent: true, opacity: 0.22, depthWrite: false }));
+    const aura = new THREE.Mesh(new THREE.CircleGeometry(0.34, 32), new THREE.MeshBasicMaterial({ color: 0x0b1d15, transparent: true, opacity: 0.18, depthWrite: false }));
     aura.rotation.x = -Math.PI / 2; aura.position.y = 0.010; aura.scale.set(1.02, 0.58, 1); player.add(aura);
     const plight = new THREE.PointLight(0xd6c66a, 0.12, 3.0); plight.position.y = 0.9; player.add(plight);
     function heldToolForState() {
@@ -2002,7 +2008,7 @@ export default function mount() {
       const parts = [];
       const k = String(kind || "building").toLowerCase();
       const base = cssHex(opts.cl || "#d6604f", "#d6604f");
-      const plinth = cssHex(opts.plinth || "#3f3920", "#3f3920");
+      const plinth = cssHex(opts.plinth || "#7f6840", "#7f6840");
 
       // Advanced buildings are now data recipes: every structure is assembled
       // from the same fixed-camera prism primitive, but each building kind gets
@@ -2071,7 +2077,7 @@ export default function mount() {
       if (have && want) return;
       if (have && !want) { disposeSceneObject(have.group); tradePostPool.delete(k); return; }
       if (!want) return;
-      const { group, parts } = makePrismBuildingGroup("market", { nm: "Trade Post", cl: "#ffd76e", plinth: 0xc79337 });
+      const { group, parts } = makePrismBuildingGroup("market", { nm: "Trade Post", cl: "#ffd76e", plinth: "#8d7240" });
       group.position.set(x, 0, z);
       group.scale.setScalar(0.82);
       scene.add(group);
