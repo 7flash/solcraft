@@ -337,6 +337,38 @@ export default function mount() {
     wonderPrompt: "", wonderName: "", wonderFootprint: 9, wonderMode: "district", wonderPaletteId: "solar", wonderRecipe: null, wonderBusy: false, wonderPlacing: false, wonderMsg: "", wonderLastPlaceAt: 0, wonderLastPlaceKey: "",
     adminTool: "demolish", adminMsg: "", hoverCellX: 0, hoverCellZ: 0,
   };
+
+  const capitalCompass = (() => {
+    const el = document.createElement("button");
+    el.type = "button";
+    el.className = "sc-capital-compass";
+    el.setAttribute("aria-label", "Direction to capital");
+    el.innerHTML = `<span class="sc-capital-compass-arrow">▲</span><span class="sc-capital-compass-copy"><b>Capital</b><i class="sc-capital-compass-distance">0 tiles</i></span>`;
+    el.addEventListener("click", () => {
+      if (ST.screen !== "playing") return;
+      ST.modal = "worldmap";
+      paint(true);
+    });
+    root.appendChild(el);
+    function update() {
+      const playing = ST.screen === "playing" && !ST.modal && !!ST.me;
+      const x = Math.trunc(Number(ST.me?.x || 0));
+      const z = Math.trunc(Number(ST.me?.z || 0));
+      const dist = Math.max(Math.abs(x), Math.abs(z));
+      const show = playing && dist > 18;
+      el.classList.toggle("on", !!show);
+      if (!show) return;
+      const dx = -x;
+      const dz = -z;
+      const angle = Math.atan2(dx, -dz) * 180 / Math.PI;
+      el.style.setProperty("--capital-bearing", `${angle}deg`);
+      const d = el.querySelector(".sc-capital-compass-distance");
+      if (d) d.textContent = `${Math.round(dist)} tiles`;
+      el.setAttribute("aria-label", `Capital is ${Math.round(dist)} tiles away`);
+    }
+    return { update };
+  })();
+
   function currentWonderSize() { return normalizeWonderFootprintClient(ST.wonderFootprint || ST.wonderRecipe?.footprint || 9); }
   function currentWonderMode() { return ["single", "district"].includes(String(ST.wonderMode || ST.wonderRecipe?.mode)) ? String(ST.wonderMode || ST.wonderRecipe?.mode) : "district"; }
   function currentWonderPalette() { return WONDER_PALETTES.find((p) => p.id === (ST.wonderPaletteId || ST.wonderRecipe?.paletteId)) || WONDER_PALETTES[0]; }
@@ -1559,6 +1591,20 @@ export default function mount() {
       ownerMatCache.set(ck, arr);
       return arr;
     }
+    function buildingPlinthHex(b) {
+      // Keep foundations visually separate from claimed terrain.  Passing the
+      // owner's tile color into building plinths made roof/foundation top faces
+      // blend into the ground, especially in the capital cluster.  Ownership now
+      // lives in small accents/flags; foundations stay stone/umber by building type.
+      const k = String(b?.kind || "building").toLowerCase();
+      if (k === "quarry") return "#4f5654";
+      if (k === "bank" || k === "vault" || k === "goldmine") return "#5a4b2d";
+      if (k === "farm" || k === "granary" || k === "windmill") return "#594021";
+      if (k === "lumber" || k === "sawmill") return "#4f3521";
+      if (k === "keep" || k === "watchtower" || k.includes("gate")) return "#3b3928";
+      if (k === "worldwonder" || k === "obelisk" || k === "shrine") return "#4c432b";
+      return "#433922";
+    }
     function terrainBatchKeyForCell(k) {
       const t = tileOwner.get(k);
       if (!t) return "neutral";
@@ -1636,9 +1682,9 @@ export default function mount() {
     const groundDetailGeo = new THREE.PlaneGeometry(1, 1);
     groundDetailGeo.userData.shared = true;
     const groundDetailMats = [
-      new THREE.MeshBasicMaterial({ color: 0x496c52, transparent: true, opacity: 0.105, depthWrite: false, side: THREE.DoubleSide }),
-      new THREE.MeshBasicMaterial({ color: 0x2b4737, transparent: true, opacity: 0.100, depthWrite: false, side: THREE.DoubleSide }),
-      new THREE.MeshBasicMaterial({ color: 0x6e694c, transparent: true, opacity: 0.055, depthWrite: false, side: THREE.DoubleSide }),
+      new THREE.MeshBasicMaterial({ color: 0x55795e, transparent: true, opacity: 0.145, depthWrite: false, side: THREE.DoubleSide }),
+      new THREE.MeshBasicMaterial({ color: 0x2f4f3d, transparent: true, opacity: 0.130, depthWrite: false, side: THREE.DoubleSide }),
+      new THREE.MeshBasicMaterial({ color: 0x827852, transparent: true, opacity: 0.085, depthWrite: false, side: THREE.DoubleSide }),
     ];
     for (const mat of groundDetailMats) mat.userData.shared = true;
     const groundDetailMeshes = new Map();
@@ -1649,7 +1695,7 @@ export default function mount() {
         const n = hrand(c.cx, c.cz, 211);
         const occupied = !!buildAt.get(k) || !!doodadPool.get(k) || !!tradePostPool.get(k);
         if (occupied) continue;
-        if (n > 0.42) continue;
+        if (n > 0.58) continue;
         const type = n < 0.13 ? 2 : n < 0.27 ? 1 : 0;
         if (!buckets.has(type)) buckets.set(type, []);
         buckets.get(type).push(c);
@@ -1703,6 +1749,14 @@ export default function mount() {
       c.setHSL(hsl.h, hsl.s, hsl.l);
       return `#${c.getHexString()}`;
     }
+    function liftDarkHex(hex, floor = 0.13) {
+      const c = new THREE.Color(cssHex(hex));
+      const hsl = { h: 0, s: 0, l: 0 }; c.getHSL(hsl);
+      hsl.l = Math.max(floor, Math.min(0.92, hsl.l));
+      hsl.s = Math.max(0, Math.min(1, hsl.s * 0.94));
+      c.setHSL(hsl.h, hsl.s, hsl.l);
+      return `#${c.getHexString()}`;
+    }
     function createStaticPrismGeometry() {
       const pos = [];
       const pushFace = (a, b, c, d) => {
@@ -1732,13 +1786,13 @@ export default function mount() {
       return prismMatCache.get(k);
     }
     function prismMats(top, left = null, right = null) {
-      const t = shadeHex(top, 0.08), l = left || shadeHex(top, -0.10), r = right || shadeHex(top, -0.18);
+      const t = shadeHex(top, 0.08), l = liftDarkHex(left || shadeHex(top, -0.08), 0.15), r = liftDarkHex(right || shadeHex(top, -0.14), 0.12);
       const k = `${t}|${l}|${r}`.toLowerCase();
       if (!prismMatsCache.has(k)) prismMatsCache.set(k, [staticPrismMaterial(t), staticPrismMaterial(l), staticPrismMaterial(r)]);
       return prismMatsCache.get(k);
     }
     function prismFaceKey(top, left = null, right = null) {
-      return `${shadeHex(top, 0.08)}|${left || shadeHex(top, -0.10)}|${right || shadeHex(top, -0.18)}`.toLowerCase();
+      return `${shadeHex(top, 0.08)}|${liftDarkHex(left || shadeHex(top, -0.08), 0.15)}|${liftDarkHex(right || shadeHex(top, -0.14), 0.12)}`.toLowerCase();
     }
     function addPrismMesh(group, parts, spec = {}) {
       const top = cssHex(spec.top || spec.color || "#ffd76e");
@@ -1848,7 +1902,7 @@ export default function mount() {
     }
     const buildingShadowGeo = new THREE.CircleGeometry(0.46, 30);
     buildingShadowGeo.userData.shared = true;
-    const buildingShadowMat = new THREE.MeshBasicMaterial({ color: 0x08140f, transparent: true, opacity: 0.20, depthWrite: false, side: THREE.DoubleSide });
+    const buildingShadowMat = new THREE.MeshBasicMaterial({ color: 0x08140f, transparent: true, opacity: 0.145, depthWrite: false, side: THREE.DoubleSide });
     buildingShadowMat.userData.shared = true;
     function disposeSceneObject(obj) {
       disposeObject3D(obj, { detach: true });
@@ -2383,7 +2437,7 @@ export default function mount() {
       if (!have) return;
       const b = { ...have };
       removeBuild(uid);
-      const plinth = territoryTopHex(b.ownerBody || ST.me?.body || 0x14f195, ST.me && b.owner === ST.me.id);
+      const plinth = buildingPlinthHex(b);
       const cs = constructionStateForBuilding(b);
       const labelName = b.capital && ST.me && !capitalLabelVisibleForPlayer(b, ST.me.x, ST.me.z) ? "" : b.nm;
       const { group, parts } = b.kind === "road"
@@ -2425,7 +2479,7 @@ export default function mount() {
         let have = buildPool.get(b.uid);
         if (have && have.sig !== sig) { removeBuild(b.uid); have = null; }
         if (!have) {
-          const plinth = territoryTopHex(b.ownerBody, ST.me && b.owner === ST.me.id);
+          const plinth = buildingPlinthHex(b);
           const labelName = b.capital && ST.me && !capitalLabelVisibleForPlayer(b, ST.me.x, ST.me.z) ? "" : b.nm;
           const { group, parts } = b.kind === "road"
             ? makeRoadBuildingGroup(b)
@@ -2965,9 +3019,11 @@ export default function mount() {
       const rect = minimapEl.getBoundingClientRect?.();
       if (!rect || rect.width <= 0 || rect.height <= 0) return;
       perf.measure("ui.minimap", () => drawKnownWorldMap(minimapEl, false));
+      capitalCompass.update();
     }
 
     function updateMinimapInfo() {
+      capitalCompass.update();
       if (!minimapEl?.isConnected) return;
       const stale = document.getElementById("sc-minimap-info");
       if (stale) stale.remove();

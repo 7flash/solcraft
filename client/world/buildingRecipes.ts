@@ -29,9 +29,9 @@ function part(id: string, x: number, z: number, y: number, w: number, d: number,
 
 function baseParts(plinth: string, footprint = 0.94): PrismRecipePart[] {
   return [
-    part("ground-shadow", 0, 0, 0.018, footprint + 0.14, footprint + 0.04, 0.035, "#132017", "#0d1710", "#09110c"),
-    part("foundation", 0, 0, 0.055, footprint, footprint * 0.82, 0.105, plinth),
-    part("foundation-lip", 0, 0.025, 0.152, footprint * 0.82, footprint * 0.66, 0.045, "#263421", "#172316", "#111b11"),
+    part("ground-shadow", 0, 0, 0.018, footprint + 0.14, footprint + 0.04, 0.030, "#172019", "#111812", "#0d130e"),
+    part("foundation", 0, 0, 0.055, footprint, footprint * 0.82, 0.110, plinth),
+    part("foundation-lip", 0, 0.025, 0.158, footprint * 0.82, footprint * 0.66, 0.048, "#5b4b2d", "#3f3421", "#2e261a"),
   ];
 }
 
