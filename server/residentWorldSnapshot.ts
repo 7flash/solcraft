@@ -7,6 +7,9 @@ export type ResidentWorldSnapshot = {
   savedAt: number;
   rev: number;
   playerRev?: number;
+  tileRev?: number;
+  buildingRev?: number;
+  resourceRev?: number;
   chunkSize: number;
   reason?: string;
   chunkRevs: Record<string, number>;

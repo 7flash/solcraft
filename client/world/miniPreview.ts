@@ -20,6 +20,10 @@ type PreviewState = {
 const active = new Set<PreviewState>();
 const byEl = new WeakMap<HTMLElement, PreviewState>();
 const MAX_ACTIVE_WEBGL_PREVIEWS = 8;
+// miniPreview renderer policy: until this module is converted to a single
+// shared offscreen renderer/blit path, this hard cap prevents browser WebGL
+// context exhaustion. Panels over the cap intentionally show the failed class
+// instead of creating another context.
 
 export { miniPreviewKey, miniPreviewLabel, normalizePreviewAccent } from "./miniPreviewModel";
 

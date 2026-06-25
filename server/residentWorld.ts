@@ -17,15 +17,30 @@ export type ResidentMoveState = {
   dirty: boolean;
 };
 
+type ResidentWorldChangeKind = "tiles" | "buildings" | "doodads" | "loot";
+type ResidentWorldChange = {
+  rev: number;
+  kind: ResidentWorldChangeKind;
+  op: "upsert" | "remove";
+  key: string | number;
+  x: number;
+  z: number;
+  row?: ResidentRow;
+};
+
 type ResidentWorld = {
   loaded: boolean;
   loadedAt: number;
   rev: number;
   playerRev: number;
+  tileRev: number;
+  buildingRev: number;
+  resourceRev: number;
   dirty: boolean;
   playerDirty: boolean;
   chunkSize: number;
   chunkRevs: Map<string, number>;
+  changes: ResidentWorldChange[];
   players: Map<number, ResidentRow>;
   tiles: Map<string, ResidentRow>;
   buildings: Map<number, ResidentRow>;
@@ -41,10 +56,14 @@ const world: ResidentWorld = {
   loadedAt: 0,
   rev: 1,
   playerRev: 1,
+  tileRev: 1,
+  buildingRev: 1,
+  resourceRev: 1,
   dirty: false,
   playerDirty: false,
   chunkSize: CHUNK_SIZE,
   chunkRevs: new Map(),
+  changes: [],
   players: new Map(),
   tiles: new Map(),
   buildings: new Map(),
@@ -93,13 +112,25 @@ function nextEntityId(map: Map<number, ResidentRow>) {
   for (const id of map.keys()) max = Math.max(max, Number(id || 0));
   return max + 1;
 }
-function setStructuralDirty(reason = "mutation", atX?: any, atZ?: any) {
+function setStructuralDirty(reason = "mutation", atX?: any, atZ?: any, kind?: ResidentWorldChangeKind) {
   world.rev += 1;
+  if (kind === "tiles") world.tileRev = Math.max(world.tileRev + 1, world.rev);
+  else if (kind === "buildings") world.buildingRev = Math.max(world.buildingRev + 1, world.rev);
+  else if (kind === "doodads" || kind === "loot") world.resourceRev = Math.max(world.resourceRev + 1, world.rev);
   world.dirty = true;
   world.reason = reason;
   if (atX !== undefined && atZ !== undefined) setChunkRevFor(atX, atZ);
-  try { metaSet("solcraft:residentWorld:lastMutation:v1", JSON.stringify({ at: now(), rev: world.rev, reason })); } catch {}
+  try { metaSet("solcraft:residentWorld:lastMutation:v1", JSON.stringify({ at: now(), rev: world.rev, reason, kind })); } catch {}
   return world.rev;
+}
+function appendWorldChange(kind: ResidentWorldChangeKind, op: "upsert" | "remove", rowLike: any, keyLike?: any, reason = kind) {
+  const x = int(rowLike?.x), z = int(rowLike?.z);
+  const rev = setStructuralDirty(reason, x, z, kind);
+  const entry: ResidentWorldChange = { rev, kind, op, key: keyLike ?? (kind === "tiles" || kind === "doodads" ? key(x, z) : int(rowLike?.id || rowLike?.uid || 0)), x, z };
+  if (op === "upsert") entry.row = clone(rowLike || {});
+  world.changes.push(entry);
+  if (world.changes.length > 2500) world.changes.splice(0, world.changes.length - 2500);
+  return rev;
 }
 function setPlayerDirty(reason = "player") {
   world.playerRev += 1;
@@ -121,6 +152,10 @@ function loadFromDb() {
   for (const l of rowArray(db.loot)) world.loot.set(Number(l.id || 0), clone(l));
   world.loaded = true;
   world.loadedAt = now();
+  world.changes = [];
+  world.tileRev = world.rev;
+  world.buildingRev = world.rev;
+  world.resourceRev = world.rev;
   world.dirty = false;
   world.reason = "db-load";
 }
@@ -135,6 +170,10 @@ function applySnapshot(s: ResidentWorldSnapshot) {
   for (const [k, v] of Object.entries(s.chunkRevs || {})) world.chunkRevs.set(k, Number(v || 0));
   world.rev = Math.max(1, Number(s.rev || 1));
   world.playerRev = Math.max(1, Number((s as any).playerRev || 1));
+  world.tileRev = Math.max(1, Number((s as any).tileRev || s.rev || 1));
+  world.buildingRev = Math.max(1, Number((s as any).buildingRev || s.rev || 1));
+  world.resourceRev = Math.max(1, Number((s as any).resourceRev || s.rev || 1));
+  world.changes = [];
   world.loaded = true;
   world.loadedAt = now();
   world.lastSaveAt = Number(s.savedAt || 0);
@@ -159,6 +198,10 @@ export function residentWorldStatus() {
     loadedAt: world.loadedAt,
     rev: world.rev,
     playerRev: world.playerRev,
+    tileRev: world.tileRev,
+    buildingRev: world.buildingRev,
+    resourceRev: world.resourceRev,
+    deltaBacklog: world.changes.length,
     dirty: world.dirty,
     playerDirty: world.playerDirty,
     dirtyMoves,
@@ -326,6 +369,9 @@ export function checkpointResidentWorld(reason = "manual") {
     savedAt: now(),
     rev: world.rev,
     playerRev: world.playerRev,
+    tileRev: world.tileRev,
+    buildingRev: world.buildingRev,
+    resourceRev: world.resourceRev,
     chunkSize: world.chunkSize,
     reason,
     chunkRevs: Object.fromEntries(world.chunkRevs.entries()),
@@ -348,7 +394,7 @@ export function upsertResidentTile(rowLike: any, reason = "tile") {
   const row = clone(rowLike || {});
   row.x = int(row.x); row.z = int(row.z); row.owner = int(row.owner);
   world.tiles.set(key(row.x, row.z), row);
-  setStructuralDirty(reason, row.x, row.z);
+  appendWorldChange("tiles", "upsert", row, key(row.x, row.z), reason);
   return clone(row);
 }
 export function residentOwnedTileCount(ownerLike: any) {
@@ -376,7 +422,7 @@ export function upsertResidentBuilding(rowLike: any, reason = "building") {
   row.id = int(row.id || row.uid || 0) || nextEntityId(world.buildings);
   row.x = int(row.x); row.z = int(row.z); row.owner = int(row.owner);
   world.buildings.set(Number(row.id), row);
-  setStructuralDirty(reason, row.x, row.z);
+  appendWorldChange("buildings", "upsert", row, Number(row.id), reason);
   return clone(row);
 }
 export function removeResidentBuilding(idLike: any, reason = "building-remove") {
@@ -385,7 +431,7 @@ export function removeResidentBuilding(idLike: any, reason = "building-remove") 
   const row = world.buildings.get(id);
   if (!row) return false;
   world.buildings.delete(id);
-  setStructuralDirty(reason, row.x, row.z);
+  appendWorldChange("buildings", "remove", row, id, reason);
   return true;
 }
 
@@ -395,7 +441,7 @@ export function upsertResidentDoodad(rowLike: any, reason = "doodad") {
   const row = clone(rowLike || {});
   row.x = int(row.x); row.z = int(row.z); row.state = String(row.state || "gone");
   world.doodads.set(key(row.x, row.z), row);
-  setStructuralDirty(reason, row.x, row.z);
+  appendWorldChange("doodads", "upsert", row, key(row.x, row.z), reason);
   return clone(row);
 }
 export function removeResidentDoodad(xLike: any, zLike: any, reason = "doodad-remove") {
@@ -404,7 +450,7 @@ export function removeResidentDoodad(xLike: any, zLike: any, reason = "doodad-re
   const row = world.doodads.get(key(x, z));
   if (!row) return false;
   world.doodads.delete(key(x, z));
-  setStructuralDirty(reason, x, z);
+  appendWorldChange("doodads", "remove", row || { x, z }, key(x, z), reason);
   return true;
 }
 
@@ -420,7 +466,7 @@ export function upsertResidentLoot(rowLike: any, reason = "loot") {
   row.id = int(row.id || row.uid || 0) || nextEntityId(world.loot);
   row.x = int(row.x); row.z = int(row.z);
   world.loot.set(Number(row.id), row);
-  setStructuralDirty(reason, row.x, row.z);
+  appendWorldChange("loot", "upsert", row, Number(row.id), reason);
   return clone(row);
 }
 export function removeResidentLoot(idLike: any, reason = "loot-remove") {
@@ -429,7 +475,7 @@ export function removeResidentLoot(idLike: any, reason = "loot-remove") {
   const row = world.loot.get(id);
   if (!row) return false;
   world.loot.delete(id);
-  setStructuralDirty(reason, row.x, row.z);
+  appendWorldChange("loot", "remove", row, id, reason);
   return true;
 }
 
@@ -441,6 +487,35 @@ export function residentLandmarkBonusPct() {
   return Math.max(0, Math.min(max, count * pctEach));
 }
 
+function worldTileWire(r: any, pinfo: (id: number) => any) {
+  return { x: r.x, z: r.z, owner: r.owner, ownerBody: pinfo(r.owner).body, ownerName: pinfo(r.owner).name };
+}
+function worldBuildingWire(b: any, helpers: { pinfo: (id: number) => any; readLandmarkRecipe?: (uid: number) => any }) {
+  const pinfo = helpers.pinfo;
+  return { uid: b.id, owner: b.owner, ownerName: pinfo(b.owner).name, ownerBody: pinfo(b.owner).body, ownerFace: null, kind: b.kind === "landmark" ? "worldwonder" : b.kind, x: b.x, z: b.z, nm: b.nm, cl: b.cl, acc: b.acc, accAt: b.accAt, cdUntil: b.cdUntil, constructAt: b.accAt, constructUntil: b.cdUntil, usedAt: b.usedAt || 0, level: b.level || 1, hp: b.hp, maxHp: b.maxHp, stored: b.stored || 0, wonder: b.kind === "landmark" || b.kind === "worldwonder" ? helpers.readLandmarkRecipe?.(Number(b.id)) || {} : null };
+}
+function worldDoodadWire(d: any) {
+  return { x: d.x, z: d.z, type: d.state === "gone" ? "gone" : d.state === "rock" ? "rock" : d.state === "food" ? "food" : "tree" };
+}
+function worldLootWire(l: any) {
+  return { id: l.id, x: l.x, z: l.z, kind: l.kind, gid: l.gid };
+}
+function changeRemoveWire(change: ResidentWorldChange) {
+  if (change.kind === "tiles" || change.kind === "doodads") return { x: change.x, z: change.z };
+  return { id: Number(change.key || 0), uid: Number(change.key || 0), x: change.x, z: change.z };
+}
+function mapWire(rev: number, helpers: { pinfo: (id: number) => any; activeMapPlayers?: () => any[] }) {
+  const pinfo = helpers.pinfo;
+  return {
+    rev,
+    frontierRadius: Number(metaGet("solcraft:frontier:radius:v1", "96")) || 96,
+    tiles: [...world.tiles.values()].map((r) => worldTileWire(r, pinfo)),
+    buildings: [...world.buildings.values()].map((b) => ({ uid: b.id, owner: b.owner, ownerBody: pinfo(b.owner).body, kind: b.kind === "landmark" ? "worldwonder" : b.kind, x: b.x, z: b.z })),
+    loot: [...world.loot.values()].filter((l) => String(l.kind || "") === "gold").map(worldLootWire),
+    players: helpers.activeMapPlayers?.() || [],
+  };
+}
+
 export function residentWorldRows(p: any, q: any, helpers: { pinfo: (id: number) => any; readLandmarkRecipe?: (uid: number) => any; activeMapPlayers?: () => any[] }) {
   ensureResidentWorldLoaded();
   const px = int(p?.x), pz = int(p?.z);
@@ -448,31 +523,71 @@ export function residentWorldRows(p: any, q: any, helpers: { pinfo: (id: number)
   const az = Math.floor(pz / 6) * 6;
   const R = 34;
   const near = (r: any) => Math.max(Math.abs(int(r.x) - ax), Math.abs(int(r.z) - az)) <= R;
-  const pinfo = helpers.pinfo;
+  const rev = residentWorldRev();
+  const qRev = Math.max(0, int(q?.rev, 0));
+  const sameAnchor = int(q?.ax, 1000000) === ax && int(q?.az, 1000000) === az;
+  const oldestDeltaRev = world.changes.length ? Number(world.changes[0].rev || 0) : rev;
+  const canDelta = sameAnchor && qRev > 0 && qRev < rev && (world.changes.length === 0 || qRev >= oldestDeltaRev - 1);
+  const base: any = {
+    rev,
+    ax,
+    az,
+    tileRev: world.tileRev,
+    buildingRev: world.buildingRev,
+    resourceRev: world.resourceRev,
+    chunkSize: world.chunkSize,
+    chunkRevs: Object.fromEntries([...world.chunkRevs.entries()].slice(-500)),
+    offers: [],
+    coinNodes: [],
+  };
+
+  if (canDelta) {
+    const delta: any = {
+      tiles: { upsert: [], remove: [] },
+      buildings: { upsert: [], remove: [] },
+      doodads: { upsert: [], remove: [] },
+      loot: { upsert: [], remove: [] },
+    };
+    const latestByKindKey = new Map<string, ResidentWorldChange>();
+    for (const c of world.changes) {
+      if (Number(c.rev || 0) <= qRev) continue;
+      // If the changed row is outside this client's current anchored window, still
+      // send removals for its key so the client can evict objects that left view.
+      if (c.op === "upsert" && !near(c.row || c)) continue;
+      latestByKindKey.set(`${c.kind}:${String(c.key)}`, c);
+    }
+    for (const c of latestByKindKey.values()) {
+      if (c.kind === "tiles") {
+        if (c.op === "upsert") delta.tiles.upsert.push(worldTileWire(c.row, helpers.pinfo));
+        else delta.tiles.remove.push(changeRemoveWire(c));
+      } else if (c.kind === "buildings") {
+        if (c.op === "upsert") delta.buildings.upsert.push(worldBuildingWire(c.row, helpers));
+        else delta.buildings.remove.push(changeRemoveWire(c));
+      } else if (c.kind === "doodads") {
+        if (c.op === "upsert") delta.doodads.upsert.push(worldDoodadWire(c.row));
+        else delta.doodads.remove.push(changeRemoveWire(c));
+      } else if (c.kind === "loot") {
+        if (c.op === "upsert") delta.loot.upsert.push(worldLootWire(c.row));
+        else delta.loot.remove.push(changeRemoveWire(c));
+      }
+    }
+    base.delta = delta;
+    // The minimap is an overview cache. Keep it full-snapshot based but only
+    // resend it when the client asks with an old mapRev.
+    if (int(q?.mapRev, -1) !== rev) base.map = mapWire(rev, helpers);
+    return base;
+  }
+
   const tiles = [...world.tiles.values()].filter(near);
   const buildings = [...world.buildings.values()].filter(near);
   const doodads = [...world.doodads.values()].filter(near);
   const loot = [...world.loot.values()].filter(near);
-  const rev = residentWorldRev();
   return {
-    rev,
-    ax,
-    az,
-    chunkSize: world.chunkSize,
-    chunkRevs: Object.fromEntries([...world.chunkRevs.entries()].slice(-500)),
-    tiles: tiles.map((r) => ({ x: r.x, z: r.z, owner: r.owner, ownerBody: pinfo(r.owner).body, ownerName: pinfo(r.owner).name })),
-    buildings: buildings.map((b) => ({ uid: b.id, owner: b.owner, ownerName: pinfo(b.owner).name, ownerBody: pinfo(b.owner).body, ownerFace: null, kind: b.kind === "landmark" ? "worldwonder" : b.kind, x: b.x, z: b.z, nm: b.nm, cl: b.cl, acc: b.acc, accAt: b.accAt, cdUntil: b.cdUntil, constructAt: b.accAt, constructUntil: b.cdUntil, usedAt: b.usedAt || 0, level: b.level || 1, hp: b.hp, maxHp: b.maxHp, stored: b.stored || 0, wonder: b.kind === "landmark" || b.kind === "worldwonder" ? helpers.readLandmarkRecipe?.(Number(b.id)) || {} : null })),
-    doodads: doodads.map((d) => ({ x: d.x, z: d.z, type: d.state === "gone" ? "gone" : d.state === "rock" ? "rock" : d.state === "food" ? "food" : "tree" })),
-    loot: loot.map((l) => ({ id: l.id, x: l.x, z: l.z, kind: l.kind, gid: l.gid })),
-    offers: [],
-    coinNodes: [],
-    map: {
-      rev,
-      frontierRadius: Number(metaGet("solcraft:frontier:radius:v1", "96")) || 96,
-      tiles: [...world.tiles.values()].map((r) => ({ x: r.x, z: r.z, owner: r.owner, ownerBody: pinfo(r.owner).body, ownerName: pinfo(r.owner).name })),
-      buildings: [...world.buildings.values()].map((b) => ({ uid: b.id, owner: b.owner, ownerBody: pinfo(b.owner).body, kind: b.kind === "landmark" ? "worldwonder" : b.kind, x: b.x, z: b.z })),
-      loot: [...world.loot.values()].filter((l) => String(l.kind || "") === "gold").map((l) => ({ id: l.id, x: l.x, z: l.z, kind: l.kind, gid: l.gid })),
-      players: helpers.activeMapPlayers?.() || [],
-    },
+    ...base,
+    tiles: tiles.map((r) => worldTileWire(r, helpers.pinfo)),
+    buildings: buildings.map((b) => worldBuildingWire(b, helpers)),
+    doodads: doodads.map(worldDoodadWire),
+    loot: loot.map(worldLootWire),
+    map: int(q?.mapRev, -1) !== rev ? mapWire(rev, helpers) : undefined,
   };
 }

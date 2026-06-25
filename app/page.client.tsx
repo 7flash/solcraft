@@ -58,6 +58,7 @@ import { toolCursorForState } from "../client/ui/toolCursor";
 import { PlayerHudView } from "../client/ui/playerHud";
 import { TopChromeView } from "../client/ui/topChrome";
 import { disposeMiniPreviews, syncMiniPreviewPanels } from "../client/world/miniPreview";
+import { SpatialGridCache } from "../client/world/spatialGridCache";
 import { WorldMapModalView } from "../client/ui/worldMapModal";
 import { PlayerModalView } from "../client/ui/playerModal";
 import { renderKnownWorldMap, tileFromCanvasEvent } from "../client/world/mapCanvas";
@@ -954,7 +955,7 @@ export default function mount() {
     }
     if (snap.world) {
       ST.rev = snap.world.rev; ST.ax = snap.world.ax; ST.az = snap.world.az;
-      ST.offers = snap.world.offers;
+      ST.offers = snap.world.offers || [];
       if (snap.world.map) { ST.map = { players: ST.map?.players || [], ...snap.world.map }; ST.mapRev = snap.world.map.rev ?? snap.world.rev ?? ST.mapRev; }
       const worldPayload = materializeWorldPayload(snap.world);
       world.applyWorld(worldPayload);
@@ -1590,6 +1591,8 @@ export default function mount() {
 
     const cells = new Map(), doodadPool = new Map(), buildPool = new Map(), buildAt = new Map(), npcPool = new Map();
     const lootPool = new Map(), rigPool = new Map(), tradePostPool = new Map(), exceptions = new Map(), tileOwner = new Map();
+    const buildVisibilityGrid = new SpatialGridCache(16), lootVisibilityGrid = new SpatialGridCache(16), npcVisibilityGrid = new SpatialGridCache(16);
+    let visibleBuilds = new Set(), visibleLoot = new Set(), visibleNpcs = new Set();
     const roadPool = new Map(), districtPool = new Map();
     const prismMatCache = new Map(), prismMatsCache = new Map();
     function cssHex(v, fallback = "#ffd76e") {
@@ -1934,7 +1937,7 @@ export default function mount() {
       const want = npc && !hiddenByWorld && !buildPoolAt(x, z) && !tradePostAt(x, z);
       const have = npcPool.get(k);
       if (have && want && have.id === npc.id) return;
-      if (have) { scene.remove(have.group); npcPool.delete(k); }
+      if (have) { npcVisibilityGrid.remove(have); visibleNpcs.delete(have); scene.remove(have.group); npcPool.delete(k); }
       if (!want) return;
       const g = new THREE.Group();
       const base = new THREE.Mesh(new THREE.CylinderGeometry(0.28, 0.34, 0.08, 10), M(0x5a4b35, { roughness: 1 }));
@@ -1951,7 +1954,9 @@ export default function mount() {
       g.add(makeLabel(npc.name, "#fff0b8"));
       g.position.set(x, 0.18, z);
       scene.add(g);
-      npcPool.set(k, { group: g, id: npc.id, ...npc });
+      const row = { group: g, id: npc.id, ...npc };
+      npcPool.set(k, row);
+      npcVisibilityGrid.upsert(row);
     }
     const doodadVisible = (x, z) => {
       const k = key(x, z);
@@ -1987,10 +1992,13 @@ export default function mount() {
       // Landmarks reserve a plaza for selection/placement purposes, but
       // only their center tower is a movement blocker. See physicalBuildAt().
       eachBuildIndexedCell(have, (x, z) => buildAt.set(key(x, z), have));
+      buildVisibilityGrid.upsert(have);
     }
     function clearBuildAt(have) {
       if (!have) return;
       eachBuildIndexedCell(have, (x, z) => { if (buildAt.get(key(x, z)) === have) buildAt.delete(key(x, z)); });
+      buildVisibilityGrid.remove(have);
+      visibleBuilds.delete(have);
     }
     function buildPoolAt(x, z) { return buildAt.get(key(x, z)) || null; }
     function physicalBuildAt(x, z) {
@@ -2084,19 +2092,26 @@ export default function mount() {
     }
     let winX = 1e9, winZ = 1e9;
     let visX = 1e9, visZ = 1e9, visR = -1, visWorldRev = -1;
+    function syncSpatialVisibilitySet(prevSet, nextSet, predicate) {
+      for (const ent of prevSet) {
+        if (!nextSet.has(ent) && ent?.group) ent.group.visible = false;
+      }
+      for (const ent of nextSet) {
+        if (!ent?.group) continue;
+        const show = !!predicate(ent);
+        if (ent.group.visible !== show) ent.group.visible = show;
+      }
+      return nextSet;
+    }
     function syncWorldVisibility(force = false) {
       const px = Math.round(me.x), pz = Math.round(me.z), r = currentTileLoadRadius();
       const rev = Number(lastWorldPaintRev || 0);
       if (!force && px === visX && pz === visZ && r === visR && rev === visWorldRev) return;
       visX = px; visZ = pz; visR = r; visWorldRev = rev;
-      for (const b of buildPool.values()) {
-        if (!b?.group) continue;
-        // Buildings must never float on unloaded terrain. Keep their visibility
-        // tied to the same ground window as the tile meshes.
-        b.group.visible = cheb(b.x, b.z, px, pz) <= r + 1 && cells.has(key(b.x, b.z));
-      }
-      for (const l of lootPool.values()) if (l?.group) l.group.visible = cheb(l.x, l.z, px, pz) <= r + 1 && cells.has(key(l.x, l.z));
-      for (const npc of npcPool.values()) if (npc?.group) npc.group.visible = cheb(npc.x, npc.z, px, pz) <= r + 1 && cells.has(key(npc.x, npc.z));
+      const withinLoaded = (ent) => cheb(ent.x, ent.z, px, pz) <= r + 1 && cells.has(key(ent.x, ent.z));
+      visibleBuilds = syncSpatialVisibilitySet(visibleBuilds, buildVisibilityGrid.query(px, pz, r + 2), withinLoaded);
+      visibleLoot = syncSpatialVisibilitySet(visibleLoot, lootVisibilityGrid.query(px, pz, r + 2), withinLoaded);
+      visibleNpcs = syncSpatialVisibilitySet(visibleNpcs, npcVisibilityGrid.query(px, pz, r + 2), withinLoaded);
       updateWonderDistrictRoads();
     }
     function refreshWindow(force = false) {
@@ -2109,7 +2124,7 @@ export default function mount() {
         if (cheb(cx, cz, px, pz) > r + 2) {
           cells.delete(k);
           const d = doodadPool.get(k); if (d) doodadPool.delete(k);
-          const tp = tradePostPool.get(k); if (tp) { scene.remove(tp.group); tradePostPool.delete(k); } const npc = npcPool.get(k); if (npc) { scene.remove(npc.group); npcPool.delete(k); }
+          const tp = tradePostPool.get(k); if (tp) { scene.remove(tp.group); tradePostPool.delete(k); } const npc = npcPool.get(k); if (npc) { npcVisibilityGrid.remove(npc); visibleNpcs.delete(npc); scene.remove(npc.group); npcPool.delete(k); }
           const rd = roadPool.get(k); if (rd) { scene.remove(rd); roadPool.delete(k); }
         }
       }
@@ -2347,11 +2362,14 @@ export default function mount() {
         ring.rotation.x = -Math.PI / 2; ring.position.y = -0.1; g.add(ring);
         g.position.set(l.x, 0.52, l.z); g.scale.setScalar(0.01); scene.add(g);
         anims.push({ kind: "in", obj: g, t: 0, dur: 0.35 });
-        lootPool.set(l.id, { id: l.id, group: g, x: l.x, z: l.z, kind: l.kind, gid: l.gid });
+        const lootRow = { id: l.id, group: g, x: l.x, z: l.z, kind: l.kind, gid: l.gid };
+        lootPool.set(l.id, lootRow);
+        lootVisibilityGrid.upsert(lootRow);
       }
       for (const [id, l] of [...lootPool]) {
         if (lootSeen.has(id)) continue;
         anims.push({ kind: "up", obj: l.group, t: 0, dur: 0.3, done: () => scene.remove(l.group) });
+        lootVisibilityGrid.remove(l); visibleLoot.delete(l);
         lootPool.delete(id);
       }
       // Gold Sources/Ruins are deprecated server-side; coins now arrive as loot/pickups.

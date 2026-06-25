@@ -13,7 +13,7 @@ import { cleanBuildKindResponse } from "./cleanRelease";
 import { recordActivity, logError } from "./activityLog";
 import { withImmediateTx } from "./dbTx";
 import { applyReferralCodeForNewProfile } from "./referralProgram";
-import { residentPlayerRow, residentPlayerRows, residentWorldRows, residentWorldStatus, ensureResidentWorldStarted, checkpointResidentWorld, residentWorldRev, upsertResidentPlayer, residentOwnedTileCount, residentBuildings, patchResidentPlayer } from "./residentWorld";
+import { residentPlayerRow, residentPlayerRows, residentWorldRows, residentWorldStatus, ensureResidentWorldStarted, checkpointResidentWorld, residentWorldRev, residentPlayerRev, upsertResidentPlayer, residentOwnedTileCount, residentBuildings, patchResidentPlayer } from "./residentWorld";
 
 export type EcsPlayerRow = any;
 export type WalletAuthInput = { wallet?: string; message?: string; signature?: string } | null | undefined;
@@ -240,7 +240,9 @@ export function snapshot(p: EcsPlayerRow, q: { rev: number; ax: number; az: numb
   const fresh = residentPlayerRow(getPlayer(p.id) as any || p) as any;
   const world = { events: [] } as any as EcsWorld;
   const [ax, az] = anchorOf(fresh.x, fresh.z);
-  const worldSame = q.rev === residentWorldRev() && q.ax === ax && q.az === az && Number(q.mapRev || 0) === residentWorldRev();
+  const worldRev = residentWorldRev();
+  const playersRev = residentPlayerRev();
+  const worldSame = q.rev === worldRev && q.ax === ax && q.az === az && Number(q.mapRev || 0) === worldRev;
   const ownedBuildings = residentBuildings().filter((b) => Number(b.owner || 0) === Number(fresh.id));
   const energyWire = energyNowForWire(fresh);
   const houses = ownedBuildings.filter((b) => String(b.kind || "") === "cottage" || String(b.kind || "") === "house").map((b) => ({ uid: Number(b.id), x: Number(b.x), z: Number(b.z), name: b.nm || "House" }));
@@ -263,7 +265,7 @@ export function snapshot(p: EcsPlayerRow, q: { rev: number; ax: number; az: numb
     .slice(0, MAX_WIRE_PLAYERS)
     .map((o) => ({ id: o.id, name: isSpectator(o) ? (o.name || "Spectator") : o.name, body: o.body, hat: o.hat, x: o.x, z: o.z, hp: o.hp, equip: isSpectator(o) ? {} : o.equip, appearance: null, level: o.level || 1, xp: o.xp || 0, spectator: isSpectator(o), ts: o.lastSeen, lastSeen: o.lastSeen }));
   const chat = (db.chat.select().orderBy("id", "DESC").limit(CHAT_LIMIT).all() as any[]).reverse().filter((c) => Number(c.id || 0) > Number(q.chat || 0));
-  const base: any = { now: t, me, players, mapPlayers: activeMapPlayers(t), chat, events: drainEcsEvents(world, fresh.id), leaderboard: leaderboardRows(), requiredVersion: requiredClientVersion, updateReason: requiredClientReason };
+  const base: any = { now: t, rev: worldRev, playerRev: playersRev, me, players, mapPlayers: activeMapPlayers(t), chat, events: drainEcsEvents(world, fresh.id), leaderboard: leaderboardRows(), requiredVersion: requiredClientVersion, updateReason: requiredClientReason };
   if (!worldSame) base.world = worldRows(fresh, q, world);
   return base;
 }
