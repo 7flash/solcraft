@@ -501,17 +501,47 @@ export function createCanvasPrismWorld(opts: CanvasWorldOptions) {
     remotes.length = 0; playersById.clear();
     for (const p of players || []) { if (!p) continue; playersById.set(p.id,p); if (p.id !== me.id) remotes.push(p); }
   }
-  function cellFromEvent(ev: PointerEvent | MouseEvent) {
+  function eventWorld(ev: PointerEvent | MouseEvent) {
     const rect = canvas.getBoundingClientRect();
-    const w = screenToWorld((ev.clientX ?? 0) - rect.left, (ev.clientY ?? 0) - rect.top);
+    const sx = (ev.clientX ?? 0) - rect.left;
+    const sy = (ev.clientY ?? 0) - rect.top;
+    const w = screenToWorld(sx, sy);
+    return { ...w, sx, sy };
+  }
+  function cellFromEvent(ev: PointerEvent | MouseEvent) {
+    const w = eventWorld(ev);
     return { x: Math.round(w.wx), z: Math.round(w.wz) };
   }
+  function buildingVisualRadius(kind: any) {
+    const k = String(kind || "building").toLowerCase();
+    if (k === "worldwonder") return 5.75;
+    if (k === "keep" || k.includes("gate") || k === "watchtower") return 3.55;
+    if (k === "warehouse" || k === "townhall" || k === "academy" || k === "bank" || k === "vault") return 3.05;
+    return 2.55;
+  }
   function buildingFromEvent(ev: PointerEvent | MouseEvent) {
-    const c = cellFromEvent(ev);
-    const b = buildAt.get(kfn(c.x,c.z));
-    if (b) return { uid: b.uid, b };
-    let best:any = null, bd = 1.35;
-    for (const b of buildPool.values()) { const d = cheb(c.x,c.z,b.x,b.z); if (d < bd) { bd=d; best=b; } }
+    const w = eventWorld(ev);
+    const c = { x: Math.round(w.wx), z: Math.round(w.wz) };
+    const exact = buildAt.get(kfn(c.x,c.z));
+    if (exact) return { uid: exact.uid, b: exact };
+
+    // Canvas buildings are intentionally much bigger than the authoritative
+    // one-cell server anchor. The old Three raycast hit the mesh itself; after
+    // the canvas rewrite we need a visual hit test or clicks on roofs/caps land
+    // on nearby terrain cells and tools/inspect feel broken.
+    let best:any = null, bestScore = Infinity;
+    for (const b of buildPool.values()) {
+      const bx = Number(b.x || 0), bz = Number(b.z || 0);
+      const r = buildingVisualRadius(b.kind);
+      const dx = Math.abs(w.wx - bx), dz = Math.abs(w.wz - bz);
+      if (Math.max(dx, dz) > r) continue;
+      const base = proj(bx, 0, bz);
+      const screenScore = Math.hypot(w.sx - base.x, w.sy - (base.y - r * heightScale * 0.34)) / Math.max(1, tileW);
+      const worldScore = Math.max(dx, dz) * 0.45;
+      const depthBias = -(bx + bz) * 0.001;
+      const score = screenScore + worldScore + depthBias;
+      if (score < bestScore) { bestScore = score; best = b; }
+    }
     return best ? { uid: best.uid, b: best } : null;
   }
   function buildPoolAt(x:number,z:number) { return buildAt.get(kfn(x,z)); }
@@ -522,7 +552,8 @@ export function createCanvasPrismWorld(opts: CanvasWorldOptions) {
   function refreshWindow(force = false) { rebuildCells(!!force); }
   function pathTo(x:number,z:number) { const p = computePath(Math.trunc(x),Math.trunc(z),false); if (!p.length) return false; pendingPath = p; return true; }
   function pathToNear(x:number,z:number) { const p = computePath(Math.trunc(x),Math.trunc(z),true); if (!p.length) return false; pendingPath = p; return true; }
-  function tryMoveDelta(dx:number,dz:number) { pendingPath.length = 0; return stepTo(me.x + Math.trunc(dx), me.z + Math.trunc(dz)); }
+  function canIssueMove() { return canIssueMoveNow(); }
+  function tryMoveDelta(dx:number,dz:number) { if (!canIssueMoveNow()) return false; pendingPath.length = 0; return stepTo(me.x + Math.trunc(dx), me.z + Math.trunc(dz)); }
   function hardSnapMe(x:number,z:number) { me.x=Math.trunc(Number(x)); me.z=Math.trunc(Number(z)); if (ST.me) { ST.me.x=me.x; ST.me.z=me.z; } pendingPath.length=0; rebuildCells(true); }
   function setFacing(x:number,z:number) { me.facingX=x; me.facingZ=z; }
   function setWalking(v:boolean) { me.walking=!!v; }
@@ -534,6 +565,14 @@ export function createCanvasPrismWorld(opts: CanvasWorldOptions) {
   function shockwave(x:number,z:number,color=0xffd76e) { floatText(x,z,"◎",numColorToHex(color,"#ffd76e")); }
   function markDoodadGone(x:number,z:number) { const kk=kfn(x,z); exceptions.set(kk,"gone"); doodads.delete(kk); }
   function removeBuild(uid:any) { const b=buildPool.get(uid); if (!b) return; buildPool.delete(uid); buildAt.delete(kfn(b.x,b.z)); }
+  function minimapSnapshot() {
+    return {
+      tiles: Array.from(cells.values()).map((c:any) => ({ x: c.cx ?? c.x, z: c.cz ?? c.z, owner: c.owner || 0, ownerBody: tileOwner.get(kfn(c.cx ?? c.x, c.cz ?? c.z))?.body })),
+      buildings: Array.from(buildPool.values()).map((b:any) => ({ x: b.x, z: b.z, kind: b.kind, owner: b.owner, uid: b.uid })),
+      loot: Array.from(lootPool.values()).map((l:any) => ({ x: l.x, z: l.z, kind: l.kind, id: l.id })),
+      players: [me, ...remotes].map((p:any) => ({ id: p.id, x: p.x, z: p.z, body: p.body, name: p.name, lastSeen: Date.now() })),
+    };
+  }
   function updateMinimapInfo() { /* world map/minimap UI is still handled by existing canvas map code. */ }
   function dispose() { disposed = true; cancelAnimationFrame(raf); window.removeEventListener("resize", resize); try { canvas.remove(); } catch {} }
 
@@ -544,7 +583,7 @@ export function createCanvasPrismWorld(opts: CanvasWorldOptions) {
     applyWorld, applyPlayers, applyMe, me, cellFromEvent, buildingFromEvent, pathTo, pathToNear, tryMoveDelta,
     blocked, buildPoolAt, doodadVisible, doodadAt, resolveDoodadCell, burst, floatText, shockwave, hoverMarker, hardSnapMe, markDoodadGone, removeBuild,
     setHintCells, hideBuildGhost, showBuildGhost, refreshWindow, rebuildBuilding: (uid:any) => {}, animateBuildingUse: (uid:any) => { const b=buildPool.get(uid); if (b) floatText(b.x,b.z,"used","#ffd76e"); }, refreshConstructionProgress: () => {},
-    refreshOwnRig: () => {}, applyVisualQuality: () => {}, hasPendingMove,
+    refreshOwnRig: () => {}, applyVisualQuality: () => {}, hasPendingMove, canIssueMove, minimapSnapshot,
     tileOwner, buildPool, buildAt, lootPool, rigPool, tradePostPool, cells, updateMinimapInfo,
     rotateCam: () => {}, refreshCameraRotation: () => {}, refreshCameraZoom: () => { updateProjection(); rebuildCells(true); }, refreshEnvironment: () => {},
     zoom: (delta = 0) => { zoomValue = clamp(zoomValue + Number(delta || 0), 0.72, 1.55); updateProjection(); },

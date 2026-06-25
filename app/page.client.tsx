@@ -1081,9 +1081,10 @@ export default function mount() {
 
 
   function worldMapData(expanded = false) {
-    const fallbackTiles = world?.cells ? Array.from(world.cells.values()).map((c) => ({ x: c.cx ?? c.x, z: c.cz ?? c.z, owner: c.owner || 0 })) : [];
-    const fallbackBuildings = world?.buildPool ? Array.from(world.buildPool.values()).map((b) => ({ x: b.x, z: b.z, kind: b.kind, owner: b.owner, uid: b.uid })) : [];
-    const fallbackLoot = world?.lootPool ? Array.from(world.lootPool.values()).map((l) => ({ x: l.x, z: l.z, kind: l.kind, id: l.id })) : [];
+    const canvasMini = world?.minimapSnapshot?.() || null;
+    const fallbackTiles = Array.isArray(canvasMini?.tiles) && canvasMini.tiles.length ? canvasMini.tiles : (world?.cells ? Array.from(world.cells.values()).map((c) => ({ x: c.cx ?? c.x, z: c.cz ?? c.z, owner: c.owner || 0 })) : []);
+    const fallbackBuildings = Array.isArray(canvasMini?.buildings) && canvasMini.buildings.length ? canvasMini.buildings : (world?.buildPool ? Array.from(world.buildPool.values()).map((b) => ({ x: b.x, z: b.z, kind: b.kind, owner: b.owner, uid: b.uid })) : []);
+    const fallbackLoot = Array.isArray(canvasMini?.loot) && canvasMini.loot.length ? canvasMini.loot : (world?.lootPool ? Array.from(world.lootPool.values()).map((l) => ({ x: l.x, z: l.z, kind: l.kind, id: l.id })) : []);
     const allTiles = Array.isArray(ST.map?.tiles) && ST.map.tiles.length ? ST.map.tiles : fallbackTiles;
     const allBuildings = Array.isArray(ST.map?.buildings) && ST.map.buildings.length ? ST.map.buildings : fallbackBuildings;
     const allLoot = Array.isArray(ST.map?.loot) && ST.map.loot.length ? ST.map.loot : fallbackLoot;
@@ -1533,7 +1534,7 @@ export default function mount() {
   const nearT = scheduler.every("ui.near", 250, () => { if (ST.screen !== "playing") return; perf.measure("ui.near", () => { refreshNear(); updateHints(); tryPickupAt(); maybeStartQueuedHarvest(); paint(); }); });
   const keyboardMoveT = scheduler.every("movement.keyboard", 0, (now) => {
     if (!updateKeyboardMoveIntent()) return;
-    keyboardMoveAccumulator.tick(now, () => ST.screen === "playing" && !ST.updateRequired && !!world?.tryMoveDelta, (intent) => world.tryMoveDelta(intent.x, intent.z));
+    keyboardMoveAccumulator.tick(now, () => ST.screen === "playing" && !ST.updateRequired && !!world?.tryMoveDelta && (world.canIssueMove?.() !== false), (intent) => world.tryMoveDelta(intent.x, intent.z));
   });
 
   function useBuildingClient(uid) {
@@ -2916,7 +2917,7 @@ export default function mount() {
 
   function territoryCoinStatusText() {
     const tiles = ST.me?.territory || 0;
-    const coins = world?.lootPool ? Array.from(world.lootPool.values()).filter((l) => l.group && l.x != null).length : 0;
+    const coins = world?.lootPool ? Array.from(world.lootPool.values()).filter((l) => l && l.x != null).length : 0;
     return `${tiles} claimed tiles · territory coins spawn over time and are picked up by walking over them`;
   }
   function territoryCoinNextStep() {
