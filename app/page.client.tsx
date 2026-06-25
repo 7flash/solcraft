@@ -1079,15 +1079,43 @@ export default function mount() {
     return Array.from(byId.values());
   }
 
+  function mergeRowsByCoord(...sources) {
+    const byKey = new Map();
+    const push = (row) => {
+      if (!row || !Number.isFinite(Number(row.x)) || !Number.isFinite(Number(row.z))) return;
+      const kk = `${Math.trunc(Number(row.x))},${Math.trunc(Number(row.z))}`;
+      byKey.set(kk, { ...(byKey.get(kk) || {}), ...row, x: Math.trunc(Number(row.x)), z: Math.trunc(Number(row.z)) });
+    };
+    for (const src of sources) if (Array.isArray(src)) for (const row of src) push(row);
+    return Array.from(byKey.values());
+  }
+
+  function mergeRowsByIdOrCoord(...sources) {
+    const byKey = new Map();
+    const push = (row) => {
+      if (!row) return;
+      const id = row.uid ?? row.id ?? row.key;
+      const kk = id != null ? `id:${id}` : (Number.isFinite(Number(row.x)) && Number.isFinite(Number(row.z)) ? `xz:${Math.trunc(Number(row.x))},${Math.trunc(Number(row.z))}` : "");
+      if (!kk) return;
+      byKey.set(kk, { ...(byKey.get(kk) || {}), ...row });
+    };
+    for (const src of sources) if (Array.isArray(src)) for (const row of src) push(row);
+    return Array.from(byKey.values());
+  }
+
 
   function worldMapData(expanded = false) {
     const canvasMini = world?.minimapSnapshot?.() || null;
     const fallbackTiles = Array.isArray(canvasMini?.tiles) && canvasMini.tiles.length ? canvasMini.tiles : (world?.cells ? Array.from(world.cells.values()).map((c) => ({ x: c.cx ?? c.x, z: c.cz ?? c.z, owner: c.owner || 0 })) : []);
     const fallbackBuildings = Array.isArray(canvasMini?.buildings) && canvasMini.buildings.length ? canvasMini.buildings : (world?.buildPool ? Array.from(world.buildPool.values()).map((b) => ({ x: b.x, z: b.z, kind: b.kind, owner: b.owner, uid: b.uid })) : []);
     const fallbackLoot = Array.isArray(canvasMini?.loot) && canvasMini.loot.length ? canvasMini.loot : (world?.lootPool ? Array.from(world.lootPool.values()).map((l) => ({ x: l.x, z: l.z, kind: l.kind, id: l.id })) : []);
-    const allTiles = Array.isArray(ST.map?.tiles) && ST.map.tiles.length ? ST.map.tiles : fallbackTiles;
-    const allBuildings = Array.isArray(ST.map?.buildings) && ST.map.buildings.length ? ST.map.buildings : fallbackBuildings;
-    const allLoot = Array.isArray(ST.map?.loot) && ST.map.loot.length ? ST.map.loot : fallbackLoot;
+    // After the Canvas renderer swap, ST.map can be a stale or sparse server
+    // overview while the live canvas cache has the real local window. Merge
+    // them instead of choosing one, so the pocket minimap, compass, and map
+    // click logic stay in sync with what the player can actually see.
+    const allTiles = mergeRowsByCoord(ST.map?.tiles || [], fallbackTiles);
+    const allBuildings = mergeRowsByIdOrCoord(ST.map?.buildings || [], fallbackBuildings);
+    const allLoot = mergeRowsByIdOrCoord(ST.map?.loot || [], fallbackLoot);
     const allPlayers = mergeMinimapPlayers(ST.map?.players || [], ST.players || [], ST.me).filter((p) => p && p.id != null && Number.isFinite(Number(p.x)) && Number.isFinite(Number(p.z)));
     const meX = Number(ST.me?.x || 0), meZ = Number(ST.me?.z || 0);
     const dist = (q) => Math.max(Math.abs(Number(q?.x || 0) - meX), Math.abs(Number(q?.z || 0) - meZ));
@@ -2190,10 +2218,13 @@ export default function mount() {
 
   function onPointerMove(ev) {
     if (ST.screen !== "playing") return;
-    const c = world.cellFromEvent(ev);
+    const hitB = world.buildingFromEvent?.(ev);
+    const hitD = world.doodadFromEvent?.(ev);
+    const rawCell = world.cellFromEvent(ev);
+    const c = hitB?.b ? { x: hitB.b.x, z: hitB.b.z } : hitD ? { x: hitD.x, z: hitD.z } : rawCell;
     if (c) { ST.hoverCellX = c.x; ST.hoverCellZ = c.z; }
     if (!c) { ST.hoverIntent = "walk"; syncToolCursor(); world.hoverMarker.visible = false; world.hideBuildGhost(); hideTip(); return; }
-    ST.hoverIntent = hoverIntentForCell(c);
+    ST.hoverIntent = hitB ? "building" : (hitD?.kind || hoverIntentForCell(c));
     syncToolCursor();
     world.hoverMarker.visible = true; world.hoverMarker.position.x = c.x; world.hoverMarker.position.z = c.z;
     const mat = world.hoverMarker.material;
@@ -2219,7 +2250,10 @@ export default function mount() {
     if (ev.button === 2) { ev.preventDefault(); return; }
     if (ST.screen !== "playing" || ST.modal || ST.updateRequired) return;
     sfx.resume();
-    const hitB = world.buildingFromEvent(ev), c = world.cellFromEvent(ev);
+    const hitB = world.buildingFromEvent(ev);
+    const hitD = world.doodadFromEvent?.(ev);
+    const rawCell = world.cellFromEvent(ev);
+    const c = hitB?.b ? { x: hitB.b.x, z: hitB.b.z } : hitD ? { x: hitD.x, z: hitD.z } : rawCell;
     if (hitB?.b?.capital) { openCapitalService(hitB.b); return; }
     if (ST.mode === "admin" && ST.tool === "admin" && isAdminPlayer() && c) {
       if (ST.adminTool === "spawnKeep") adminSpawnKeep("here", c);
@@ -2258,7 +2292,7 @@ export default function mount() {
     }
     if ((ST.tool === "wood" || ST.tool === "stone") && c) {
       const want = ST.tool === "wood" ? "tree" : "rock";
-      const found = world.resolveDoodadCell?.(c.x, c.z, want);
+      const found = (hitD && (!want || hitD.kind === want) ? hitD : null) || world.resolveDoodadCell?.(c.x, c.z, want);
       const d = found?.kind || world.doodadVisible(c.x, c.z);
       if (d && d !== want) { sfx.err(); say(ST.tool === "wood" ? t("toast.useStonePick", "Use the stone pick for rocks.") : t("toast.useWoodAxe", "Use the wood axe for trees.")); return; }
       if ((found || d === want) && !world.buildPoolAt(found?.x ?? c.x, found?.z ?? c.z)) {
@@ -2268,7 +2302,7 @@ export default function mount() {
     }
     if (ST.tool === "none" && c) {
       if (hitB) { openBuildingInspect(hitB); return; }
-      const found = world.resolveDoodadCell?.(c.x, c.z);
+      const found = hitD || world.resolveDoodadCell?.(c.x, c.z);
       const d = found?.kind || world.doodadVisible(c.x, c.z);
       if (d && !world.buildPoolAt(found?.x ?? c.x, found?.z ?? c.z)) { openObjectPreview(worldObjectPreviewForCell(found || c)); return; }
       if (tradePostAt(c.x, c.z) || proceduralNpcAt(c.x, c.z)) { openObjectPreview(worldObjectPreviewForCell(c)); return; }
@@ -2281,7 +2315,7 @@ export default function mount() {
       return;
     }
     if ((ST.tool === "siege" || ST.tool === "sword") && c) {
-      const target = world.buildPoolAt(c.x, c.z);
+      const target = hitB?.b || world.buildPoolAt(c.x, c.z);
       if (!target || !ST.me || target.owner === ST.me.id) { sfx.err(); say(t("toast.swordTargets", "Sword targets Keeps, buildings, and settlers.")); return; }
       if (cheb(target.x, target.z, world.me.x, world.me.z) <= 1) doRaid(target.uid);
       else world.pathToNear(target.x, target.z);

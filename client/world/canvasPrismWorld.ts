@@ -372,14 +372,22 @@ export function createCanvasPrismWorld(opts: CanvasWorldOptions) {
     }
     return best;
   }
+  function resolvedDoodad(d: any) {
+    if (!d) return null;
+    return { x: Math.trunc(Number(d.x)), z: Math.trunc(Number(d.z)), kind: normalizeDoodadKind(d) };
+  }
   function resolveDoodadCell(x: number, z: number, want?: string) {
     // Resources are intentionally drawn larger than one server tile in the
     // canvas renderer. Pointer projection may land on a neighboring tile even
     // though the player clearly clicked the visual tree/rock. Resolve with a
     // generous visual radius, then return the authoritative server cell.
-    const d = doodadAt(x, z, 2.15, want);
-    if (!d) return null;
-    return { x: Math.trunc(Number(d.x)), z: Math.trunc(Number(d.z)), kind: normalizeDoodadKind(d) };
+    return resolvedDoodad(doodadAt(x, z, 2.15, want));
+  }
+  function doodadFromEvent(ev: PointerEvent | MouseEvent, want?: string) {
+    const w = eventWorld(ev);
+    // Use the fractional pointer world coordinate here; rounding first is what
+    // made large prism resources feel unclickable near their visible edges.
+    return resolvedDoodad(doodadAt(w.wx, w.wz, 2.65, want));
   }
   function canIssueMoveNow() { return inFlight < maxInFlight; }
   function hasPendingMove() { return pendingPath.length > 0 || inFlight > 0; }
@@ -581,7 +589,7 @@ export function createCanvasPrismWorld(opts: CanvasWorldOptions) {
 
   return {
     applyWorld, applyPlayers, applyMe, me, cellFromEvent, buildingFromEvent, pathTo, pathToNear, tryMoveDelta,
-    blocked, buildPoolAt, doodadVisible, doodadAt, resolveDoodadCell, burst, floatText, shockwave, hoverMarker, hardSnapMe, markDoodadGone, removeBuild,
+    blocked, buildPoolAt, doodadVisible, doodadAt, resolveDoodadCell, doodadFromEvent, burst, floatText, shockwave, hoverMarker, hardSnapMe, markDoodadGone, removeBuild,
     setHintCells, hideBuildGhost, showBuildGhost, refreshWindow, rebuildBuilding: (uid:any) => {}, animateBuildingUse: (uid:any) => { const b=buildPool.get(uid); if (b) floatText(b.x,b.z,"used","#ffd76e"); }, refreshConstructionProgress: () => {},
     refreshOwnRig: () => {}, applyVisualQuality: () => {}, hasPendingMove, canIssueMove, minimapSnapshot,
     tileOwner, buildPool, buildAt, lootPool, rigPool, tradePostPool, cells, updateMinimapInfo,
