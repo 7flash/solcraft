@@ -19,6 +19,7 @@ type PreviewState = {
 
 const active = new Set<PreviewState>();
 const byEl = new WeakMap<HTMLElement, PreviewState>();
+const MAX_ACTIVE_WEBGL_PREVIEWS = 8;
 
 export { miniPreviewKey, miniPreviewLabel, normalizePreviewAccent } from "./miniPreviewModel";
 
@@ -152,6 +153,11 @@ function fitCamera(camera: THREE.PerspectiveCamera, group: THREE.Group) {
 }
 
 function createPreview(el: HTMLElement): PreviewState | null {
+  if (active.size >= MAX_ACTIVE_WEBGL_PREVIEWS) {
+    el.classList.add("mini3d-preview-failed");
+    el.setAttribute("aria-label", "Preview deferred to avoid too many WebGL contexts");
+    return null;
+  }
   const kind = String(el.dataset.previewKind || "tile");
   const buildingKind = String(el.dataset.buildingKind || "");
   const rawAccent = normalizePreviewAccent(el.dataset.previewAccent || "");

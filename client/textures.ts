@@ -44,53 +44,38 @@ let ATLAS_MODE: Record<string, string> = { terrain: "procedural", building: "pro
 let runtimeSig = "boot";
 
 const texCache = new Map<string, THREE.Texture>();
-const matCache = new Map<string, THREE.Material>();
+const matCache = new Map<string, any>();
 const animatedMaps: THREE.Texture[] = [];
-const TEX_CACHE_MAX = 180;
-const MAT_CACHE_MAX = 260;
-let terrainClearTimer: any = null;
-let TERRAIN_PREFS = { warmth: 0.72, texture: 0.08 };
 
-function disposeCachedValue(value: any) {
-  if (!value) return;
-  if (Array.isArray(value)) { for (const v of value) disposeCachedValue(v); return; }
-  value.dispose?.();
+// Terrain warmth/detail sliders were a cache-thrashing footgun: every input
+// event cleared all terrain/building materials and regenerated procedural
+// canvases. Keep the values stable and ignore runtime writes; the prism/flat
+// terrain direction should remove this path entirely in a later delete pass.
+const TERRAIN_PREFS = { warmth: 0.62, texture: 0.12 };
+export function setTerrainVisualPrefs(_v: any = {}) {
+  return { ...TERRAIN_PREFS, deprecated: true };
 }
-function trimCache(map: Map<string, any>, max: number) {
+
+const MAX_TEX_CACHE = 96;
+const MAX_MAT_CACHE = 160;
+function disposeMaterialValue(value: any) {
+  if (Array.isArray(value)) { const seen = new Set(value); for (const m of seen) m?.dispose?.(); return; }
+  value?.dispose?.();
+}
+function putBounded<K, V>(map: Map<K, V>, key: K, value: V, max: number, dispose: (value: V) => void) {
+  if (map.has(key)) map.delete(key);
+  map.set(key, value);
   while (map.size > max) {
-    const key = map.keys().next().value;
-    const value = map.get(key);
-    map.delete(key);
-    disposeCachedValue(value);
+    const first = map.entries().next().value;
+    if (!first) break;
+    const [oldKey, oldValue] = first;
+    map.delete(oldKey);
+    if (oldValue !== value) dispose(oldValue);
   }
-}
-function rememberTexture(key: string, value: THREE.Texture) {
-  if (texCache.has(key)) texCache.delete(key);
-  texCache.set(key, value);
-  trimCache(texCache, TEX_CACHE_MAX);
   return value;
 }
-function rememberMaterial(key: string, value: any) {
-  if (matCache.has(key)) matCache.delete(key);
-  matCache.set(key, value);
-  trimCache(matCache, MAT_CACHE_MAX);
-  return value;
-}
-function scheduleTerrainCacheClear() {
-  if (typeof window === "undefined") { clearCaches(); return; }
-  if (terrainClearTimer) window.clearTimeout(terrainClearTimer);
-  terrainClearTimer = window.setTimeout(() => { terrainClearTimer = null; clearCaches(); }, 180);
-}
-
-export function setTerrainVisualPrefs(v: any = {}) {
-  TERRAIN_PREFS = {
-    warmth: Math.max(0, Math.min(1, Number(v.warmth ?? TERRAIN_PREFS.warmth))),
-    texture: Math.max(0, Math.min(1, Number(v.texture ?? TERRAIN_PREFS.texture))),
-  };
-  // Sliders can fire dozens of input events per second; rebuild procedural
-  // terrain textures only after the drag settles, not per pointer tick.
-  scheduleTerrainCacheClear();
-}
+function rememberTexture(key: string, tex: THREE.Texture) { return putBounded(texCache, key, tex, MAX_TEX_CACHE, (t) => t.dispose?.()); }
+function rememberMaterial(key: string, mat: any) { return putBounded(matCache, key, mat, MAX_MAT_CACHE, disposeMaterialValue); }
 function mixHex(a: string, b: string, t: number) {
   const ca = new THREE.Color(a), cb = new THREE.Color(b);
   return `#${ca.lerp(cb, Math.max(0, Math.min(1, t))).getHexString()}`;
@@ -104,9 +89,8 @@ export const MATERIAL_SLOT: Record<string, [number, number]> = {
 };
 
 function clearCaches() {
-  if (terrainClearTimer && typeof window !== "undefined") { window.clearTimeout(terrainClearTimer); terrainClearTimer = null; }
-  texCache.forEach((t) => disposeCachedValue(t));
-  matCache.forEach((m) => disposeCachedValue(m));
+  texCache.forEach((t) => t.dispose?.());
+  matCache.forEach((m) => m.dispose?.());
   texCache.clear();
   matCache.clear();
   animatedMaps.length = 0;

@@ -24,7 +24,7 @@ import {
   M, ME, buildBanner, lootMesh,
   makeLabel, makeSfx,
 } from "../client/meshes";
-import { loadAtlasRuntimeConfig, terrainMats, tickVisualTextures, setTerrainVisualPrefs } from "../client/textures";
+import { loadAtlasRuntimeConfig, terrainMats, tickVisualTextures } from "../client/textures";
 import { capitalBuildingsInView, capitalLabelVisibleForPlayer } from "../client/world/capitalLayout";
 import { makePlayerBillboard } from "../client/world/playerBillboard";
 import { playerBillboardSignature } from "../client/world/playerBillboardModel";
@@ -69,6 +69,7 @@ import { t, tArray } from "../client/i18n";
 import { createHudRoots } from "../client/ui/hudRoots";
 import { npcTalkLine } from "../client/ui/npcDialogue";
 import { api } from "../client/game/httpClient";
+import { createFrameScheduler } from "../client/game/frameScheduler";
 import { connectAndSignPhantom, loadLoginGateConfig, loginGateText, phantomProvider, shortWallet } from "../client/game/walletAuthClient";
 import {
   CAMERA_ROTATION_STEP, CAMERA_ZOOM_MAX, CAMERA_ZOOM_MIN, CAMERA_ZOOM_STEP,
@@ -259,6 +260,8 @@ export default function mount() {
     label: "SolCraft client",
     consoleBudgetMs: 24,
   });
+
+  const scheduler = createFrameScheduler();
 
   const perfMini = (() => {
     const el = document.createElement("div");
@@ -542,7 +545,6 @@ export default function mount() {
     }
   } catch (e) {}
   try { ST.faceImage = localStorage.getItem(FACE_KEY) || null; } catch (e) {}
-  setTerrainVisualPrefs(ST.visual);
   window.addEventListener("world-of-solcrafts:character-changed", (ev) => {
     ST.characterProfile = ev?.detail || loadCharacterProfile();
     world?.refreshOwnRig?.();
@@ -625,8 +627,7 @@ export default function mount() {
   }
   function setVisual(change) {
     ST.visual = saveVisualSettings({ ...ST.visual, ...change });
-    setTerrainVisualPrefs(ST.visual);
-    world?.applyVisualQuality?.(ST.visual);
+      world?.applyVisualQuality?.(ST.visual);
     loadAtlasRuntimeConfig(true).finally(() => { for (const [, c] of world.cells) c.owner = -1; world.refreshWindow?.(true); paint(); });
   }
   function setTimeControls(change) {
@@ -2964,7 +2965,7 @@ export default function mount() {
       startChop(q.x, q.z);
     }
   }
-  const nearT = setInterval(() => { if (ST.screen !== "playing") return; perf.measure("ui.near", () => { refreshNear(); updateHints(); tryPickupAt(); maybeStartQueuedHarvest(); paint(); }); }, 250);
+  const nearT = scheduler.every("ui.near", 250, () => { if (ST.screen !== "playing") return; perf.measure("ui.near", () => { refreshNear(); updateHints(); tryPickupAt(); maybeStartQueuedHarvest(); paint(); }); });
 
   function useBuildingClient(uid) {
     if (uid == null) return;
@@ -3115,7 +3116,7 @@ export default function mount() {
     if (!silent) act(kind === "home" ? "homeCancel" : kind === "house" ? "houseCancel" : kind === "wonder" ? "wonderCancel" : kind === "redeem" ? "redeemCancel" : "harvestCancel", {});
   }
   /* drives the bar + completion; cancels if the player walks off */
-  const channelT = setInterval(() => {
+  const channelT = scheduler.every("channel", 60, () => {
     if (!ST.channel) return;
     const ch = ST.channel;
     const moved = (ch.kind === "home" || ch.kind === "house" || ch.kind === "wonder" || ch.kind === "redeem" || ch.kind === "combat")
@@ -5481,7 +5482,7 @@ export default function mount() {
   }
 
   /* ---------- imperative energy/bin ticker: NO vdom ---------- */
-  const tick = setInterval(() => {
+  const tick = scheduler.every("ui.liveTicker", 250, () => {
     if (ST.screen !== "playing" || !ST.me) return;
     perf.measure("ui.liveTicker", () => {
       world?.refreshConstructionProgress?.();
@@ -5495,20 +5496,21 @@ export default function mount() {
       const hpFill = document.getElementById("sc-hp-fill");
       if (hpFill) hpFill.style.width = `${(100 * Math.max(0, m.hp || 0) / MAX_HP).toFixed(1)}%`;
     });
-  }, 250);
+  });
 
   /* ============================================================
      BOOT
      ============================================================ */
-  pollT = setInterval(poll, 850);
+  pollT = scheduler.every("state.poll", 850, () => poll(), { immediate: false });
   paint(true);
   if (ST.auth) setTimeout(() => startPlaying(), 0);
 
   return () => {
-    clearInterval(pollT);
-    clearInterval(nearT);
-    clearInterval(tick);
-    clearInterval(channelT);
+    scheduler.cancel(pollT);
+    scheduler.cancel(nearT);
+    scheduler.cancel(tick);
+    scheduler.cancel(channelT);
+    scheduler.clear();
     clearTimeout(toastT);
     clearTimeout(pollSoonT);
     clearTimeout(appearanceSaveT);

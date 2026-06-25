@@ -20,6 +20,14 @@
 // @ts-nocheck
 import * as THREE from "three";
 
+function envFlag(name: string, fallback: boolean) {
+  const value = String((typeof process !== "undefined" ? (process as any)?.env?.[name] : "") ?? "").trim().toLowerCase();
+  if (["1", "true", "yes", "on"].includes(value)) return true;
+  if (["0", "false", "no", "off"].includes(value)) return false;
+  return fallback;
+}
+const FORCE_FALLBACK_DOLL_ATLAS = envFlag("NEXT_PUBLIC_SOLCRAFT_FORCE_FALLBACK_ATLASES", true) || envFlag("NEXT_PUBLIC_SOLCRAFT_FORCE_PROCEDURAL_DOLLS", false);
+
 export type DollEquip = {
   hand?: string;
   cape?: string;
@@ -126,18 +134,25 @@ export const DEFAULT_DOLL_PALETTE: Required<DollPalette> = {
 const portraitCache = new Map<string, string>();
 const textureCache = new Map<string, THREE.CanvasTexture>();
 const atlasImageCache = new Map<string, HTMLImageElement>();
-const PORTRAIT_CACHE_MAX = 96;
-const DOLL_TEXTURE_CACHE_MAX = 96;
-const ATLAS_IMAGE_CACHE_MAX = 12;
-
-function rememberLru<K, V>(map: Map<K, V>, key: K, value: V, max: number, dispose?: (v: V) => void) {
+const MAX_PORTRAIT_CACHE = 80;
+const MAX_TEXTURE_CACHE = 64;
+const MAX_ATLAS_IMAGE_CACHE = 8;
+function touchMap<K, V>(map: Map<K, V>, key: K): V | undefined {
+  if (!map.has(key)) return undefined;
+  const value = map.get(key)!;
+  map.delete(key);
+  map.set(key, value);
+  return value;
+}
+function putBounded<K, V>(map: Map<K, V>, key: K, value: V, max: number, dispose?: (value: V) => void) {
   if (map.has(key)) map.delete(key);
   map.set(key, value);
   while (map.size > max) {
-    const oldest = map.keys().next().value;
-    const v = map.get(oldest);
-    map.delete(oldest);
-    if (v && dispose) dispose(v);
+    const first = map.entries().next().value;
+    if (!first) break;
+    const [oldKey, oldValue] = first;
+    map.delete(oldKey);
+    if (oldValue !== value) dispose?.(oldValue);
   }
   return value;
 }
@@ -232,14 +247,14 @@ function withCacheBust(src: string, sig: string) {
 }
 
 function loadImage(src: string): Promise<HTMLImageElement> {
-  const cached = atlasImageCache.get(src);
+  const cached = touchMap(atlasImageCache, src);
   if (cached?.complete) return Promise.resolve(cached);
 
   return new Promise((resolve, reject) => {
     const img = new Image();
     img.crossOrigin = "anonymous";
     img.onload = () => {
-      rememberLru(atlasImageCache, src, img, ATLAS_IMAGE_CACHE_MAX);
+      putBounded(atlasImageCache, src, img, MAX_ATLAS_IMAGE_CACHE);
       resolve(img);
     };
     img.onerror = () => reject(new Error("Doll atlas image load failed"));
@@ -577,6 +592,11 @@ export async function composeDollCanvas(canvas: HTMLCanvasElement, config: DollC
   const ctx = canvas.getContext("2d")!;
   ctx.clearRect(0, 0, size, size);
 
+  if (FORCE_FALLBACK_DOLL_ATLAS) {
+    drawProceduralDoll(ctx, config, size);
+    return canvas;
+  }
+
   const rt = await fetchRuntimeDoll();
   if (!rt?.url) {
     drawProceduralDoll(ctx, config, size);
@@ -633,18 +653,18 @@ export async function composeDollCanvas(canvas: HTMLCanvasElement, config: DollC
 
 export async function dollPortraitDataUrl(config: DollConfig = {}, size = 256) {
   const key = `portrait:${runtimeSig}:${size}:${JSON.stringify(config || {})}`;
-  const cached = portraitCache.get(key);
+  const cached = touchMap(portraitCache, key);
   if (cached) return cached;
   const canvas = document.createElement("canvas");
   await composeDollCanvas(canvas, config, size);
   const url = canvas.toDataURL("image/png");
-  rememberLru(portraitCache, key, url, PORTRAIT_CACHE_MAX);
+  putBounded(portraitCache, key, url, MAX_PORTRAIT_CACHE);
   return url;
 }
 
 export function dollTexture(config: DollConfig = {}, size = 256) {
   const key = `tex:${runtimeSig}:${size}:${JSON.stringify(config || {})}`;
-  const cached = textureCache.get(key);
+  const cached = touchMap(textureCache, key);
   if (cached) return cached;
 
   const canvas = document.createElement("canvas");
@@ -654,7 +674,7 @@ export function dollTexture(config: DollConfig = {}, size = 256) {
   const tex = new THREE.CanvasTexture(canvas);
   tex.needsUpdate = true;
   if ("colorSpace" in tex && THREE.SRGBColorSpace) tex.colorSpace = THREE.SRGBColorSpace;
-  rememberLru(textureCache, key, tex, DOLL_TEXTURE_CACHE_MAX, (t) => t.dispose?.());
+  putBounded(textureCache, key, tex, MAX_TEXTURE_CACHE, (t) => t.dispose?.());
 
   composeDollCanvas(canvas, config, size).then(() => {
     tex.image = canvas;
