@@ -138,3 +138,27 @@
 @media (max-width: 720px) {
   .sc-capital-compass { right: 10px; top: 112px; transform: scale(0.92); transform-origin: top right; }
 }
+
+/* next11: make the capital bearing useful at a glance, not just decorative. */
+.sc-capital-compass {
+  min-width: 118px;
+  border-color: rgba(206, 180, 67, 0.42);
+  background: linear-gradient(180deg, rgba(16, 28, 26, 0.82), rgba(8, 13, 14, 0.78));
+}
+.sc-capital-compass-arrow {
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.12), 0 0 0 1px rgba(206,180,67,.12);
+}
+.sc-capital-compass-direction {
+  font-style: normal;
+  color: rgba(255, 240, 168, 0.92);
+  font-weight: 900;
+  font-size: 10px;
+  letter-spacing: .02em;
+  text-transform: uppercase;
+}
+.sc-capital-compass-copy b { color: rgba(215, 223, 207, .94); }
+
+/* next11: terrain texture is allowed to be visible, but still below gameplay. */
+#solcraft-root {
+  --sc-ground-detail-opacity: .16;
+}

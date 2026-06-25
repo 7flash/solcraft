@@ -343,7 +343,7 @@ export default function mount() {
     el.type = "button";
     el.className = "sc-capital-compass";
     el.setAttribute("aria-label", "Direction to capital");
-    el.innerHTML = `<span class="sc-capital-compass-arrow">▲</span><span class="sc-capital-compass-copy"><b>Capital</b><i class="sc-capital-compass-distance">0 tiles</i></span>`;
+    el.innerHTML = `<span class="sc-capital-compass-arrow">▲</span><span class="sc-capital-compass-copy"><b>Capital</b><em class="sc-capital-compass-direction">toward center</em><i class="sc-capital-compass-distance">0 tiles</i></span>`;
     el.addEventListener("click", () => {
       if (ST.screen !== "playing") return;
       ST.modal = "worldmap";
@@ -361,10 +361,14 @@ export default function mount() {
       const dx = -x;
       const dz = -z;
       const angle = Math.atan2(dx, -dz) * 180 / Math.PI;
+      const absX = Math.abs(dx), absZ = Math.abs(dz);
+      const primary = absX > absZ * 1.35 ? (dx > 0 ? "east" : "west") : absZ > absX * 1.35 ? (dz > 0 ? "south" : "north") : `${dz > 0 ? "south" : "north"}-${dx > 0 ? "east" : "west"}`;
       el.style.setProperty("--capital-bearing", `${angle}deg`);
+      const dir = el.querySelector(".sc-capital-compass-direction");
+      if (dir) dir.textContent = primary;
       const d = el.querySelector(".sc-capital-compass-distance");
       if (d) d.textContent = `${Math.round(dist)} tiles`;
-      el.setAttribute("aria-label", `Capital is ${Math.round(dist)} tiles away`);
+      el.setAttribute("aria-label", `Capital is ${Math.round(dist)} tiles ${primary}`);
     }
     return { update };
   })();
@@ -1597,13 +1601,13 @@ export default function mount() {
       // blend into the ground, especially in the capital cluster.  Ownership now
       // lives in small accents/flags; foundations stay stone/umber by building type.
       const k = String(b?.kind || "building").toLowerCase();
-      if (k === "quarry") return "#4f5654";
-      if (k === "bank" || k === "vault" || k === "goldmine") return "#5a4b2d";
-      if (k === "farm" || k === "granary" || k === "windmill") return "#594021";
-      if (k === "lumber" || k === "sawmill") return "#4f3521";
-      if (k === "keep" || k === "watchtower" || k.includes("gate")) return "#3b3928";
-      if (k === "worldwonder" || k === "obelisk" || k === "shrine") return "#4c432b";
-      return "#433922";
+      if (k === "quarry") return "#6b7166";
+      if (k === "bank" || k === "vault" || k === "goldmine") return "#74643d";
+      if (k === "farm" || k === "granary" || k === "windmill") return "#6e5632";
+      if (k === "lumber" || k === "sawmill") return "#65472c";
+      if (k === "keep" || k === "watchtower" || k.includes("gate")) return "#696044";
+      if (k === "worldwonder" || k === "obelisk" || k === "shrine") return "#6e623e";
+      return "#67583a";
     }
     function terrainBatchKeyForCell(k) {
       const t = tileOwner.get(k);
@@ -1624,8 +1628,8 @@ export default function mount() {
       const n = hrand(c.cx, c.cz, 91) - 0.5;
       const broad = hrand(Math.floor(c.cx / 4), Math.floor(c.cz / 4), 133) - 0.5;
       const owned = batchKey !== "neutral";
-      hsl.l = Math.max(0.08, Math.min(0.66, hsl.l + n * (owned ? 0.020 : 0.052) + broad * (owned ? 0.012 : 0.038)));
-      hsl.s = Math.max(0.12, Math.min(0.78, hsl.s * (owned ? 0.90 : 0.82)));
+      hsl.l = Math.max(0.08, Math.min(0.68, hsl.l + n * (owned ? 0.026 : 0.064) + broad * (owned ? 0.018 : 0.044)));
+      hsl.s = Math.max(0.12, Math.min(0.78, hsl.s * (owned ? 0.94 : 0.86)));
       out.setHSL(hsl.h, hsl.s, hsl.l);
       return out;
     }
@@ -1682,9 +1686,9 @@ export default function mount() {
     const groundDetailGeo = new THREE.PlaneGeometry(1, 1);
     groundDetailGeo.userData.shared = true;
     const groundDetailMats = [
-      new THREE.MeshBasicMaterial({ color: 0x55795e, transparent: true, opacity: 0.145, depthWrite: false, side: THREE.DoubleSide }),
-      new THREE.MeshBasicMaterial({ color: 0x2f4f3d, transparent: true, opacity: 0.130, depthWrite: false, side: THREE.DoubleSide }),
-      new THREE.MeshBasicMaterial({ color: 0x827852, transparent: true, opacity: 0.085, depthWrite: false, side: THREE.DoubleSide }),
+      new THREE.MeshBasicMaterial({ color: 0x66896a, transparent: true, opacity: 0.165, depthWrite: false, side: THREE.DoubleSide }),
+      new THREE.MeshBasicMaterial({ color: 0x2c4a39, transparent: true, opacity: 0.150, depthWrite: false, side: THREE.DoubleSide }),
+      new THREE.MeshBasicMaterial({ color: 0x9a8a59, transparent: true, opacity: 0.112, depthWrite: false, side: THREE.DoubleSide }),
     ];
     for (const mat of groundDetailMats) mat.userData.shared = true;
     const groundDetailMeshes = new Map();
@@ -1695,7 +1699,7 @@ export default function mount() {
         const n = hrand(c.cx, c.cz, 211);
         const occupied = !!buildAt.get(k) || !!doodadPool.get(k) || !!tradePostPool.get(k);
         if (occupied) continue;
-        if (n > 0.58) continue;
+        if (n > 0.64) continue;
         const type = n < 0.13 ? 2 : n < 0.27 ? 1 : 0;
         if (!buckets.has(type)) buckets.set(type, []);
         buckets.get(type).push(c);
@@ -1786,13 +1790,13 @@ export default function mount() {
       return prismMatCache.get(k);
     }
     function prismMats(top, left = null, right = null) {
-      const t = shadeHex(top, 0.08), l = liftDarkHex(left || shadeHex(top, -0.08), 0.15), r = liftDarkHex(right || shadeHex(top, -0.14), 0.12);
+      const t = shadeHex(top, 0.09), l = liftDarkHex(left || shadeHex(top, -0.06), 0.20), r = liftDarkHex(right || shadeHex(top, -0.11), 0.17);
       const k = `${t}|${l}|${r}`.toLowerCase();
       if (!prismMatsCache.has(k)) prismMatsCache.set(k, [staticPrismMaterial(t), staticPrismMaterial(l), staticPrismMaterial(r)]);
       return prismMatsCache.get(k);
     }
     function prismFaceKey(top, left = null, right = null) {
-      return `${shadeHex(top, 0.08)}|${liftDarkHex(left || shadeHex(top, -0.08), 0.15)}|${liftDarkHex(right || shadeHex(top, -0.14), 0.12)}`.toLowerCase();
+      return `${shadeHex(top, 0.09)}|${liftDarkHex(left || shadeHex(top, -0.06), 0.20)}|${liftDarkHex(right || shadeHex(top, -0.11), 0.17)}`.toLowerCase();
     }
     function addPrismMesh(group, parts, spec = {}) {
       const top = cssHex(spec.top || spec.color || "#ffd76e");

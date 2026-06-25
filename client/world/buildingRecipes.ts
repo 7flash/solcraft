@@ -27,11 +27,25 @@ function part(id: string, x: number, z: number, y: number, w: number, d: number,
   return { id, x, z, y, w, d, h, top, left, right };
 }
 
+const FOUNDATION_SHADOW = "#26362c";
+const FOUNDATION_STONE_TOP = "#756b4b";
+const FOUNDATION_STONE_LEFT = "#5e553b";
+const FOUNDATION_STONE_RIGHT = "#49422f";
+const FOUNDATION_LIP_TOP = "#9a8754";
+const FOUNDATION_LIP_LEFT = "#74633e";
+const FOUNDATION_LIP_RIGHT = "#54472f";
+
 function baseParts(plinth: string, footprint = 0.94): PrismRecipePart[] {
+  // next11: foundations should read as construction, not as claimed terrain.
+  // Every building gets a neutral stone apron plus a warm lip before its custom
+  // body color starts. That creates a clear silhouette in dense capital clusters
+  // and prevents top faces from visually melting into green/sand floor tiles.
+  const localPlinth = cssHex(plinth, FOUNDATION_STONE_TOP);
   return [
-    part("ground-shadow", 0, 0, 0.018, footprint + 0.14, footprint + 0.04, 0.030, "#172019", "#111812", "#0d130e"),
-    part("foundation", 0, 0, 0.055, footprint, footprint * 0.82, 0.110, plinth),
-    part("foundation-lip", 0, 0.025, 0.158, footprint * 0.82, footprint * 0.66, 0.048, "#5b4b2d", "#3f3421", "#2e261a"),
+    part("ground-shadow", 0, 0, 0.012, footprint + 0.08, footprint * 0.76, 0.018, FOUNDATION_SHADOW, "#203027", "#19241d"),
+    part("foundation-apron", 0, 0.006, 0.045, footprint + 0.04, footprint * 0.78, 0.070, FOUNDATION_STONE_TOP, FOUNDATION_STONE_LEFT, FOUNDATION_STONE_RIGHT),
+    part("foundation", 0, 0, 0.105, footprint * 0.90, footprint * 0.70, 0.082, localPlinth, FOUNDATION_STONE_LEFT, FOUNDATION_STONE_RIGHT),
+    part("foundation-lip", 0, 0.018, 0.182, footprint * 0.74, footprint * 0.55, 0.044, FOUNDATION_LIP_TOP, FOUNDATION_LIP_LEFT, FOUNDATION_LIP_RIGHT),
   ];
 }
 
@@ -79,10 +93,10 @@ function market(color: string, plinth: string): PrismRecipePart[] {
 function gateTower(color: string, plinth: string, id = "gate"): PrismRecipePart[] {
   return [
     ...baseParts(plinth, 1.02),
-    part(`${id}-body-low`, 0, 0, 0.18, 0.52, 0.52, 0.70, color, "#7a2118", "#56160f"),
-    part(`${id}-body-mid`, 0, 0, 0.86, 0.44, 0.44, 0.58, color, "#8d281e", "#631b13"),
-    part(`${id}-ring-low`, 0, 0, 0.70, 0.66, 0.62, 0.08, "#2d1d12"),
-    part(`${id}-ring-top`, 0, 0, 1.38, 0.60, 0.56, 0.09, "#342116"),
+    part(`${id}-body-low`, 0, 0, 0.20, 0.52, 0.52, 0.66, color, "#8f3025", "#6d2119"),
+    part(`${id}-body-mid`, 0, 0, 0.84, 0.44, 0.44, 0.56, color, "#9c362b", "#76241c"),
+    part(`${id}-ring-low`, 0, 0, 0.68, 0.66, 0.62, 0.075, "#51432b", "#3f3524", "#2f281c"),
+    part(`${id}-ring-top`, 0, 0, 1.34, 0.60, 0.56, 0.085, "#5b492d", "#443725", "#332b1f"),
     part(`${id}-roof-base`, 0, 0, 1.47, 0.64, 0.60, 0.14, "#c44732"),
     part(`${id}-roof-mid`, 0, -0.01, 1.60, 0.46, 0.42, 0.14, "#d5523a"),
     part(`${id}-roof-tip`, 0, -0.02, 1.73, 0.26, 0.24, 0.12, "#ef6a4b"),
@@ -180,7 +194,7 @@ function generic(color: string, plinth: string): PrismRecipePart[] {
   return [
     ...baseParts(plinth, 0.98),
     part("body", 0, 0, 0.18, 0.72, 0.52, 0.46, color),
-    ...roofStack("generic", 0.60, "#f6e7c8", 0.66, 0.48),
+    ...roofStack("generic", 0.60, "#b8873e", 0.66, 0.48),
   ];
 }
 
