@@ -1081,9 +1081,12 @@ export default function mount() {
 
 
   function worldMapData(expanded = false) {
-    const allTiles = Array.isArray(ST.map?.tiles) ? ST.map.tiles : [];
-    const allBuildings = Array.isArray(ST.map?.buildings) ? ST.map.buildings : [];
-    const allLoot = Array.isArray(ST.map?.loot) ? ST.map.loot : [];
+    const fallbackTiles = world?.cells ? Array.from(world.cells.values()).map((c) => ({ x: c.cx ?? c.x, z: c.cz ?? c.z, owner: c.owner || 0 })) : [];
+    const fallbackBuildings = world?.buildPool ? Array.from(world.buildPool.values()).map((b) => ({ x: b.x, z: b.z, kind: b.kind, owner: b.owner, uid: b.uid })) : [];
+    const fallbackLoot = world?.lootPool ? Array.from(world.lootPool.values()).map((l) => ({ x: l.x, z: l.z, kind: l.kind, id: l.id })) : [];
+    const allTiles = Array.isArray(ST.map?.tiles) && ST.map.tiles.length ? ST.map.tiles : fallbackTiles;
+    const allBuildings = Array.isArray(ST.map?.buildings) && ST.map.buildings.length ? ST.map.buildings : fallbackBuildings;
+    const allLoot = Array.isArray(ST.map?.loot) && ST.map.loot.length ? ST.map.loot : fallbackLoot;
     const allPlayers = mergeMinimapPlayers(ST.map?.players || [], ST.players || [], ST.me).filter((p) => p && p.id != null && Number.isFinite(Number(p.x)) && Number.isFinite(Number(p.z)));
     const meX = Number(ST.me?.x || 0), meZ = Number(ST.me?.z || 0);
     const dist = (q) => Math.max(Math.abs(Number(q?.x || 0) - meX), Math.abs(Number(q?.z || 0) - meZ));
@@ -1788,7 +1791,8 @@ export default function mount() {
     const c = world.cellFromEvent(ev);
     if (hitB) { openBuildingInspect(hitB); return; }
     if (c) {
-      if (tradePostAt(c.x, c.z) || proceduralNpcAt(c.x, c.z) || world.doodadVisible(c.x, c.z)) openObjectPreview(worldObjectPreviewForCell(c));
+      const found = world.resolveDoodadCell?.(c.x, c.z);
+      if (tradePostAt(c.x, c.z) || proceduralNpcAt(c.x, c.z) || found || world.doodadVisible(c.x, c.z)) openObjectPreview(worldObjectPreviewForCell(found || c));
       else world.pathTo(c.x, c.z);
     }
   }
@@ -2263,8 +2267,9 @@ export default function mount() {
     }
     if (ST.tool === "none" && c) {
       if (hitB) { openBuildingInspect(hitB); return; }
-      const d = world.doodadVisible(c.x, c.z);
-      if (d && !world.buildPoolAt(c.x, c.z)) { openObjectPreview(worldObjectPreviewForCell(c)); return; }
+      const found = world.resolveDoodadCell?.(c.x, c.z);
+      const d = found?.kind || world.doodadVisible(c.x, c.z);
+      if (d && !world.buildPoolAt(found?.x ?? c.x, found?.z ?? c.z)) { openObjectPreview(worldObjectPreviewForCell(found || c)); return; }
       if (tradePostAt(c.x, c.z) || proceduralNpcAt(c.x, c.z)) { openObjectPreview(worldObjectPreviewForCell(c)); return; }
     }
     if (hitB?.b?.capital && ST.tool !== "none") { openBuildingInspect(hitB); return; }
@@ -2305,7 +2310,8 @@ export default function mount() {
     }
     if (hitB) { openBuildingInspect(hitB); return; }
     if (c) {
-      if (tradePostAt(c.x, c.z) || proceduralNpcAt(c.x, c.z) || world.doodadVisible(c.x, c.z)) openObjectPreview(worldObjectPreviewForCell(c));
+      const found = world.resolveDoodadCell?.(c.x, c.z);
+      if (tradePostAt(c.x, c.z) || proceduralNpcAt(c.x, c.z) || found || world.doodadVisible(c.x, c.z)) openObjectPreview(worldObjectPreviewForCell(found || c));
       else world.pathTo(c.x, c.z);
     }
   }

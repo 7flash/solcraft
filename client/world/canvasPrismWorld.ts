@@ -373,18 +373,25 @@ export function createCanvasPrismWorld(opts: CanvasWorldOptions) {
     return best;
   }
   function resolveDoodadCell(x: number, z: number, want?: string) {
-    const d = doodadAt(x, z, 1.15, want);
+    // Resources are intentionally drawn larger than one server tile in the
+    // canvas renderer. Pointer projection may land on a neighboring tile even
+    // though the player clearly clicked the visual tree/rock. Resolve with a
+    // generous visual radius, then return the authoritative server cell.
+    const d = doodadAt(x, z, 2.15, want);
     if (!d) return null;
     return { x: Math.trunc(Number(d.x)), z: Math.trunc(Number(d.z)), kind: normalizeDoodadKind(d) };
   }
+  function canIssueMoveNow() { return inFlight < maxInFlight; }
+  function hasPendingMove() { return pendingPath.length > 0 || inFlight > 0; }
 
   function tick(now: number) {
     if (disposed) return;
     const dt = Math.min(50, now - lastFrame); lastFrame = now;
     if (me.walking) me.walkPhase += dt * 0.01;
-    if (pendingPath.length && now - lastStepAt >= 158) {
-      const next = pendingPath.shift();
-      if (next) stepTo(next.x, next.z);
+    if (pendingPath.length && now - lastStepAt >= 158 && canIssueMoveNow()) {
+      const next = pendingPath[0];
+      if (next && stepTo(next.x, next.z)) pendingPath.shift();
+      else pendingPath.length = 0;
     }
     draw();
     raf = requestAnimationFrame(tick);
@@ -426,7 +433,7 @@ export function createCanvasPrismWorld(opts: CanvasWorldOptions) {
     return out.reverse();
   }
   function sendMove(x: number, z: number) {
-    if (!opts.sendAction || inFlight >= maxInFlight) return;
+    if (!opts.sendAction || !canIssueMoveNow()) return false;
     const seq = ++moveSeq; inFlight++;
     opts.sendAction("movePath", { baseSeq: ackSeq, moveSeq: seq, steps: [{ x, z, seq }] }).then((r:any) => {
       inFlight = Math.max(0, inFlight - 1);
@@ -437,16 +444,26 @@ export function createCanvasPrismWorld(opts: CanvasWorldOptions) {
         return;
       }
       ackSeq = Math.max(ackSeq, Number(r.ackSeq || r.acceptedSeq || seq) || seq);
+      const serverX = Number(r.x ?? (Array.isArray(r.path) && r.path.length ? r.path[r.path.length - 1]?.x : NaN));
+      const serverZ = Number(r.z ?? (Array.isArray(r.path) && r.path.length ? r.path[r.path.length - 1]?.z : NaN));
+      if (!pendingPath.length && inFlight === 0 && Number.isFinite(serverX) && Number.isFinite(serverZ)) {
+        const drift = Math.max(Math.abs(Math.trunc(serverX) - me.x), Math.abs(Math.trunc(serverZ) - me.z));
+        if (drift > 1) hardSnapMe(serverX, serverZ);
+      }
     }).catch(() => { inFlight = Math.max(0, inFlight - 1); });
+    return true;
   }
   function stepTo(x: number, z: number) {
     x = Math.trunc(Number(x)); z = Math.trunc(Number(z));
+    if (!canIssueMoveNow()) return false;
     if (blocked(x,z)) return false;
     me.facingX = x - me.x; me.facingZ = z - me.z; me.walking = true; lastStepAt = performance.now();
     me.x = x; me.z = z;
     if (ST.me) { ST.me.x = x; ST.me.z = z; }
-    opts.onHop?.(); sendMove(x,z); rebuildCells();
-    setTimeout(() => { me.walking = false; }, 120);
+    opts.onHop?.();
+    if (!sendMove(x,z)) return false;
+    rebuildCells();
+    setTimeout(() => { if (!pendingPath.length) me.walking = false; }, 140);
     return true;
   }
   function applyWorld(w: any = {}) {
@@ -469,8 +486,15 @@ export function createCanvasPrismWorld(opts: CanvasWorldOptions) {
   function applyMe(p: any) {
     const src = p || ST.me || {};
     me.id = src.id ?? me.id; me.name = src.name || me.name; me.body = src.body ?? me.body; me.hat = src.hat ?? me.hat;
-    if (Number.isFinite(Number(src.x))) me.x = Math.trunc(Number(src.x));
-    if (Number.isFinite(Number(src.z))) me.z = Math.trunc(Number(src.z));
+    const sx = Number(src.x), sz = Number(src.z);
+    if (Number.isFinite(sx) && Number.isFinite(sz)) {
+      const tx = Math.trunc(sx), tz = Math.trunc(sz);
+      // Server snapshots can arrive behind the local optimistic canvas walk.
+      // Do not yank the player back unless the drift is clearly impossible.
+      if (!hasPendingMove() || Math.max(Math.abs(tx - me.x), Math.abs(tz - me.z)) > 8) {
+        me.x = tx; me.z = tz;
+      }
+    }
     rebuildCells();
   }
   function applyPlayers(players: any[] = []) {
@@ -491,7 +515,10 @@ export function createCanvasPrismWorld(opts: CanvasWorldOptions) {
     return best ? { uid: best.uid, b: best } : null;
   }
   function buildPoolAt(x:number,z:number) { return buildAt.get(kfn(x,z)); }
-  function doodadVisible(x:number,z:number) { const d=doodadAt(Math.trunc(Number(x)), Math.trunc(Number(z)), 0.18); return d ? normalizeDoodadKind(d) || true : false; }
+  function doodadVisible(x:number,z:number) {
+    const d = doodadAt(Number(x), Number(z), 1.35);
+    return d ? normalizeDoodadKind(d) || true : false;
+  }
   function refreshWindow(force = false) { rebuildCells(!!force); }
   function pathTo(x:number,z:number) { const p = computePath(Math.trunc(x),Math.trunc(z),false); if (!p.length) return false; pendingPath = p; return true; }
   function pathToNear(x:number,z:number) { const p = computePath(Math.trunc(x),Math.trunc(z),true); if (!p.length) return false; pendingPath = p; return true; }
@@ -517,7 +544,7 @@ export function createCanvasPrismWorld(opts: CanvasWorldOptions) {
     applyWorld, applyPlayers, applyMe, me, cellFromEvent, buildingFromEvent, pathTo, pathToNear, tryMoveDelta,
     blocked, buildPoolAt, doodadVisible, doodadAt, resolveDoodadCell, burst, floatText, shockwave, hoverMarker, hardSnapMe, markDoodadGone, removeBuild,
     setHintCells, hideBuildGhost, showBuildGhost, refreshWindow, rebuildBuilding: (uid:any) => {}, animateBuildingUse: (uid:any) => { const b=buildPool.get(uid); if (b) floatText(b.x,b.z,"used","#ffd76e"); }, refreshConstructionProgress: () => {},
-    refreshOwnRig: () => {}, applyVisualQuality: () => {}, hasPendingMove: () => pendingPath.length > 0 || inFlight > 0,
+    refreshOwnRig: () => {}, applyVisualQuality: () => {}, hasPendingMove,
     tileOwner, buildPool, buildAt, lootPool, rigPool, tradePostPool, cells, updateMinimapInfo,
     rotateCam: () => {}, refreshCameraRotation: () => {}, refreshCameraZoom: () => { updateProjection(); rebuildCells(true); }, refreshEnvironment: () => {},
     zoom: (delta = 0) => { zoomValue = clamp(zoomValue + Number(delta || 0), 0.72, 1.55); updateProjection(); },
