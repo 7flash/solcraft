@@ -1,0 +1,87 @@
+/* Visual readability pass: make the world, not the debug grid, the focal point. */
+:root{
+  --sc-world-grid:#18221b;
+  --sc-world-grid-soft:rgba(215,223,207,.10);
+  --sc-world-hover:rgba(206,180,67,.22);
+  --sc-world-hover-line:rgba(206,180,67,.44);
+  --sc-shadow-ink:rgba(7,4,17,.48);
+}
+
+/* Keep diagnostics behind the perf overlay/debug toggle. page.client also sets
+   hidden when the overlay is disabled; this CSS handles older/stale nodes. */
+.sc-perf-mini:not(.is-debug-visible){
+  display:none !important;
+}
+
+/* The separate minimap-info card duplicated the status chips and made the right
+   side feel like stacked debug HUD. The live minimap keeps the same information
+   as title/aria text now. */
+.minimap-info-card,
+#sc-minimap-info{
+  display:none !important;
+}
+
+/* Tone down floating glass so gameplay objects are louder than chrome. */
+.scv-hud,
+.utility-pop,
+.panel-card,
+.chat,
+.action-ribbon,
+.build-ribbon,
+.wonder-inline-planner,
+.modal,
+.settings-panel{
+  background:linear-gradient(180deg, rgba(22,27,34,.88), rgba(12,16,19,.82));
+  border-color:rgba(215,223,207,.13);
+  box-shadow:0 18px 42px rgba(7,4,17,.34), inset 0 1px 0 rgba(215,223,207,.06);
+}
+
+/* Bars should read as materials in the dusk palette, not neon arcade strips. */
+#sc-e-fill,
+.sc-energy-fill,
+.energy-fill{
+  background:linear-gradient(90deg, var(--dusk-brass), #d6c96a) !important;
+  box-shadow:none !important;
+}
+#sc-hp-fill,
+.sc-hp-fill,
+.health-fill{
+  background:linear-gradient(90deg, var(--dusk-signal-green), #8cae59) !important;
+  box-shadow:none !important;
+}
+
+/* De-emphasize debug/status chips; these are reference info, not primary UI. */
+.sc-time-chip,
+.sc-coord-chip,
+.sc-hover-cell-chip{
+  background:rgba(7,4,17,.54) !important;
+  border:1px solid rgba(215,223,207,.10) !important;
+  color:rgba(215,223,207,.82) !important;
+  box-shadow:none !important;
+}
+
+/* Bottom action buttons: lower glass glare, keep selected states readable. */
+.action-slot,
+.sc-action-slot,
+[data-action-slot],
+.toolbelt button,
+.action-ribbon button{
+  background:linear-gradient(180deg, rgba(52,68,92,.74), rgba(22,30,39,.78)) !important;
+  border-color:rgba(215,223,207,.16) !important;
+  box-shadow:0 8px 20px rgba(7,4,17,.28), inset 0 1px 0 rgba(215,223,207,.08) !important;
+}
+.action-slot.active,
+.sc-action-slot.active,
+[data-action-slot][aria-pressed="true"],
+.action-ribbon button[aria-pressed="true"]{
+  border-color:rgba(206,180,67,.48) !important;
+  box-shadow:0 0 0 1px rgba(206,180,67,.26), 0 10px 22px rgba(7,4,17,.30) !important;
+}
+
+/* Chat/online cards were crowding the playfield; keep them visually quieter. */
+.chat,
+.online-panel,
+.online-card{
+  backdrop-filter:blur(8px);
+  color:rgba(215,223,207,.88);
+}

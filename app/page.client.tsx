@@ -259,8 +259,9 @@ export default function mount() {
     onOpenMap: () => { if (ST.screen === "playing") { ST.modal = "worldmap"; paint(true); } },
   });
 
+  const perfOverlayEnabled = perfOverlayEnabledFromUrl(window.location.search, window.localStorage);
   const perf = createPerfOverlay(root, {
-    enabled: perfOverlayEnabledFromUrl(window.location.search, window.localStorage),
+    enabled: perfOverlayEnabled,
     label: "SolCraft client",
     consoleBudgetMs: 24,
   });
@@ -286,12 +287,14 @@ export default function mount() {
 
   const perfMini = (() => {
     const el = document.createElement("div");
-    el.className = "sc-perf-mini";
+    el.className = `sc-perf-mini${perfOverlayEnabled ? " is-debug-visible" : ""}`;
+    el.hidden = !perfOverlayEnabled;
     el.setAttribute("aria-label", "Performance diagnostics");
     el.textContent = "perf starting…";
     root.appendChild(el);
     const data = { ping: 0, paint: 0, frame: 0, cells: 0, chunks: 0, draws: 0, tris: 0, resources: 0, last: 0 };
     function update(partial: any = {}) {
+      if (!perfOverlayEnabled) return;
       Object.assign(data, partial || {});
       const now = performance.now();
       if (now - data.last < 180) return;
@@ -1506,18 +1509,17 @@ export default function mount() {
     const TERRAIN_TOP_Y = 0.055;
     const STATIC_WORLD_BASE_Y = TERRAIN_TOP_Y - 0.002;
     function createTerrainSlabGeometry() {
+      // Visual readability pass: terrain is a continuous floor, not one raised
+      // mini-slab per tile. Side faces on every tile drew the loud black lattice
+      // seen in playtest screenshots. Keep only the top face and reserve strong
+      // outlines for hover/selection/placement feedback.
       const pos = [];
       const pushFace = (a, b, c, d) => pos.push(...a, ...b, ...c, ...a, ...c, ...d);
-      const A = [-0.5, 0, -0.5], B = [0.5, 0, -0.5], C = [0.5, 0, 0.5], D = [-0.5, 0, 0.5];
       const At = [-0.5, 1, -0.5], Bt = [0.5, 1, -0.5], Ct = [0.5, 1, 0.5], Dt = [-0.5, 1, 0.5];
-      pushFace(At, Bt, Ct, Dt); // top
-      pushFace(D, C, Ct, Dt);   // near side
-      pushFace(C, B, Bt, Ct);   // right side
+      pushFace(At, Bt, Ct, Dt);
       const geo = new THREE.BufferGeometry();
       geo.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
       geo.addGroup(0, 6, 0);
-      geo.addGroup(6, 6, 1);
-      geo.addGroup(12, 6, 2);
       geo.computeVertexNormals();
       geo.computeBoundingSphere();
       return geo;
@@ -1558,20 +1560,29 @@ export default function mount() {
       const mine = ST.me && Number(t.owner) === Number(ST.me.id);
       return `owned:${mine ? 1 : 0}:${Math.trunc(Number(t.body) || 0)}`;
     }
+    function terrainTopForBatchKey(batchKey) {
+      if (batchKey === "neutral") return 0x354f3d;
+      const [, mine, body] = String(batchKey).split(":");
+      return territoryTopHex(Number(body) || 0x14f195, mine === "1");
+    }
+    function terrainTopColorForCell(batchKey, c) {
+      const base = terrainTopForBatchKey(batchKey);
+      const out = new THREE.Color(shadeHexNumber(base, 0.00));
+      const hsl = { h: 0, s: 0, l: 0 };
+      out.getHSL(hsl);
+      const n = hrand(c.cx, c.cz, 91) - 0.5;
+      const broad = hrand(Math.floor(c.cx / 4), Math.floor(c.cz / 4), 133) - 0.5;
+      const owned = batchKey !== "neutral";
+      hsl.l = Math.max(0.06, Math.min(0.62, hsl.l + n * (owned ? 0.018 : 0.038) + broad * (owned ? 0.010 : 0.024)));
+      hsl.s = Math.max(0.10, Math.min(0.82, hsl.s * (owned ? 0.92 : 0.86)));
+      out.setHSL(hsl.h, hsl.s, hsl.l);
+      return out;
+    }
     function terrainBatchMat(batchKey) {
       if (terrainBatchMatCache.has(batchKey)) return terrainBatchMatCache.get(batchKey);
-      let top;
-      if (batchKey === "neutral") {
-        top = 0x3f3120;
-      } else {
-        const [, mine, body] = String(batchKey).split(":");
-        top = territoryTopHex(Number(body) || 0x14f195, mine === "1");
-      }
-      const mats = [
-        new THREE.MeshLambertMaterial({ color: shadeHexNumber(top, 0.035), depthWrite: true }),
-        new THREE.MeshLambertMaterial({ color: shadeHexNumber(top, -0.115), depthWrite: true }),
-        new THREE.MeshLambertMaterial({ color: shadeHexNumber(top, -0.205), depthWrite: true }),
-      ];
+      // White material + per-instance colors gives subtle tile variation without
+      // adding materials, textures, or a visible debug grid.
+      const mats = [new THREE.MeshLambertMaterial({ color: 0xffffff, vertexColors: true, depthWrite: true })];
       terrainBatchMatCache.set(batchKey, mats);
       return mats;
     }
@@ -1602,8 +1613,10 @@ export default function mount() {
           batchDummy.scale.set(1.006, TERRAIN_TOP_Y, 1.006);
           batchDummy.updateMatrix();
           mesh.setMatrixAt(i, batchDummy.matrix);
+          if (mesh.setColorAt) mesh.setColorAt(i, terrainTopColorForCell(bk, c));
         }
         mesh.instanceMatrix.needsUpdate = true;
+        if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
         terrainBatchRoot.add(mesh);
         terrainBatchMeshes.set(bk, mesh);
       }
@@ -1712,7 +1725,7 @@ export default function mount() {
         const recipe = resourcePrismRecipe(d.type);
         const baseJx = (hrand(d.x, d.z, 5) - 0.5) * 0.16;
         const baseJz = (hrand(d.x, d.z, 6) - 0.5) * 0.16;
-        const baseScale = 0.92 + hrand(d.x, d.z, 7) * 0.16;
+        const baseScale = 1.10 + hrand(d.x, d.z, 7) * 0.20;
         for (const spec of recipe) {
           const faceKey = prismFaceKey(spec.top, spec.left, spec.right);
           const bucketKey = `${d.type}:${spec.k}:${faceKey}`;
@@ -1812,9 +1825,9 @@ export default function mount() {
     const player = new THREE.Group();
     let rig = null, rigSig = "";
     player.position.set(0, 0.22, 0); scene.add(player);
-    const aura = new THREE.Mesh(new THREE.CircleGeometry(0.32, 24), new THREE.MeshBasicMaterial({ color: 0x14f195, transparent: true, opacity: 0.3, blending: THREE.AdditiveBlending, depthWrite: false }));
-    aura.rotation.x = -Math.PI / 2; aura.position.y = 0.008; player.add(aura);
-    const plight = new THREE.PointLight(0xb9a6ff, 0.35, 4.5); plight.position.y = 0.9; player.add(plight);
+    const aura = new THREE.Mesh(new THREE.CircleGeometry(0.40, 32), new THREE.MeshBasicMaterial({ color: 0x06100b, transparent: true, opacity: 0.34, depthWrite: false }));
+    aura.rotation.x = -Math.PI / 2; aura.position.y = 0.008; aura.scale.set(1.18, 0.72, 1); player.add(aura);
+    const plight = new THREE.PointLight(0xd6c66a, 0.18, 3.4); plight.position.y = 0.9; player.add(plight);
     function heldToolForState() {
       if (ST.tool === "wood") return "axe";
       if (ST.tool === "stone") return "pickaxe";
@@ -1833,10 +1846,11 @@ export default function mount() {
       rigSig = sig;
       if (rig) { rig.traverse?.((o) => o?.userData?.dispose?.()); player.remove(rig); }
       rig = makePlayerBillboard({ body: ST.me.body, hat: ST.me.hat, heldTool, palette: ST.characterProfile?.palette, name: ST.me.name });
+      rig.scale?.setScalar?.(1.14);
       player.add(rig);
     }
     const homeBanner = new THREE.Group(); let bannerOwner = 0; scene.add(homeBanner);
-    const hoverMarker = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), new THREE.MeshBasicMaterial({ color: 0x14f195, transparent: true, opacity: 0.14, blending: THREE.AdditiveBlending, depthWrite: false }));
+    const hoverMarker = new THREE.Mesh(new THREE.PlaneGeometry(0.92, 0.92), new THREE.MeshBasicMaterial({ color: 0xceb443, transparent: true, opacity: 0.18, depthWrite: false }));
     hoverMarker.rotation.x = -Math.PI / 2; hoverMarker.position.y = 0.233; hoverMarker.visible = false; scene.add(hoverMarker);
 
     const hintGeo = new THREE.PlaneGeometry(0.82, 0.82);
@@ -2419,6 +2433,7 @@ export default function mount() {
 
     function makeRemoteLitePlayer(q) {
       const g = makePlayerBillboard({ body: q.body, hat: q.hat, palette: q.appearance?.palette, heldTool: "none", name: q.name });
+      g.scale?.setScalar?.(1.08);
       g.add(makeLabel(`${q.name || "Player"} · Lv ${q.level || 1}`, "#cfe8ff"));
       return g;
     }
@@ -2897,22 +2912,17 @@ export default function mount() {
 
     function updateMinimapInfo() {
       if (!minimapEl?.isConnected) return;
-      let info = document.getElementById("sc-minimap-info");
-      if (!info) {
-        info = document.createElement("div");
-        info.id = "sc-minimap-info";
-        info.className = "minimap-info-card";
-        minimapEl.insertAdjacentElement("afterend", info);
-      }
-      const show = ST.screen === "playing" && !ST.modal;
-      info.style.display = show ? "grid" : "none";
-      if (!show) return;
+      const stale = document.getElementById("sc-minimap-info");
+      if (stale) stale.remove();
+      if (ST.screen !== "playing" || ST.modal || !ST.me) return;
       const bonus = Math.max(0, Number(ST.landmarkBonusPct || 0) || 0);
       const hour = currentWorldHour(ST, Number(ST.now || Date.now()));
       const label = hour < 5 ? "Night" : hour < 8 ? "Dawn" : hour < 18 ? "Day" : hour < 21 ? "Dusk" : "Night";
       const x = Math.trunc(Number(ST.me?.x || 0));
       const z = Math.trunc(Number(ST.me?.z || 0));
-      info.innerHTML = `<b>${label} · ${String(hour).padStart(2, "0")}:00</b><span>You ${x}, ${z}</span><span>Landmark Bonus: +${bonus}% coins</span><span>Coins come from Keeps and NPCs.</span>`;
+      const text = `Minimap · ${label} ${String(hour).padStart(2, "0")}:00 · You ${x}, ${z} · Landmark bonus +${bonus}% coins`;
+      minimapEl.setAttribute("aria-label", text);
+      minimapEl.title = text;
     }
 
     function onResize() { renderer.setSize(W(), H()); setFrustum(); }
