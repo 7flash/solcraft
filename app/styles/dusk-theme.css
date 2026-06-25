@@ -1,0 +1,44 @@
+:root{
+  /* Single dusk-industrial UI language. These aliases let existing chrome keep
+     working while new surfaces consume named dusk roles instead of neon hexes. */
+  --dusk-ink:#070411;
+  --dusk-oxblood:#280e14;
+  --dusk-dark-umber:#392319;
+  --dusk-slate-deep:#222f42;
+  --dusk-slate:#34445c;
+  --dusk-slate-light:#5d6a7e;
+  --dusk-signal-green:#2f952f;
+  --dusk-brass:#ceb443;
+  --dusk-bone:#d7dfcf;
+  --dusk-red-mark:#d6604f;
+  --dusk-blue-smoke:#7f9fb5;
+
+  --sc-bg:var(--dusk-ink);
+  --sc-bg-2:var(--dusk-slate-deep);
+  --sc-panel:rgba(34,47,66,.86);
+  --sc-panel-strong:rgba(34,47,66,.96);
+  --sc-line:rgba(215,223,207,.14);
+  --sc-line-strong:rgba(215,223,207,.24);
+  --sc-text:var(--dusk-bone);
+  --sc-muted:rgba(215,223,207,.70);
+  --sc-faint:rgba(215,223,207,.48);
+  --sc-gold:var(--dusk-brass);
+  --sc-gold-2:#e2c65a;
+  --sc-green:var(--dusk-signal-green);
+  --sc-blue:var(--dusk-blue-smoke);
+  --sc-red:var(--dusk-red-mark);
+}
+
+.scv-hud,.utility-pop,.modal,.settings-panel,.chat,.action-ribbon,.build-ribbon,.wonder-inline-planner{
+  color:var(--sc-text);
+  border-color:var(--sc-line);
+}
+.btn.primary,.primary,.landing-primary{
+  background:linear-gradient(180deg,#d9bf54,var(--dusk-brass));
+  border-color:rgba(215,223,207,.24);
+  color:var(--dusk-ink);
+}
+.btn.danger,.danger{
+  background:rgba(214,96,79,.17);
+  border-color:rgba(214,96,79,.36);
+}

@@ -33,7 +33,9 @@ import { capitalBlocksNaturalResource, capitalBlocksPlayerTerritory } from "@ser
 import { FOUNDATION_KIND, FOUNDATION_BUILD_KINDS, foundationChoiceLabel } from "@server/foundationRules";
 import { loadCharacterProfile, saveCharacterProfile, type CharacterProfile } from "../client/dollProfile";
 import { isMoveKey, movementVectorFromKeys, normalizeMoveKey } from "../client/game/directionalInput";
-import { canIssueKeyboardStep, DEFAULT_KEYBOARD_STEP_MS } from "../client/game/keyboardStepper";
+import { DEFAULT_KEYBOARD_STEP_MS } from "../client/game/keyboardStepper";
+import { MovementPredictor } from "../client/game/movementPredictor";
+import { createMovementAccumulator } from "../client/game/movementAccumulator";
 import { shouldEnterPerfMode } from "../client/game/renderBudget";
 import { hopDurationForProjectedDistance, movementFeelBucket } from "../client/game/movementFeel";
 import { createPerfOverlay, perfOverlayEnabledFromUrl } from "../client/game/perfOverlay";
@@ -66,6 +68,7 @@ import { formatBuildingChatCard, formatKeepRallyChatCard, formatLocationChatCard
 import { NotificationRailView } from "../client/ui/notificationRail";
 import { GameChatView } from "../client/ui/gameChat";
 import { CapitalServicePanelView } from "../client/ui/capitalServicePanel";
+import { MicroStore } from "../client/ui/microStore";
 import { t, tArray } from "../client/i18n";
 import { createHudRoots } from "../client/ui/hudRoots";
 import { npcTalkLine } from "../client/ui/npcDialogue";
@@ -263,6 +266,23 @@ export default function mount() {
   });
 
   const scheduler = createFrameScheduler();
+  const liveHudStore = new MicroStore({
+    energyNow: 0, energyPct: 0, hpNow: 0, hpPct: 0,
+  });
+  let liveHudUnsubs: Array<() => void> = [];
+  let liveHudBindingKey = "";
+  function bindLiveHudBindings() {
+    const ids = ["sc-e-now", "sc-e-fill", "sc-hp-now", "sc-hp-fill"];
+    const els = ids.map((id) => document.getElementById(id));
+    const key = els.map((el) => el ? `${el.id}:${el.isConnected ? 1 : 0}` : "-").join("|");
+    if (key === liveHudBindingKey) return;
+    liveHudUnsubs.forEach((fn) => { try { fn(); } catch {} });
+    liveHudUnsubs = []; liveHudBindingKey = key;
+    liveHudUnsubs.push(liveHudStore.bindText("energyNow", els[0], (v) => String(Math.floor(Math.max(0, Number(v || 0))))));
+    liveHudUnsubs.push(liveHudStore.bindStyle("energyPct", els[1], "width", (v) => `${Math.max(0, Math.min(100, Number(v || 0))).toFixed(1)}%`));
+    liveHudUnsubs.push(liveHudStore.bindText("hpNow", els[2], (v) => String(Math.ceil(Math.max(0, Number(v || 0))))));
+    liveHudUnsubs.push(liveHudStore.bindStyle("hpPct", els[3], "width", (v) => `${Math.max(0, Math.min(100, Number(v || 0))).toFixed(1)}%`));
+  }
 
   const perfMini = (() => {
     const el = document.createElement("div");
@@ -1744,6 +1764,7 @@ export default function mount() {
       return districtLineMatCache.get(k);
     }
     const anims = [], bursts = [], waves = [], walkQueue = [], netMoveQueue = [];
+    const movePredictor = new MovementPredictor(MOVE_MAX_IN_FLIGHT * MOVE_BATCH_MAX);
     let walking = false, moveBusy = false, pendingWalk = null, moveErrorAt = 0, moveToken = 0, activeMoveToken = 0;
     let moveSeq = 0, lastAckMoveSeq = 0, moveFlushTimer = 0, inFlightMoveBatches = 0;
     const spinners = [], spinsY = [], wavers = [], bobbers = [], flickers = [];
@@ -2140,6 +2161,7 @@ export default function mount() {
       walkQueue.length = 0; netMoveQueue.length = 0; walking = false; moveBusy = false; pendingWalk = null; inFlightMoveBatches = 0; lastAckMoveSeq = moveSeq; activeMoveToken = ++moveToken;
       for (let i = anims.length - 1; i >= 0; i--) if (anims[i].kind === "hop") anims.splice(i, 1);
       confirmedMove.x = x; confirmedMove.z = z;
+      movePredictor.reset({ x, z });
       me.x = x; me.z = z; player.position.set(x, 0.22, z); camTarget.set(x, 0.22, z);
       refreshWindow(true);
     }
@@ -2451,12 +2473,12 @@ export default function mount() {
       }
       for (const [id, r] of [...rigPool]) { if (pSeen.has(id)) continue; scene.remove(r.group); rigPool.delete(id); }
     }
-    function optimisticMoveLead() { return netMoveQueue.length + inFlightMoveBatches * MOVE_BATCH_MAX; }
+    function optimisticMoveLead() { return movePredictor.pendingCount() + netMoveQueue.length + inFlightMoveBatches * MOVE_BATCH_MAX; }
     function hasPendingMove() { return walking || inFlightMoveBatches > 0 || moveBusy || netMoveQueue.length > 0 || walkQueue.length > 0 || !!pendingWalk || anims.some((a) => a.kind === "hop" || a.kind === "correct"); }
     function applyMe(forceMe = false) {
       if (!ST.me) return;
       const movingNow = hasPendingMove();
-      if (!movingNow) { confirmedMove.x = ST.me.x; confirmedMove.z = ST.me.z; }
+      if (!movingNow) { confirmedMove.x = ST.me.x; confirmedMove.z = ST.me.z; movePredictor.reset({ x: ST.me.x, z: ST.me.z }); }
       const drift = cheb(ST.me.x, ST.me.z, me.x, me.z);
       const snapDrift = movingNow ? 16 : 4;
       if (forceMe || drift > snapDrift) hardSnapMe(ST.me.x, ST.me.z);
@@ -2505,6 +2527,7 @@ export default function mount() {
       pendingWalk = null;
       walking = false;
       moveBusy = false; inFlightMoveBatches = 0; lastAckMoveSeq = moveSeq;
+      movePredictor.reset({ x: snapX, z: snapZ });
       hardSnapMe(snapX, snapZ);
       refreshWindow(); refreshNear(); paint(true);
     }
@@ -2547,6 +2570,8 @@ export default function mount() {
     }
     function queueServerMove(x, z, from) {
       const seq = ++moveSeq;
+      const intent = { x: Math.trunc(Number(x || 0)) - Math.trunc(Number(from?.x || 0)), z: Math.trunc(Number(z || 0)) - Math.trunc(Number(from?.z || 0)) };
+      movePredictor.predictMove(from || { x: me.x, z: me.z }, { x, z }, intent, { seq, now: performance.now() });
       netMoveQueue.push({ seq, x, z, from, retry: 0 });
       scheduleMoveFlush();
     }
@@ -2566,6 +2591,7 @@ export default function mount() {
               const sx = (r && Number.isInteger(r.x)) ? r.x : confirmedMove.x;
               const sz = (r && Number.isInteger(r.z)) ? r.z : confirmedMove.z;
               confirmedMove.x = sx; confirmedMove.z = sz;
+              movePredictor.reject(ackSeq || lastReq.seq, { x: sx, z: sz });
               reconcileMovePosition(sx, sz);
               pollSoon();
             }
@@ -2574,6 +2600,7 @@ export default function mount() {
             return;
           }
           lastAckMoveSeq = Math.max(lastAckMoveSeq, ackSeq);
+          movePredictor.confirmThrough(lastAckMoveSeq);
           const accepted = Array.isArray(r.path) && r.path.length ? r.path : [{ x: r.x, z: r.z, seq: ackSeq }];
           const last = accepted[accepted.length - 1] || lastReq;
           confirmedMove.x = (typeof last.x === "number" ? last.x : lastReq.x);
@@ -2586,12 +2613,16 @@ export default function mount() {
             if (r.inv) ST.me.inv = { ...(ST.me.inv || {}), ...r.inv };
             if (typeof r.xp === "number") ST.me.xp = r.xp;
           }
-          if (!stillAhead) reconcileMovePosition(confirmedMove.x, confirmedMove.z);
+          if (!stillAhead) {
+            const rec = movePredictor.reconcile({ x: confirmedMove.x, z: confirmedMove.z }, lastAckMoveSeq, { softTiles: 0.35, hardTiles: MOVE_SOFT_CORRECT_TILES + 0.75 });
+            reconcileMovePosition(rec.predicted.x, rec.predicted.z);
+          }
           tryPickupAt(confirmedMove.x, confirmedMove.z);
           if (r.partial) {
             if (!stillAhead) {
               if (r.stoppedMsg) say(r.stoppedMsg, 1200);
-              reconcileMovePosition(confirmedMove.x, confirmedMove.z);
+              const rec = movePredictor.reconcile({ x: confirmedMove.x, z: confirmedMove.z }, lastAckMoveSeq, { softTiles: 0.35, hardTiles: MOVE_SOFT_CORRECT_TILES + 0.75 });
+              reconcileMovePosition(rec.predicted.x, rec.predicted.z);
               pollSoon();
             }
             finishMoveBatch();
@@ -2984,6 +3015,10 @@ export default function mount() {
     }
   }
   const nearT = scheduler.every("ui.near", 250, () => { if (ST.screen !== "playing") return; perf.measure("ui.near", () => { refreshNear(); updateHints(); tryPickupAt(); maybeStartQueuedHarvest(); paint(); }); });
+  const keyboardMoveT = scheduler.every("movement.keyboard", 0, (now) => {
+    if (!updateKeyboardMoveIntent()) return;
+    keyboardMoveAccumulator.tick(now, () => ST.screen === "playing" && !ST.updateRequired && !!world?.tryMoveDelta, (intent) => world.tryMoveDelta(intent.x, intent.z));
+  });
 
   function useBuildingClient(uid) {
     if (uid == null) return;
@@ -3761,28 +3796,28 @@ export default function mount() {
   }
 
   const heldMoveKeys = new Set();
-  let lastKeyboardStepAt = 0;
-  const KEYBOARD_STEP_MIN_MS = DEFAULT_KEYBOARD_STEP_MS;
-  function clearHeldMoveKeys() { heldMoveKeys.clear(); }
+  const keyboardMoveAccumulator = createMovementAccumulator({ stepMs: DEFAULT_KEYBOARD_STEP_MS, directionBoostRatio: 0.4, maxStepsPerTick: 1 });
+  function clearHeldMoveKeys() { heldMoveKeys.clear(); keyboardMoveAccumulator.stop(performance.now()); }
   function keyboardMovementAllowed() {
     if (ST.screen !== "playing" || ST.updateRequired || ST.modal) return false;
     const tag = document.activeElement?.tagName;
     return !(tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT");
   }
+  function updateKeyboardMoveIntent() {
+    const v = keyboardMovementAllowed() ? movementVectorFromKeys(heldMoveKeys) : { x: 0, z: 0 };
+    keyboardMoveAccumulator.setIntent(v);
+    // Facing/animation intent should be immediate; the grid step remains rate-limited.
+    try { world.setFacing?.(v.x, v.z); world.setWalking?.(!!(v.x || v.z)); } catch {}
+    return !!(v.x || v.z);
+  }
   function tryKeyboardMove(ev) {
-    if (!keyboardMovementAllowed()) return false;
-    const v = movementVectorFromKeys(heldMoveKeys);
-    if (!v.x && !v.z) return false;
-    const nowStep = performance.now();
-    if (!canIssueKeyboardStep({ nowMs: nowStep, lastStepMs: lastKeyboardStepAt, minStepMs: KEYBOARD_STEP_MIN_MS })) return true;
-    lastKeyboardStepAt = nowStep;
-    world.tryMoveDelta(v.x, v.z);
-    return true;
+    return updateKeyboardMoveIntent();
   }
   function onKeyUp(ev) {
     if (!isMoveKey(ev.key)) return;
     const k = normalizeMoveKey(ev.key);
     if (k) heldMoveKeys.delete(k);
+    updateKeyboardMoveIntent();
   }
   function onKey(ev) {
     if (ST.screen !== "playing" || ST.updateRequired) return;
@@ -5409,58 +5444,19 @@ export default function mount() {
   }
 
   /* ============================================================
-     PAINT — per-region, signature-gated rendering.
-     A region only re-renders when its OWN signature changes, so
-     pressing a button in one region never tears down the DOM the
-     pointer is interacting with — clicks always complete.
-     tradjs render() is called against the region root only.
+     PAINT — per-region rendering.
+     Structural regions render through tradjs; live scalar values are bound
+     through MicroStore. No JSON/stringify signatures on the steady path.
      ============================================================ */
   const regions = [
-    { name: "hud", root: hudRoot, view: Hud, sig: "" },
-    { name: "top", root: actionsRoot, view: TopActions, sig: "" },
-    { name: "utility", root: utilityRoot, view: UtilityPanel, sig: "" },
-    { name: "bottom", root: bottomRoot, view: BottomBar, sig: "" },
-    { name: "guide", root: guideRoot, view: WalkthroughLayer, sig: "" },
-    { name: "modal", root: modalRoot, view: ModalLayer, sig: "" },
-    { name: "menu", root: menuRoot, view: Menu, sig: "" },
+    { name: "hud", root: hudRoot, view: Hud },
+    { name: "top", root: actionsRoot, view: TopActions },
+    { name: "utility", root: utilityRoot, view: UtilityPanel },
+    { name: "bottom", root: bottomRoot, view: BottomBar },
+    { name: "guide", root: guideRoot, view: WalkthroughLayer },
+    { name: "modal", root: modalRoot, view: ModalLayer },
+    { name: "menu", root: menuRoot, view: Menu },
   ];
-  function hudSig() {
-    const m = ST.me;
-    if (ST.screen !== "playing" || !m) return "x";
-    /* energy/hp deliberately EXCLUDED — the ticker mutates them in place */
-    return [m.name, m.level, m.territory, m.built, m.maxE, m.msIndex, JSON.stringify(m.factions || {}), JSON.stringify(m.reputation || {}), JSON.stringify(m.storageCap || {}), JSON.stringify(m.inv), JSON.stringify(m.equip),
-      (m.pack || []).filter(Boolean).length, JSON.stringify(m.houses || []), ST.mode, ST.placing, ST.tool, ST.destroying, ST.channel && ST.channel.kind, ST.near.i && ST.near.i.label].join("|");
-  }
-  function actionsSig() { return ST.screen !== "playing" ? "x" : [ST.uiMuted ? 1 : 0, ST.musicMuted ? 1 : 0, ST.panel || "", ST.ui?.uiScale || 1, ST.visual?.cameraZoom || 1, ST.walkthrough?.active ? 1 : 0, ST.walkthrough?.step || ""].join("|"); }
-  function utilitySig() {
-    if (ST.screen !== "playing") return "x";
-    const m = ST.me;
-    const b = ST.panel === "inspect" ? world.buildPool.get(ST.inspect) : null;
-    return [ST.panel, ST.objectPreview && JSON.stringify(ST.objectPreview), JSON.stringify(ST.visual || {}) || "", ST.questTab || "", ST.inspect || "", ST.inspectDraft && JSON.stringify(ST.inspectDraft), b && [b.level, Math.ceil(b.hp), b.maxHp, b.nm, b.cl, b.constructUntil || 0, Math.floor((constructionStateForBuilding(b)?.progress || 1) * 20)].join(":"), JSON.stringify(ST.characterProfile), ST.capitalService && JSON.stringify(ST.capitalService), ST.serviceAccess || "", m && JSON.stringify(m.inv), m && JSON.stringify(m.pack), m && JSON.stringify(m.factions || {}), m && JSON.stringify(m.skills), m && JSON.stringify(m.skillXp), m && m.wallet, m && m.strongbox, m && m.vaultGold, m && JSON.stringify(m.wonders), m && JSON.stringify(m.houses), m && JSON.stringify(m.reputation || {}), ST.wonderPrompt || "", ST.wonderName || "", ST.wonderFootprint || 9, ST.wonderMode || "district", ST.wonderPaletteId || "solar", ST.wonderBusy ? 1 : 0, ST.wonderPlacing ? 1 : 0, ST.wonderRecipe?.name || "", ST.wonderRecipe?.footprint || "", ST.wonderRecipe?.paletteId || "", ST.wonderMsg || "", m && m.biome, m && JSON.stringify(m.guideQuests), m && JSON.stringify(m.guideSummary), ST.uiMuted ? 1 : 0, ST.musicMuted ? 1 : 0, ST.ui?.uiScale || 1, ST.ui?.menuScale || 1, ST.visual?.cameraZoom || 1].join("|");
-  }
-  function bottomSig() {
-    if (ST.screen !== "playing") return "x";
-    const m = ST.me;
-    return [ST.near.i && ST.near.i.label, ST.near.g && ST.near.g.id, ST.near.r && ST.near.r.uid, ST.mode, ST.placing, ST.tool, ST.destroying, ST.channel && ST.channel.kind, ST.uiMuted ? 1 : 0, ST.musicMuted ? 1 : 0, m && m.territory, m && JSON.stringify(m.reputation || {}), m && JSON.stringify(m.inv), m && JSON.stringify(m.pack), ST.panel === "more" ? "more" : "", ST.wonderPrompt || "", ST.wonderName || "", ST.wonderFootprint || 9, ST.wonderMode || "", ST.wonderPaletteId || "", ST.wonderRecipe?.name || "", ST.adminTool || "", ST.adminMsg || "", Math.floor(liveE())].join("|");
-  }
-  function modalSig() {
-    if (ST.updateRequired) return ["update", ST.updateVersion || "", ST.updateReason || ""].join("|");
-    if (ST.screen !== "playing") return "none";
-    if (ST.me && (ST.needsProfile || !ST.me.profileDone)) return ["intro", ST.profile.body, ST.profile.hat, ST.profile.name, JSON.stringify(ST.characterProfile)].join("|");
-    if (!ST.modal) return "none";
-    const m = ST.me;
-    const b = ST.panel === "inspect" ? world.buildPool.get(ST.inspect) : null;
-    return [ST.modal, ST.tradeTab, ST.inspect, ST.wonderViewUid || "", ST.inspectPlayer && ST.inspectPlayer.id,
-      JSON.stringify(m && m.inv), m && m.maxE, m && m.wallet, m && m.skillPts, JSON.stringify(m && m.skills),
-      JSON.stringify(m && m.equip), JSON.stringify(m && m.pack), m && m.territory, m && JSON.stringify(m.reputation || {}),
-      ST.near.m ? 1 : 0, ST.offers.length, ST.faceImage ? 1 : 0, ST.wonderPrompt || "", ST.wonderName || "", ST.wonderFootprint || 9, ST.wonderMode || "", ST.wonderPaletteId || "", ST.wonderBusy ? 1 : 0, ST.wonderPlacing ? 1 : 0, ST.wonderRecipe?.name || "", ST.wonderMsg || "", ST.wonderViewError || "", m && m.tokenBalance, ST.bank && JSON.stringify(ST.bank), m && m.msIndex, ST.inspectDraft && JSON.stringify(ST.inspectDraft), b && [b.level, Math.ceil(b.hp), b.maxHp, b.nm, b.cl, b.constructUntil || 0, Math.floor((constructionStateForBuilding(b)?.progress || 1) * 20)].join(":")].join("|");
-  }
-  function menuSig() { return ST.screen !== "menu" ? "x" : [ST.auth ? 1 : 0, ST.joining ? 1 : 0, ST.profile.body, ST.profile.hat, ST.profile.wallet, ST.loginMsg || "", JSON.stringify(ST.loginGate || {}), ST.ui?.menuScale || 1, phantomProvider() ? 1 : 0].join("|"); }
-  function guideSig() {
-    if (ST.screen !== "playing") return "x";
-    return [ST.walkthrough?.active ? 1 : 0, ST.walkthrough?.step || "", ST.updateRequired ? 1 : 0, ST.modal || "", ST.needsProfile ? 1 : 0, ST.me?.profileDone ? 1 : 0, ST.ui?.uiScale || 1, ST.visual?.cameraZoom || 1].join("|");
-  }
-  const sigFns = [hudSig, actionsSig, utilitySig, bottomSig, guideSig, modalSig, menuSig];
 
   function syncToolCursor() {
     const cursor = toolCursorForState({ screen: ST.screen, mode: ST.mode, tool: ST.tool, placing: ST.placing, hover: ST.hoverIntent });
@@ -5494,25 +5490,24 @@ export default function mount() {
     if (ST.screen === "playing" && (ST.mode === "build" || ST.mode === "place")) syncBuildScrollSoon();
     mountWonderViewerSoon();
     if ((force && (!forceSet || forceSet.has("utility"))) || utilityRendered) syncMiniPreviewPanels(utilityRoot);
+    bindLiveHudBindings();
     const paintMs = performance.now() - paintStart;
     perf.record("ui.paint", paintMs, { force, only, changed });
     perfMini.update({ paint: paintMs });
   }
 
-  /* ---------- imperative energy/bin ticker: NO vdom ---------- */
+  /* ---------- live scalar ticker: selector-scoped MicroStore bindings ---------- */
   const tick = scheduler.every("ui.liveTicker", 250, () => {
     if (ST.screen !== "playing" || !ST.me) return;
     perf.measure("ui.liveTicker", () => {
       world?.refreshConstructionProgress?.();
       const m = ST.me, e = liveE();
-      const nowEl = document.getElementById("sc-e-now");
-      if (nowEl) nowEl.textContent = String(Math.floor(Math.max(0, e)));
-      const fill = document.getElementById("sc-e-fill");
-      if (fill) fill.style.width = `${Math.max(0, Math.min(100, 100 * e / Math.max(1, Number(m.maxE || 1)))).toFixed(1)}%`;
-      const hpEl = document.getElementById("sc-hp-now");
-      if (hpEl) hpEl.textContent = String(Math.ceil(m.hp || 0));
-      const hpFill = document.getElementById("sc-hp-fill");
-      if (hpFill) hpFill.style.width = `${(100 * Math.max(0, m.hp || 0) / MAX_HP).toFixed(1)}%`;
+      liveHudStore.patch({
+        energyNow: Math.floor(Math.max(0, e)),
+        energyPct: Math.max(0, Math.min(100, 100 * e / Math.max(1, Number(m.maxE || 1)))),
+        hpNow: Math.ceil(Math.max(0, Number(m.hp || 0))),
+        hpPct: 100 * Math.max(0, Number(m.hp || 0)) / Math.max(1, MAX_HP),
+      });
     });
   });
 
@@ -5528,7 +5523,10 @@ export default function mount() {
     scheduler.cancel(nearT);
     scheduler.cancel(tick);
     scheduler.cancel(channelT);
+    scheduler.cancel(keyboardMoveT);
     scheduler.clear();
+    liveHudUnsubs.forEach((fn) => { try { fn(); } catch {} });
+    liveHudUnsubs = [];
     clearTimeout(toastT);
     clearTimeout(pollSoonT);
     clearTimeout(appearanceSaveT);
