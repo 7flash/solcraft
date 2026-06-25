@@ -1453,6 +1453,7 @@ export default function mount() {
     tradePostAt,
     proceduralNpcAt,
     biomeTerrainAt,
+    naturalDoodad,
     hrand,
     onHop: () => sfx.hop?.(),
     onError: () => sfx.err?.(),
@@ -1564,7 +1565,11 @@ export default function mount() {
     return String(r?.msg || "Can't harvest that");
   }
   function startChop(x, z) {
-    const d = world.doodadVisible(x, z);
+    const desired = ST.tool === "stone" ? "rock" : ST.tool === "wood" ? "tree" : undefined;
+    const resolved = world.resolveDoodadCell?.(x, z, desired) || { x, z, kind: world.doodadVisible(x, z) };
+    x = Math.trunc(Number(resolved.x ?? x));
+    z = Math.trunc(Number(resolved.z ?? z));
+    const d = resolved.kind || world.doodadVisible(x, z);
     if (!d) { world.markDoodadGone?.(x, z); world.floatText?.(x, z, "Already gathered", "#d7dde7"); return; }
     if (ST.channel) {
       if (ST.channel.kind === d && Math.trunc(ST.channel.x) === Math.trunc(x) && Math.trunc(ST.channel.z) === Math.trunc(z)) return;
@@ -2076,8 +2081,12 @@ export default function mount() {
   /* ---------- inspect / preview intent ---------- */
   function worldObjectPreviewForCell(c) {
     if (!c) return null;
-    const d = world.doodadVisible(c.x, c.z);
-    if (d) return { kind: d === "food" ? "food" : d === "rock" ? "rock" : "tree", x: c.x, z: c.z, biome: biomeAt(c.x, c.z).name };
+    const resolvedDoodad = world.resolveDoodadCell?.(c.x, c.z);
+    const d = resolvedDoodad?.kind || world.doodadVisible(c.x, c.z);
+    if (d) {
+      const rx = resolvedDoodad?.x ?? c.x, rz = resolvedDoodad?.z ?? c.z;
+      return { kind: d === "food" ? "food" : d === "rock" ? "rock" : "tree", x: rx, z: rz, biome: biomeAt(rx, rz).name };
+    }
     if (tradePostAt(c.x, c.z)) return { kind: "trade", x: c.x, z: c.z, name: "Trade Post", biome: biomeAt(c.x, c.z).name };
     const npc = proceduralNpcAt(c.x, c.z);
     if (npc) return { kind: "npc", x: c.x, z: c.z, name: npc.name, title: npc.title, role: npc.role, hp: npc.hp, maxHp: npc.hp, coins: npc.coins, attack: npc.attack, resource: npc.resource, resourceAmount: npc.resourceAmount, biome: biomeAt(c.x, c.z).name };
@@ -2244,10 +2253,11 @@ export default function mount() {
     }
     if ((ST.tool === "wood" || ST.tool === "stone") && c) {
       const want = ST.tool === "wood" ? "tree" : "rock";
-      const d = world.doodadVisible(c.x, c.z);
+      const found = world.resolveDoodadCell?.(c.x, c.z, want);
+      const d = found?.kind || world.doodadVisible(c.x, c.z);
       if (d && d !== want) { sfx.err(); say(ST.tool === "wood" ? t("toast.useStonePick", "Use the stone pick for rocks.") : t("toast.useWoodAxe", "Use the wood axe for trees.")); return; }
-      if (d === want && !world.buildPoolAt(c.x, c.z)) {
-        startChop(c.x, c.z);
+      if ((found || d === want) && !world.buildPoolAt(found?.x ?? c.x, found?.z ?? c.z)) {
+        startChop(found?.x ?? c.x, found?.z ?? c.z);
         return;
       }
     }
@@ -3834,6 +3844,35 @@ export default function mount() {
     />;
   }
 
+  function InspectPanel() {
+    const uid = ST.inspect;
+    const b = uid != null ? world.buildPool?.get?.(uid) : null;
+    if (!b) {
+      ST.inspect = null;
+      ST.panel = null;
+      return <div />;
+    }
+    const def = LIB_BY_ID[b.kind] || { id: b.kind, name: b.nm || b.kind, glyph: "▣", blurb: "A settlement structure." };
+    const foundationChoices = String(b.kind || "") === FOUNDATION_KIND
+      ? FOUNDATION_BUILD_KINDS.map((id) => ({ ...(LIB_BY_ID[id] || {}), id, name: LIB_BY_ID[id]?.name || foundationChoiceLabel(id), cost: LIB_BY_ID[id]?.cost || {} }))
+      : [];
+    return <InspectPanelView
+      building={b}
+      player={ST.me}
+      def={def}
+      inspectUid={uid}
+      inspectDraft={ST.inspectDraft}
+      faceImage={ST.faceImage}
+      buildingColorPresets={BUILDING_COLOR_PRESETS}
+      construction={constructionStateForBuilding(b)}
+      territoryHint={def?.id ? captureLimitLine(def) : ""}
+      estimatedBin={estAcc(b)}
+      costStr={polishCostLine}
+      foundationChoices={foundationChoices}
+      bank={ST.bank}
+    />;
+  }
+
   function UtilityPanel() {
     if (ST.screen !== "playing" || ST.modal || !ST.panel) return <div />;
     if (ST.panel === "inspect") return <InspectPanel />;
@@ -3983,7 +4022,11 @@ export default function mount() {
     perf.measure("ui.hints", () => updateHints());
     chatEl.style.display = ST.screen === "playing" ? "flex" : "none";
     minimapEl.style.display = (ST.screen === "playing" && !ST.modal) ? "block" : "none";
-    try { world?.updateMinimapInfo?.(); } catch {}
+    try {
+      const miniCanvas = minimapEl?.tagName === "CANVAS" ? minimapEl : minimapEl?.querySelector?.("canvas");
+      if (ST.screen === "playing" && !ST.modal && miniCanvas) drawKnownWorldMap(miniCanvas, false);
+      world?.updateMinimapInfo?.();
+    } catch {}
     vignetteEl.style.display = ST.screen === "playing" ? "block" : "none";
     if (ST.screen !== "playing" || ST.modal) hideCtx();
     let utilityRendered = false;

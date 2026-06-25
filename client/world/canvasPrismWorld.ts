@@ -17,6 +17,7 @@ type CanvasWorldOptions = {
   tradePostAt?: (x: number, z: number) => any;
   proceduralNpcAt?: (x: number, z: number) => any;
   biomeTerrainAt?: (x: number, z: number) => string;
+  naturalDoodad?: (x: number, z: number) => string | null;
   hrand?: (x: number, z: number, s?: number) => number;
   onHop?: () => void;
   onError?: () => void;
@@ -304,10 +305,19 @@ export function createCanvasPrismWorld(opts: CanvasWorldOptions) {
     const r = opts.currentTileLoadRadius?.() || 36;
     const cx = Math.round(me.x), cz = Math.round(me.z);
     if (!force && lastVisibleCenter.r === r && Math.max(Math.abs(cx-lastVisibleCenter.x), Math.abs(cz-lastVisibleCenter.z)) <= 6) return;
-    cells.clear(); lastVisibleCenter = { x: cx, z: cz, r };
+    cells.clear();
+    // Procedural resources are viewport-local cache entries. They are regenerated
+    // from the shared deterministic naturalDoodad() rule on each window rebuild.
+    for (const [kk, d] of Array.from(doodads.entries())) if (d?.natural) doodads.delete(kk);
+    lastVisibleCenter = { x: cx, z: cz, r };
     for (let x = cx-r; x <= cx+r; x++) for (let z = cz-r; z <= cz+r; z++) {
       if (Math.max(Math.abs(x-cx), Math.abs(z-cz)) > r) continue;
-      cells.set(kfn(x,z), { cx: x, cz: z, owner: tileOwner.get(kfn(x,z))?.owner || 0 });
+      const kk = kfn(x,z);
+      cells.set(kk, { cx: x, cz: z, owner: tileOwner.get(kk)?.owner || 0 });
+      if (!doodads.has(kk) && !buildAt.has(kk) && exceptions.get(kk) !== "gone") {
+        const nd = normalizeDoodadKind(opts.naturalDoodad?.(x, z));
+        if (nd) doodads.set(kk, { x, z, type: nd, kind: nd, natural: true });
+      }
     }
   }
   function draw() {
@@ -343,6 +353,31 @@ export function createCanvasPrismWorld(opts: CanvasWorldOptions) {
       const p = proj(f.x, f.y, f.z); ctx.textAlign = "center"; ctx.font = `800 ${Math.max(12, 14*visualZoom())}px system-ui, sans-serif`; ctx.strokeStyle = `rgba(7,10,12,${f.life*0.6})`; ctx.lineWidth = 3; ctx.strokeText(f.text,p.x,p.y); ctx.fillStyle = f.color || "#ffd76e"; ctx.globalAlpha = Math.max(0, f.life); ctx.fillText(f.text,p.x,p.y); ctx.globalAlpha = 1;
     }
   }
+  function normalizeDoodadKind(value: any) {
+    const k = String(value?.type || value?.kind || value || "").toLowerCase();
+    return k === "rock" || k === "tree" || k === "food" ? k : "";
+  }
+  function doodadAt(x: number, z: number, radius = 0.75, want?: string) {
+    const tx = Math.trunc(Number(x)), tz = Math.trunc(Number(z));
+    let best: any = null, bd = Infinity;
+    const wantKind = normalizeDoodadKind(want);
+    const scan = Math.max(0, Math.ceil(Number(radius || 0)));
+    for (let dx = -scan; dx <= scan; dx++) for (let dz = -scan; dz <= scan; dz++) {
+      const d = doodads.get(kfn(tx + dx, tz + dz));
+      if (!d || d.type === "gone") continue;
+      const kind = normalizeDoodadKind(d);
+      if (wantKind && kind !== wantKind) continue;
+      const dist = Math.max(Math.abs((tx + dx) - x), Math.abs((tz + dz) - z));
+      if (dist <= radius && dist < bd) { best = d; bd = dist; }
+    }
+    return best;
+  }
+  function resolveDoodadCell(x: number, z: number, want?: string) {
+    const d = doodadAt(x, z, 1.15, want);
+    if (!d) return null;
+    return { x: Math.trunc(Number(d.x)), z: Math.trunc(Number(d.z)), kind: normalizeDoodadKind(d) };
+  }
+
   function tick(now: number) {
     if (disposed) return;
     const dt = Math.min(50, now - lastFrame); lastFrame = now;
@@ -456,7 +491,7 @@ export function createCanvasPrismWorld(opts: CanvasWorldOptions) {
     return best ? { uid: best.uid, b: best } : null;
   }
   function buildPoolAt(x:number,z:number) { return buildAt.get(kfn(x,z)); }
-  function doodadVisible(x:number,z:number) { const d=doodads.get(kfn(x,z)); return d && d.type !== "gone" ? d.type || d.kind || true : false; }
+  function doodadVisible(x:number,z:number) { const d=doodadAt(Math.trunc(Number(x)), Math.trunc(Number(z)), 0.18); return d ? normalizeDoodadKind(d) || true : false; }
   function refreshWindow(force = false) { rebuildCells(!!force); }
   function pathTo(x:number,z:number) { const p = computePath(Math.trunc(x),Math.trunc(z),false); if (!p.length) return false; pendingPath = p; return true; }
   function pathToNear(x:number,z:number) { const p = computePath(Math.trunc(x),Math.trunc(z),true); if (!p.length) return false; pendingPath = p; return true; }
@@ -480,7 +515,7 @@ export function createCanvasPrismWorld(opts: CanvasWorldOptions) {
 
   return {
     applyWorld, applyPlayers, applyMe, me, cellFromEvent, buildingFromEvent, pathTo, pathToNear, tryMoveDelta,
-    blocked, buildPoolAt, doodadVisible, burst, floatText, shockwave, hoverMarker, hardSnapMe, markDoodadGone, removeBuild,
+    blocked, buildPoolAt, doodadVisible, doodadAt, resolveDoodadCell, burst, floatText, shockwave, hoverMarker, hardSnapMe, markDoodadGone, removeBuild,
     setHintCells, hideBuildGhost, showBuildGhost, refreshWindow, rebuildBuilding: (uid:any) => {}, animateBuildingUse: (uid:any) => { const b=buildPool.get(uid); if (b) floatText(b.x,b.z,"used","#ffd76e"); }, refreshConstructionProgress: () => {},
     refreshOwnRig: () => {}, applyVisualQuality: () => {}, hasPendingMove: () => pendingPath.length > 0 || inFlight > 0,
     tileOwner, buildPool, buildAt, lootPool, rigPool, tradePostPool, cells, updateMinimapInfo,
