@@ -7,14 +7,14 @@ export function disposeObject3D(target: THREE.Object3D | null | undefined, optio
   target.traverse((node: any) => {
     if (!(node?.isMesh || node?.isLine || node?.isPoints || node?.isSprite)) return;
     const geometry = node.geometry as THREE.BufferGeometry | undefined;
-    if (opts.disposeGeometry && geometry && !opts.sharedGeometries?.has(geometry)) geometry.dispose();
+    if (opts.disposeGeometry && geometry && !(geometry as any).userData?.shared && !opts.sharedGeometries?.has(geometry)) geometry.dispose();
     const materials = Array.isArray(node.material) ? node.material : node.material ? [node.material] : [];
     for (const material of materials) disposeMaterial(material, opts);
   });
   if (opts.detach) target.parent?.remove(target);
 }
 export function disposeMaterial(material: THREE.Material | null | undefined, options: DisposeObjectOptions = {}) {
-  if (!material || options.sharedMaterials?.has(material)) return;
+  if (!material || (material as any).userData?.shared || options.sharedMaterials?.has(material)) return;
   if (options.disposeTextures ?? true) for (const key of TEXTURE_KEYS) { const tex = (material as any)[key] as THREE.Texture | undefined; if (tex?.isTexture && !options.sharedTextures?.has(tex)) tex.dispose(); }
   material.dispose();
 }

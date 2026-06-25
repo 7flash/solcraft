@@ -63,6 +63,8 @@ import { disposeMiniPreviews, syncMiniPreviewPanels } from "../client/world/mini
 import { SpatialGridCache } from "../client/world/spatialGridCache";
 import { buildingRecipeFor, recipeVisibleParts } from "../client/world/buildingRecipes";
 import { maxRecipeHeight, renderRecipeParts } from "../client/world/buildingRecipeRenderer";
+import { resourceRecipeFor } from "../client/world/resourceRecipes";
+import { disposeObject3D } from "../client/world/sceneMemoryAssetManager";
 import { WorldMapModalView } from "../client/ui/worldMapModal";
 import { PlayerModalView } from "../client/ui/playerModal";
 import { renderKnownWorldMap, tileFromCanvasEvent } from "../client/world/mapCanvas";
@@ -1527,6 +1529,7 @@ export default function mount() {
       return geo;
     }
     const tileGeo = createTerrainSlabGeometry();
+    tileGeo.userData.shared = true;
     const terrainBatchRoot = new THREE.Group(); scene.add(terrainBatchRoot);
     const terrainBatchMeshes = new Map(), terrainBatchMatCache = new Map();
     const batchDummy = new THREE.Object3D();
@@ -1585,6 +1588,7 @@ export default function mount() {
       // White material + per-instance colors gives subtle tile variation without
       // adding materials, textures, or a visible debug grid.
       const mats = [new THREE.MeshLambertMaterial({ color: 0xffffff, vertexColors: true, depthWrite: true })];
+      for (const mat of mats) mat.userData.shared = true;
       terrainBatchMatCache.set(batchKey, mats);
       return mats;
     }
@@ -1601,7 +1605,7 @@ export default function mount() {
       }).join("|");
       if (!force && sig === terrainBatchSig) return;
       terrainBatchSig = sig;
-      for (const mesh of terrainBatchMeshes.values()) terrainBatchRoot.remove(mesh);
+      for (const mesh of terrainBatchMeshes.values()) disposeSceneObject(mesh);
       terrainBatchMeshes.clear();
       for (const [bk, rows] of buckets) {
         const mesh = new THREE.InstancedMesh(tileGeo, terrainBatchMat(bk), rows.length);
@@ -1630,11 +1634,13 @@ export default function mount() {
     // scale/context to read the floor without bringing the debug lattice back.
     const groundDetailRoot = new THREE.Group(); scene.add(groundDetailRoot);
     const groundDetailGeo = new THREE.PlaneGeometry(1, 1);
+    groundDetailGeo.userData.shared = true;
     const groundDetailMats = [
       new THREE.MeshBasicMaterial({ color: 0x496c52, transparent: true, opacity: 0.105, depthWrite: false, side: THREE.DoubleSide }),
       new THREE.MeshBasicMaterial({ color: 0x2b4737, transparent: true, opacity: 0.100, depthWrite: false, side: THREE.DoubleSide }),
       new THREE.MeshBasicMaterial({ color: 0x6e694c, transparent: true, opacity: 0.055, depthWrite: false, side: THREE.DoubleSide }),
     ];
+    for (const mat of groundDetailMats) mat.userData.shared = true;
     const groundDetailMeshes = new Map();
     let groundDetailSig = "";
     function rebuildGroundDetails(force = false) {
@@ -1654,7 +1660,7 @@ export default function mount() {
       }).join("|");
       if (!force && sig === groundDetailSig) return;
       groundDetailSig = sig;
-      for (const mesh of groundDetailMeshes.values()) groundDetailRoot.remove(mesh);
+      for (const mesh of groundDetailMeshes.values()) disposeSceneObject(mesh);
       groundDetailMeshes.clear();
       for (const [type, rows] of buckets) {
         const mesh = new THREE.InstancedMesh(groundDetailGeo, groundDetailMats[type] || groundDetailMats[0], rows.length);
@@ -1719,9 +1725,10 @@ export default function mount() {
       return geo;
     }
     const staticPrismGeo = createStaticPrismGeometry();
+    staticPrismGeo.userData.shared = true;
     function staticPrismMaterial(hex) {
       const k = cssHex(hex, "#ffd76e").toLowerCase();
-      if (!prismMatCache.has(k)) prismMatCache.set(k, new THREE.MeshLambertMaterial({ color: new THREE.Color(k), depthWrite: true, depthTest: true }));
+      if (!prismMatCache.has(k)) { const mat = new THREE.MeshLambertMaterial({ color: new THREE.Color(k), depthWrite: true, depthTest: true }); mat.userData.shared = true; prismMatCache.set(k, mat); }
       return prismMatCache.get(k);
     }
     function prismMats(top, left = null, right = null) {
@@ -1745,31 +1752,7 @@ export default function mount() {
       return mesh;
     }
     function resourcePrismRecipe(type) {
-      const y0 = STATIC_WORLD_BASE_Y;
-      if (type === "tree") return [
-        // Static-world tree: no spheres/blobs/cards. It is a stack of rectangular
-        // prism slabs with two side faces and a top face, so it shares the same
-        // construction language as buildings and landmarks.
-        { k: "trunk-low", ox: 0.00, oz: 0.00, y: y0,      w: 0.14, d: 0.14, h: 0.34, top: "#8b5628", left: "#6b3d1d", right: "#4c2b15" },
-        { k: "trunk-high", ox: 0.00, oz: 0.00, y: y0+0.30, w: 0.12, d: 0.12, h: 0.20, top: "#9b6432", left: "#6b3d1d", right: "#4c2b15" },
-        { k: "leaf-slab-a", ox: 0.00, oz: 0.00, y: y0+0.47, w: 0.64, d: 0.46, h: 0.12, top: "#2f9f4f", left: "#237d3f", right: "#165d2f" },
-        { k: "leaf-slab-b", ox:-0.05, oz:-0.03, y: y0+0.58, w: 0.52, d: 0.36, h: 0.12, top: "#47b85a", left: "#2f9148", right: "#20703a" },
-        { k: "leaf-slab-c", ox: 0.06, oz: 0.02, y: y0+0.69, w: 0.38, d: 0.26, h: 0.10, top: "#6acb63", left: "#45a856", right: "#2c8346" },
-      ];
-      if (type === "rock") return [
-        // Rocks must read as grounded chunks, not floating cubes.
-        { k: "rock-slab",  ox: 0.00, oz: 0.00, y: y0,      w: 0.66, d: 0.44, h: 0.08, top: "#bfc7ce", left: "#858f98", right: "#616c75" },
-        { k: "rock-step",  ox:-0.11, oz:-0.07, y: y0+0.075, w: 0.42, d: 0.28, h: 0.08, top: "#d7dde2", left: "#9da6ae", right: "#747f88" },
-        { k: "rock-chip",  ox: 0.19, oz: 0.11, y: y0+0.055, w: 0.22, d: 0.16, h: 0.06, top: "#aeb7bf", left: "#7b858e", right: "#58636c" },
-      ];
-      return [
-        // Crops are low rectangular rows; food stays geometric too.
-        { k: "crop-bed", ox: 0.00, oz: 0.00, y: y0,      w: 0.58, d: 0.42, h: 0.06, top: "#5c3a20", left: "#412713", right: "#301c0e" },
-        { k: "crop-a",   ox:-0.22, oz:-0.12, y: y0+0.06, w: 0.08, d: 0.08, h: 0.26, top: "#3faa55", left: "#2f8f46", right: "#216f37" },
-        { k: "crop-b",   ox:-0.06, oz: 0.08, y: y0+0.06, w: 0.08, d: 0.08, h: 0.31, top: "#ffd76e", left: "#cf9d35", right: "#9d7626" },
-        { k: "crop-c",   ox: 0.12, oz:-0.04, y: y0+0.06, w: 0.08, d: 0.08, h: 0.28, top: "#55c96a", left: "#36994c", right: "#23763a" },
-        { k: "crop-d",   ox: 0.25, oz: 0.13, y: y0+0.06, w: 0.08, d: 0.08, h: 0.23, top: "#ffd76e", left: "#cf9d35", right: "#9d7626" },
-      ];
+      return resourceRecipeFor(type, STATIC_WORLD_BASE_Y);
     }
     const resourceBatchRoot = new THREE.Group(); scene.add(resourceBatchRoot);
     const resourceBatchMeshes = new Map();
@@ -1802,7 +1785,7 @@ export default function mount() {
       }).join("|");
       if (!force && sig === resourceBatchSig) return;
       resourceBatchSig = sig;
-      for (const mesh of resourceBatchMeshes.values()) resourceBatchRoot.remove(mesh);
+      for (const mesh of resourceBatchMeshes.values()) disposeSceneObject(mesh);
       resourceBatchMeshes.clear();
       for (const [bucketKey, bucket] of buckets) {
         const { spec, rows } = bucket;
@@ -1824,8 +1807,10 @@ export default function mount() {
       }
     }
     const roadGeo = new THREE.PlaneGeometry(0.70, 0.70);
+    roadGeo.userData.shared = true;
     const roadMat = new THREE.MeshBasicMaterial({ color: 0xb98c55, transparent: true, opacity: 0.58, depthWrite: false, side: THREE.DoubleSide });
     const roadMatMine = new THREE.MeshBasicMaterial({ color: 0xd8b66e, transparent: true, opacity: 0.66, depthWrite: false, side: THREE.DoubleSide });
+    roadMat.userData.shared = true; roadMatMine.userData.shared = true;
     const districtLineMatCache = new Map();
     function districtLineMat(color) {
       const k = String(color || "#14f195");
@@ -1862,7 +1847,12 @@ export default function mount() {
       waves.push({ m, t: 0, dur: 0.55 });
     }
     const buildingShadowGeo = new THREE.CircleGeometry(0.46, 30);
+    buildingShadowGeo.userData.shared = true;
     const buildingShadowMat = new THREE.MeshBasicMaterial({ color: 0x08140f, transparent: true, opacity: 0.20, depthWrite: false, side: THREE.DoubleSide });
+    buildingShadowMat.userData.shared = true;
+    function disposeSceneObject(obj) {
+      disposeObject3D(obj, { detach: true });
+    }
     function decorateBuilding(g, b) {
       if (b?.kind !== "road") {
         const sh = new THREE.Mesh(buildingShadowGeo, buildingShadowMat);
@@ -1911,7 +1901,7 @@ export default function mount() {
       const sig = playerBillboardSignature({ body: ST.me.body, hat: ST.me.hat, heldTool, palette: ST.characterProfile?.palette });
       if (!force && sig === rigSig) return;
       rigSig = sig;
-      if (rig) { rig.traverse?.((o) => o?.userData?.dispose?.()); player.remove(rig); }
+      if (rig) disposeSceneObject(rig);
       rig = makePlayerBillboard({ body: ST.me.body, hat: ST.me.hat, heldTool, palette: ST.characterProfile?.palette, name: ST.me.name });
       rig.scale?.setScalar?.(1.18);
       player.add(rig);
@@ -1921,6 +1911,7 @@ export default function mount() {
     hoverMarker.rotation.x = -Math.PI / 2; hoverMarker.position.y = 0.233; hoverMarker.visible = false; scene.add(hoverMarker);
 
     const hintGeo = new THREE.PlaneGeometry(0.82, 0.82);
+    hintGeo.userData.shared = true;
     const hintPool = [];
     function setHintCells(items = []) {
       for (let i = 0; i < items.length; i++) {
@@ -2020,7 +2011,7 @@ export default function mount() {
       const k = key(x, z), want = tradePostAt(x, z) && !buildPoolAt(x, z);
       const have = tradePostPool.get(k);
       if (have && want) return;
-      if (have && !want) { scene.remove(have.group); tradePostPool.delete(k); return; }
+      if (have && !want) { disposeSceneObject(have.group); tradePostPool.delete(k); return; }
       if (!want) return;
       const { group, parts } = makePrismBuildingGroup("market", { nm: "Trade Post", cl: "#ffd76e", plinth: 0xc79337 });
       group.position.set(x, 0, z);
@@ -2037,7 +2028,7 @@ export default function mount() {
       const want = npc && !hiddenByWorld && !buildPoolAt(x, z) && !tradePostAt(x, z);
       const have = npcPool.get(k);
       if (have && want && have.id === npc.id) return;
-      if (have) { npcVisibilityGrid.remove(have); visibleNpcs.delete(have); scene.remove(have.group); npcPool.delete(k); }
+      if (have) { npcVisibilityGrid.remove(have); visibleNpcs.delete(have); disposeSceneObject(have.group); npcPool.delete(k); }
       if (!want) return;
       const g = new THREE.Group();
       const base = new THREE.Mesh(new THREE.CylinderGeometry(0.28, 0.34, 0.08, 10), M(0x5a4b35, { roughness: 1 }));
@@ -2470,7 +2461,7 @@ export default function mount() {
       }
       for (const [id, l] of [...lootPool]) {
         if (lootSeen.has(id)) continue;
-        anims.push({ kind: "up", obj: l.group, t: 0, dur: 0.3, done: () => scene.remove(l.group) });
+        anims.push({ kind: "up", obj: l.group, t: 0, dur: 0.3, done: () => disposeSceneObject(l.group) });
         lootVisibilityGrid.remove(l); visibleLoot.delete(l);
         lootPool.delete(id);
       }
@@ -2523,7 +2514,7 @@ export default function mount() {
         const mode = q.spectator ? "ghost" : fullIds.has(q.id) ? "full" : "lite";
         const sig = JSON.stringify([mode, q.spectator ? 1 : 0, q.body, q.hat, q.equip, q.name, q.level, q.appearance && q.appearance.palette, q.appearance && q.appearance.parts, q.appearance && q.appearance.showBack]);
         let r = rigPool.get(q.id);
-        if (r && r.sig !== sig) { scene.remove(r.group); rigPool.delete(q.id); r = null; }
+        if (r && r.sig !== sig) { disposeSceneObject(r.group); rigPool.delete(q.id); r = null; }
         if (!r) {
           const group = new THREE.Group();
           if (mode === "ghost") {
@@ -2552,7 +2543,7 @@ export default function mount() {
           } else { r.queue = []; r.hop = null; r.group.position.set(q.x, 0.22, q.z); }
         }
       }
-      for (const [id, r] of [...rigPool]) { if (pSeen.has(id)) continue; scene.remove(r.group); rigPool.delete(id); }
+      for (const [id, r] of [...rigPool]) { if (pSeen.has(id)) continue; disposeSceneObject(r.group); rigPool.delete(id); }
     }
     function optimisticMoveLead() { return movePredictor.pendingCount() + netMoveQueue.length + inFlightMoveBatches * MOVE_BATCH_MAX; }
     function hasPendingMove() { return walking || inFlightMoveBatches > 0 || moveBusy || netMoveQueue.length > 0 || walkQueue.length > 0 || !!pendingWalk || anims.some((a) => a.kind === "hop" || a.kind === "correct"); }
@@ -2575,7 +2566,7 @@ export default function mount() {
     function removeBuild(uid, boom = false) {
       const b = buildPool.get(uid); if (!b) return;
       if (boom) { burst(b.x, 0.5, b.z, 0xd6604f, 16, 0.6); shockwave(b.x, b.z, 0xff8a5e); }
-      scene.remove(b.group); clearBuildAt(b); buildPool.delete(uid);
+      disposeSceneObject(b.group); clearBuildAt(b); buildPool.delete(uid);
       updateWonderDistrictRoads();
     }
     function animateBuildingUse(uid) {
