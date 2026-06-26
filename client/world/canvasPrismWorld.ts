@@ -98,6 +98,8 @@ export function createCanvasPrismWorld(opts: CanvasWorldOptions) {
   const exceptions = new Map<string, any>();
   let hintCells: any[] = [];
   let ghost: any = null;
+  let lastPickTarget: any = null;
+  let lastPickAt = 0;
   let pendingPath: Array<{x:number,z:number}> = [];
   const floaters: any[] = [];
   const bursts: any[] = [];
@@ -313,6 +315,41 @@ export function createCanvasPrismWorld(opts: CanvasWorldOptions) {
     ctx.textAlign = "center";
     ctx.fillText("?", p.x, p.y);
   }
+  function drawTargetRing(x: number, z: number, color = "#ffd76e", radius = 0.72, y = 0.07, alpha = 0.78) {
+    const p = proj(Number(x), Number(y), Number(z));
+    ctx.save();
+    ctx.strokeStyle = `${color}${Math.round(255 * alpha).toString(16).padStart(2,"0")}`;
+    ctx.lineWidth = Math.max(1.6, 2.2 * visualZoom());
+    ctx.beginPath();
+    ctx.ellipse(p.x, p.y, radius * tileW, radius * tileH * 0.58, 0, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.restore();
+  }
+  function drawHoverTargetAffordance() {
+    if (!lastPickTarget || performance.now() - lastPickAt > 1800) return;
+    const p = lastPickTarget;
+    if (p.primary === "terrain" || !p.cell) return;
+    const color = p.primary === "building" ? "#ffd76e" : p.primary === "doodad" ? "#8ee68d" : p.primary === "player" ? "#7dcfe8" : p.primary === "npc" ? "#ceb443" : "#d7dfcf";
+    const radius = p.primary === "building" ? 1.22 : p.primary === "doodad" ? 0.86 : 0.62;
+    drawTargetRing(p.cell.x, p.cell.z, color, radius, 0.09, 0.62);
+  }
+  function drawGhostBuildingPreview() {
+    if (!ghost) return false;
+    const placing = String(ST?.placing || ST?.tool || "cottage").toLowerCase();
+    const valid = ghost.valid !== false;
+    const color = valid ? "#ffd76e" : "#d6604f";
+    const kind = placing && placing !== "build" && placing !== "none" ? placing : "cottage";
+    const scale = kind === "worldwonder" ? 2.3 : (kind.includes("gate") || kind === "keep" || kind === "watchtower" ? 1.95 : 1.65);
+    const recipe = recipeVisibleParts(buildingRecipeFor(kind, { color, plinth: valid ? "#9a855a" : "#6f3a32", buildProgress: 1 }), 1);
+    ctx.save();
+    ctx.globalAlpha = valid ? 0.48 : 0.36;
+    drawShadow(ghost.x, ghost.z, 0.60 * scale, 0.30 * scale, valid ? 0.12 : 0.18);
+    for (const part of recipe) drawRecipePart(ghost.x, ghost.z, part, scale, valid ? 0.54 : 0.42);
+    ctx.globalAlpha = 1;
+    drawTargetRing(ghost.x, ghost.z, color, 0.88, 0.12, valid ? 0.72 : 0.88);
+    ctx.restore();
+    return true;
+  }
   function drawOverlayCells() {
     for (const h of hintCells || []) {
       const color = numColorToHex(h.color, "#14f195");
@@ -325,12 +362,13 @@ export function createCanvasPrismWorld(opts: CanvasWorldOptions) {
       const a = proj(x - 0.5, 0.045, z), b = proj(x, 0.045, z - 0.5), c = proj(x + 0.5, 0.045, z), d = proj(x, 0.045, z + 0.5);
       poly([a,b,c,d], `${color}28`, `${color}aa`);
     }
-    if (ghost) {
+    if (ghost && !drawGhostBuildingPreview()) {
       const color = ghost.valid ? "#ffd76e" : "#d6604f";
       const x = ghost.x, z = ghost.z;
       const a = proj(x - 0.55, 0.05, z), b = proj(x, 0.05, z - 0.55), c = proj(x + 0.55, 0.05, z), d = proj(x, 0.05, z + 0.55);
       poly([a,b,c,d], `${color}33`, `${color}cc`);
     }
+    drawHoverTargetAffordance();
   }
   function drawChannelHint() {
     const ch = ST?.channel;
@@ -748,7 +786,10 @@ export function createCanvasPrismWorld(opts: CanvasWorldOptions) {
     else if (trade) { primary = "trade"; cell = { x: trade.x, z: trade.z }; }
     else if (doodad) { primary = "doodad"; cell = { x: doodad.x, z: doodad.z }; }
     else if (building?.b) { primary = "building"; cell = { x: building.b.x, z: building.b.z }; }
-    return { primary, cell, building, doodad, trade, npc, player, raw };
+    const result = { primary, cell, building, doodad, trade, npc, player, raw };
+    lastPickTarget = result;
+    lastPickAt = performance.now();
+    return result;
   }
   function worldToScreen(x:number, z:number, y = 0) { return proj(Number(x), Number(y), Number(z)); }
   function screenToWorldPoint(sx:number, sy:number) { return screenToWorld(Number(sx), Number(sy)); }
