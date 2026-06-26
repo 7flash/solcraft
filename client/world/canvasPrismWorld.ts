@@ -332,6 +332,31 @@ export function createCanvasPrismWorld(opts: CanvasWorldOptions) {
       poly([a,b,c,d], `${color}33`, `${color}cc`);
     }
   }
+  function drawChannelHint() {
+    const ch = ST?.channel;
+    if (!ch) return;
+    const x = Number(ch.x), z = Number(ch.z);
+    if (!Number.isFinite(x) || !Number.isFinite(z)) return;
+    const total = Math.max(1, Number(ch.ms || 1200));
+    const left = Number(ch.until || 0) - performance.now();
+    const pct = clamp(1 - left / total, 0, 1);
+    const kind = String(ch.kind || "").toLowerCase();
+    const color = kind === "tree" ? "#7bd66f" : kind === "rock" ? "#cbd5df" : kind === "food" ? "#ffd76e" : kind === "combat" ? "#d6604f" : "#ffd76e";
+    const p = proj(x, 0.08, z);
+    const rx = tileW * 0.62, ry = tileH * 0.42;
+    ctx.save();
+    ctx.lineWidth = Math.max(2, 2.4 * visualZoom());
+    ctx.strokeStyle = `${color}66`;
+    ctx.beginPath(); ctx.ellipse(p.x, p.y, rx, ry, 0, 0, Math.PI * 2); ctx.stroke();
+    ctx.strokeStyle = `${color}dd`;
+    ctx.beginPath(); ctx.ellipse(p.x, p.y, rx, ry, -Math.PI/2, -Math.PI/2 + Math.PI * 2 * pct); ctx.stroke();
+    const barW = Math.max(34, 48 * visualZoom()), barH = Math.max(4, 5 * visualZoom());
+    const by = p.y - 30 * visualZoom();
+    ctx.fillStyle = "rgba(8,12,18,0.70)"; ctx.fillRect(p.x - barW/2, by, barW, barH);
+    ctx.fillStyle = color; ctx.fillRect(p.x - barW/2, by, barW * pct, barH);
+    ctx.restore();
+  }
+
   function rebuildCells(force = false) {
     const r = opts.currentTileLoadRadius?.() || 36;
     const cx = Math.round(me.x), cz = Math.round(me.z);
@@ -373,6 +398,8 @@ export function createCanvasPrismWorld(opts: CanvasWorldOptions) {
     const bg = ctx.createRadialGradient(width*0.45,height*0.35,0,width*0.50,height*0.50,Math.max(width,height)*0.74);
     bg.addColorStop(0,"rgba(74,119,86,0.26)"); bg.addColorStop(1,"rgba(5,12,18,0.30)"); ctx.fillStyle = bg; ctx.fillRect(0,0,width,height);
     drawTerrain(); drawOverlayCells();
+
+    drawChannelHint();
 
     const ents: any[] = [];
     for (const b of buildPool.values()) ents.push({ kind:"building", x:Number(b.x||0)-1.0, z:Number(b.z||0)-1.0, y:0, h:Number(b.height||2.5), data:b });
@@ -633,6 +660,22 @@ export function createCanvasPrismWorld(opts: CanvasWorldOptions) {
   function shockwave(x:number,z:number,color=0xffd76e) { floatText(x,z,"◎",numColorToHex(color,"#ffd76e")); }
   function markDoodadGone(x:number,z:number) { const kk=kfn(x,z); exceptions.set(kk,"gone"); doodads.delete(kk); }
   function removeBuild(uid:any) { const b=buildPool.get(uid); if (!b) return; buildPool.delete(uid); buildAt.delete(kfn(b.x,b.z)); }
+  function removeLoot(id: any, x?: number, z?: number) {
+    const candidates = [id, String(id), Number(id)].filter((v, i, a) => v != null && v === v && a.indexOf(v) === i);
+    for (const k of candidates) {
+      if (lootPool.has(k)) { lootPool.delete(k); return true; }
+    }
+    if (x != null && z != null) {
+      const tx = Math.trunc(Number(x)), tz = Math.trunc(Number(z));
+      for (const [k, row] of Array.from(lootPool.entries())) {
+        if (Math.max(Math.abs(Math.trunc(Number(row.x || 0)) - tx), Math.abs(Math.trunc(Number(row.z || 0)) - tz)) <= 1) {
+          lootPool.delete(k); return true;
+        }
+      }
+    }
+    return false;
+  }
+
   function minimapSnapshot() {
     const nowSeen = Date.now();
     const resourceLoot = Array.from(doodads.values())
@@ -718,7 +761,7 @@ export function createCanvasPrismWorld(opts: CanvasWorldOptions) {
 
   return {
     applyWorld, applyPlayers, applyMe, me, cellFromEvent, buildingFromEvent, tradePostFromEvent, npcFromEvent, pickFromEvent, worldToScreen, screenToWorldPoint, visibleCells, pathTo, pathToNear, tryMoveDelta,
-    blocked, buildPoolAt, doodadVisible, doodadAt, doodadAtCell, resolveDoodadCell, doodadFromEvent, burst, floatText, shockwave, hoverMarker, hardSnapMe, markDoodadGone, removeBuild,
+    blocked, buildPoolAt, doodadVisible, doodadAt, doodadAtCell, resolveDoodadCell, doodadFromEvent, burst, floatText, shockwave, hoverMarker, hardSnapMe, markDoodadGone, removeBuild, removeLoot,
     setHintCells, hideBuildGhost, showBuildGhost, refreshWindow, rebuildBuilding: (uid:any) => {}, animateBuildingUse: (uid:any) => { const b=buildPool.get(uid); if (b) floatText(b.x,b.z,"used","#ffd76e"); }, refreshConstructionProgress: () => {},
     refreshOwnRig: () => {}, applyVisualQuality: () => {}, hasPendingMove, canIssueMove, minimapSnapshot,
     tileOwner, buildPool, buildAt, lootPool, rigPool, tradePostPool, npcPool, cells, updateMinimapInfo,

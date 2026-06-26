@@ -1898,10 +1898,8 @@ export default function mount() {
     act("pickup", { id: l.id, x: l.x, z: l.z }).then((r) => {
       if (r?.ok) {
         sfx.coin?.();
-        if (r.lootGone && world.lootPool?.has?.(Number(r.lootGone))) {
-          const gone = world.lootPool.get(Number(r.lootGone));
-          if (gone?.group) { try { gone.group.parent?.remove?.(gone.group); } catch {} }
-          world.lootPool.delete(Number(r.lootGone));
+        if (r.lootGone || l?.id != null) {
+          world.removeLoot?.(r.lootGone ?? l.id, l.x, l.z);
         }
         const note = String(r.note || "Picked up.").replace(/^Picked up\s*/i, "").replace(/\.$/, "");
         world.floatText?.(l.x, l.z, note || "+loot", String(l.kind || "") === "gold" ? "#ffd76e" : "#14f195");
