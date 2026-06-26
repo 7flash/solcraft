@@ -178,18 +178,18 @@ function nonFailedWithdrawalStatus(status: any) {
   return !["failed", "refunded", "refund", "cancelled", "canceled", "rejected", "void"].includes(s);
 }
 
-function depositedPrincipalRawForPlayer(playerId: number): bigint {
+export function depositedPrincipalRawForPlayer(playerId: number): bigint {
   const scan = bankTableAvailable() ? getBankScan(playerId) : scans()[String(playerId)] || null;
   return asRawBigInt(scan?.creditedRaw || "0");
 }
 
-function nonFailedWithdrawnRawForPlayer(playerId: number): bigint {
+export function nonFailedWithdrawnRawForPlayer(playerId: number): bigint {
   return withdrawalRows(playerId, 5000)
     .filter((r: any) => nonFailedWithdrawalStatus(r?.status))
     .reduce((sum: bigint, r: any) => sum + asRawBigInt(r?.amountRaw || "0"), 0n);
 }
 
-function withdrawablePrincipalRawForPlayer(playerId: number): bigint {
+export function withdrawablePrincipalRawForPlayer(playerId: number): bigint {
   const remaining = depositedPrincipalRawForPlayer(playerId) - nonFailedWithdrawnRawForPlayer(playerId);
   return remaining > 0n ? remaining : 0n;
 }
@@ -198,6 +198,22 @@ function coinAmountForRaw(raw: bigint, s = bankSettings()) {
   if (raw <= 0n) return 0;
   const coins = (raw * BigInt(Math.max(1, Math.floor(s.coinsPerSol)))) / (10n ** BigInt(s.decimals));
   return Math.max(0, Math.floor(Number(coins.toString()) || 0));
+}
+
+export function bankPrincipalInvariantForPlayer(playerId: number, s = bankSettings()) {
+  const depositedRaw = depositedPrincipalRawForPlayer(playerId);
+  const withdrawnRaw = nonFailedWithdrawnRawForPlayer(playerId);
+  const withdrawableRaw = withdrawablePrincipalRawForPlayer(playerId);
+  const ok = withdrawableRaw >= 0n && withdrawableRaw <= depositedRaw && withdrawnRaw >= 0n;
+  return {
+    ok,
+    playerId,
+    depositedRaw: depositedRaw.toString(),
+    withdrawnRaw: withdrawnRaw.toString(),
+    withdrawableRaw: withdrawableRaw.toString(),
+    withdrawableUi: rawToUi(withdrawableRaw, s.decimals),
+    reasonCode: ok ? "BANK_PRINCIPAL_INVARIANT_OK" : "BANK_PRINCIPAL_INVARIANT_FAILED",
+  };
 }
 
 function bankPrincipalStatus(playerId: number, s = bankSettings()) {

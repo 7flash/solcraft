@@ -1,6 +1,7 @@
 // @ts-nocheck
 import { buildingRecipeFor, recipeVisibleParts, type PrismRecipePart } from "./buildingRecipes";
 import { resourceRecipeFor, type ResourcePrismPart } from "./resourceRecipes";
+import { createPickDebugOverlay, type CanvasWorldApi } from "./canvasWorldApi";
 
 type Pt = { x: number; y: number };
 type CanvasWorldOptions = {
@@ -55,7 +56,7 @@ function numColorToHex(v: any, fallback = "#14f195") {
   return cssHex(v, fallback);
 }
 
-export function createCanvasPrismWorld(opts: CanvasWorldOptions) {
+export function createCanvasPrismWorld(opts: CanvasWorldOptions): CanvasWorldApi {
   const host = opts.host;
   const ST = opts.state || {};
   const kfn = opts.key || keyOf;
@@ -100,6 +101,7 @@ export function createCanvasPrismWorld(opts: CanvasWorldOptions) {
   let ghost: any = null;
   let lastPickTarget: any = null;
   let lastPickAt = 0;
+  const pickDebug = createPickDebugOverlay(host);
   let pendingPath: Array<{x:number,z:number}> = [];
   const floaters: any[] = [];
   const bursts: any[] = [];
@@ -587,13 +589,20 @@ export function createCanvasPrismWorld(opts: CanvasWorldOptions) {
   }
   function stepTo(x: number, z: number) {
     x = Math.trunc(Number(x)); z = Math.trunc(Number(z));
-    if (!canIssueMoveNow()) return false;
+    if (!opts.sendAction || !canIssueMoveNow()) return false;
     if (blocked(x,z)) return false;
+    const prevX = me.x, prevZ = me.z;
     me.facingX = x - me.x; me.facingZ = z - me.z; me.walking = true; lastStepAt = performance.now();
     me.x = x; me.z = z;
     if (ST.me) { ST.me.x = x; ST.me.z = z; }
+    const sent = sendMove(x,z);
+    if (!sent) {
+      me.x = prevX; me.z = prevZ;
+      if (ST.me) { ST.me.x = prevX; ST.me.z = prevZ; }
+      me.walking = false;
+      return false;
+    }
     opts.onHop?.();
-    if (!sendMove(x,z)) return false;
     rebuildCells();
     setTimeout(() => { if (!pendingPath.length) me.walking = false; }, 140);
     return true;
@@ -789,19 +798,34 @@ export function createCanvasPrismWorld(opts: CanvasWorldOptions) {
     const result = { primary, cell, building, doodad, trade, npc, player, raw };
     lastPickTarget = result;
     lastPickAt = performance.now();
+    pickDebug.update(result);
     return result;
   }
   function worldToScreen(x:number, z:number, y = 0) { return proj(Number(x), Number(y), Number(z)); }
   function screenToWorldPoint(sx:number, sy:number) { return screenToWorld(Number(sx), Number(sy)); }
   function visibleCells() { return Array.from(cells.values()).map((c:any) => ({ x: c.cx ?? c.x, z: c.cz ?? c.z, owner: c.owner || 0 })); }
+  function movementState() { return { x: me.x, z: me.z, authoritativeX: lastAuthoritative.x, authoritativeZ: lastAuthoritative.z, inFlight, maxInFlight, pending: pendingPath.length, ackSeq, moveSeq, canIssueMove: canIssueMoveNow() }; }
+  function capitalBearing() {
+    const ax = Number(ST.ax || 0), az = Number(ST.az || 0);
+    const dx = ax - Number(me.x || 0), dz = az - Number(me.z || 0);
+    const dist = Math.max(Math.abs(dx), Math.abs(dz));
+    const dirX = dx < -1 ? "west" : dx > 1 ? "east" : "";
+    const dirZ = dz < -1 ? "north" : dz > 1 ? "south" : "";
+    return { dx, dz, dist, label: [dirZ, dirX].filter(Boolean).join("-") || "here" };
+  }
   function updateMinimapInfo() { /* world map/minimap UI is still handled by existing canvas map code. */ }
-  function dispose() { disposed = true; cancelAnimationFrame(raf); window.removeEventListener("resize", resize); try { canvas.remove(); } catch {} }
+  function dispose() { disposed = true; cancelAnimationFrame(raf); window.removeEventListener("resize", resize); try { pickDebug.remove(); } catch {} try { canvas.remove(); } catch {} }
 
   window.addEventListener("resize", resize);
   resize(); updateProjection(); applyMe(ST.me); rebuildCells(true); raf = requestAnimationFrame(tick);
 
   return {
-    applyWorld, applyPlayers, applyMe, me, cellFromEvent, buildingFromEvent, tradePostFromEvent, npcFromEvent, pickFromEvent, worldToScreen, screenToWorldPoint, visibleCells, pathTo, pathToNear, tryMoveDelta,
+    get rev() { return Number(ST.rev || 0) || 0; },
+    get ax() { return Number(ST.ax ?? me.x) || 0; },
+    get az() { return Number(ST.az ?? me.z) || 0; },
+    get map() { return minimapSnapshot(); },
+    get offers() { return ST.offers || []; },
+    applyWorld, applyPlayers, applyMe, me, cellFromEvent, buildingFromEvent, tradePostFromEvent, npcFromEvent, playerFromEvent, pickFromEvent, worldToScreen, screenToWorldPoint, visibleCells, movementState, capitalBearing, pathTo, pathToNear, tryMoveDelta,
     blocked, buildPoolAt, doodadVisible, doodadAt, doodadAtCell, resolveDoodadCell, doodadFromEvent, burst, floatText, shockwave, hoverMarker, hardSnapMe, markDoodadGone, removeBuild, removeLoot,
     setHintCells, hideBuildGhost, showBuildGhost, refreshWindow, rebuildBuilding: (uid:any) => {}, animateBuildingUse: (uid:any) => { const b=buildPool.get(uid); if (b) floatText(b.x,b.z,"used","#ffd76e"); }, refreshConstructionProgress: () => {},
     refreshOwnRig: () => {}, applyVisualQuality: () => {}, hasPendingMove, canIssueMove, minimapSnapshot,

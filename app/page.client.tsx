@@ -19,14 +19,9 @@ import {
   biomeAt, biomeTerrainAt, cheb, gearStat, harvestMs, hrand, key, lvlMul, naturalDoodad, proceduralNpcAt, repairCost,
   skillLvl, tradePostAt, upgradeCost, xpForLevel,
 } from "@server/shared";
-import {
-  M, ME, buildBanner, lootMesh,
-  makeLabel, makeSfx,
-} from "../client/meshes";
-import { loadAtlasRuntimeConfig, terrainMats, tickVisualTextures } from "../client/textures";
-import { capitalBuildingsInView, capitalLabelVisibleForPlayer } from "../client/world/capitalLayout";
-import { makePlayerBillboard } from "../client/world/playerBillboard";
-import { playerBillboardSignature } from "../client/world/playerBillboardModel";
+import { makeSfx } from "../client/game/sfx";
+import { loadAtlasRuntimeConfig } from "../client/world/canvasAtlasRuntime";
+import { capitalBuildingsInView } from "../client/world/capitalLayout";
 import { capitalServiceForBuilding, capitalServiceAvailable } from "../client/world/capitalServices";
 import { capitalBlocksNaturalResource, capitalBlocksPlayerTerritory } from "@server/capitalRules";
 import { FOUNDATION_KIND, FOUNDATION_BUILD_KINDS, foundationChoiceLabel } from "@server/foundationRules";
@@ -59,15 +54,12 @@ import { toolCursorForState } from "../client/ui/toolCursor";
 import { PlayerHudView } from "../client/ui/playerHud";
 import { TopChromeView } from "../client/ui/topChrome";
 import { disposeMiniPreviews, syncMiniPreviewPanels } from "../client/world/miniPreview";
-import { SpatialGridCache } from "../client/world/spatialGridCache";
-import { buildingRecipeFor, recipeVisibleParts } from "../client/world/buildingRecipes";
-import { maxRecipeHeight, renderRecipeParts } from "../client/world/buildingRecipeRenderer";
-import { resourceRecipeFor } from "../client/world/resourceRecipes";
-import { disposeObject3D } from "../client/world/sceneMemoryAssetManager";
 import { WorldMapModalView } from "../client/ui/worldMapModal";
 import { PlayerModalView } from "../client/ui/playerModal";
 import { renderKnownWorldMap, tileFromCanvasEvent } from "../client/world/mapCanvas";
 import { createCanvasPrismWorld } from "../client/world/canvasPrismWorld";
+import { assertCanvasWorldApi } from "../client/world/canvasWorldApi";
+import { guardCanvasWorld } from "../client/world/canvasWorldRuntimeGuards";
 import { formatBuildingChatCard, formatKeepRallyChatCard, formatLocationChatCard } from "../client/ui/chatCards";
 import { NotificationRailView } from "../client/ui/notificationRail";
 import { GameChatView } from "../client/ui/gameChat";
@@ -1471,7 +1463,7 @@ export default function mount() {
      The canvas renderer consumes the same authoritative snapshots and builds
      every static object from stacked rectangular prism recipes.
      ============================================================ */
-  const world = createCanvasPrismWorld({
+  const world = guardCanvasWorld(createCanvasPrismWorld({
     host: worldEl,
     state: ST,
     sendAction: act,
@@ -1489,7 +1481,8 @@ export default function mount() {
     hrand,
     onHop: () => sfx.hop?.(),
     onError: () => sfx.err?.(),
-  });
+  }), root);
+  assertCanvasWorldApi(world);
 
   /* ============================================================
      INTERACTION PROBE
