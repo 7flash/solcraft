@@ -691,8 +691,21 @@ export function createCanvasPrismWorld(opts: CanvasWorldOptions) {
     const npc = npcFromEvent(ev);
     const player = playerFromEvent(ev);
     const raw = cellFromEvent(ev);
-    const cell = building?.b ? { x: building.b.x, z: building.b.z } : doodad ? { x: doodad.x, z: doodad.z } : trade ? { x: trade.x, z: trade.z } : npc ? { x: npc.x, z: npc.z } : player ? { x: player.x, z: player.z } : raw;
-    return { cell, building, doodad, trade, npc, player, raw };
+
+    // Canvas buildings are deliberately large visual compositions. A broad
+    // building radius is good for clicking roofs/plinths, but it must not
+    // steal clicks from smaller foreground targets such as trees, rocks,
+    // wanderers, trade posts, or remote players. The old Three raycaster
+    // naturally returned the topmost mesh under the pointer; this explicit
+    // primary target restores that behavior for canvas picking.
+    let primary = "terrain";
+    let cell = raw;
+    if (player) { primary = "player"; cell = { x: player.x, z: player.z }; }
+    else if (npc) { primary = "npc"; cell = { x: npc.x, z: npc.z }; }
+    else if (trade) { primary = "trade"; cell = { x: trade.x, z: trade.z }; }
+    else if (doodad) { primary = "doodad"; cell = { x: doodad.x, z: doodad.z }; }
+    else if (building?.b) { primary = "building"; cell = { x: building.b.x, z: building.b.z }; }
+    return { primary, cell, building, doodad, trade, npc, player, raw };
   }
   function worldToScreen(x:number, z:number, y = 0) { return proj(Number(x), Number(y), Number(z)); }
   function screenToWorldPoint(sx:number, sy:number) { return screenToWorld(Number(sx), Number(sy)); }

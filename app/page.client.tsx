@@ -2225,10 +2225,11 @@ export default function mount() {
 
   function onPointerMove(ev) {
     if (ST.screen !== "playing") return;
-    const pick = world.pickFromEvent?.(ev) || { building: world.buildingFromEvent?.(ev), doodad: world.doodadFromEvent?.(ev), raw: world.cellFromEvent(ev) };
-    const hitB = pick.building;
-    const hitD = pick.doodad;
-    const hitP = pick.player;
+    const pick = world.pickFromEvent?.(ev) || { primary: "terrain", building: world.buildingFromEvent?.(ev), doodad: world.doodadFromEvent?.(ev), raw: world.cellFromEvent(ev) };
+    const primary = String(pick.primary || (pick.player ? "player" : pick.npc ? "npc" : pick.trade ? "trade" : pick.doodad ? "doodad" : pick.building ? "building" : "terrain"));
+    const hitB = primary === "building" ? pick.building : null;
+    const hitD = primary === "doodad" ? pick.doodad : null;
+    const hitP = primary === "player" ? pick.player : null;
     const rawCell = pick.raw || world.cellFromEvent(ev);
     const c = pick.cell || (hitB?.b ? { x: hitB.b.x, z: hitB.b.z } : hitD ? { x: hitD.x, z: hitD.z } : rawCell);
     if (c) { ST.hoverCellX = c.x; ST.hoverCellZ = c.z; }
@@ -2259,10 +2260,11 @@ export default function mount() {
     if (ev.button === 2) { ev.preventDefault(); return; }
     if (ST.screen !== "playing" || ST.modal || ST.updateRequired) return;
     sfx.resume();
-    const pick = world.pickFromEvent?.(ev) || { building: world.buildingFromEvent?.(ev), doodad: world.doodadFromEvent?.(ev), raw: world.cellFromEvent(ev) };
-    const hitB = pick.building;
-    const hitD = pick.doodad;
-    const hitP = pick.player;
+    const pick = world.pickFromEvent?.(ev) || { primary: "terrain", building: world.buildingFromEvent?.(ev), doodad: world.doodadFromEvent?.(ev), raw: world.cellFromEvent(ev) };
+    const primary = String(pick.primary || (pick.player ? "player" : pick.npc ? "npc" : pick.trade ? "trade" : pick.doodad ? "doodad" : pick.building ? "building" : "terrain"));
+    const hitB = primary === "building" ? pick.building : null;
+    const hitD = primary === "doodad" ? pick.doodad : null;
+    const hitP = primary === "player" ? pick.player : null;
     const rawCell = pick.raw || world.cellFromEvent(ev);
     const c = pick.cell || (hitB?.b ? { x: hitB.b.x, z: hitB.b.z } : hitD ? { x: hitD.x, z: hitD.z } : rawCell);
     if (hitB?.b?.capital) { openCapitalService(hitB.b); return; }
