@@ -2,10 +2,12 @@
 /**
  * Stable compatibility surface for the Canvas 2D world renderer.
  *
- * page.client.tsx historically talked to a Three.js world object.  The canvas
- * migration is only safe if every renderer exposes the same small contract and
- * we fail loudly at mount time when a shim is missing, instead of crashing later
- * from a random button/panel path.
+ * Decision: video-quality tiers were removed. The renderer now has one
+ * max-detail Canvas path and relies on static caching, sprite caches, culling,
+ * throttled UI paints, and adaptive polling for performance. Do not add a
+ * legacy quality updater back to this contract; the only accepted visual
+ * updater is applyVisualSettings(), which may change camera/time/motion
+ * preferences while preserving the max-detail world path.
  */
 
 export const CANVAS_WORLD_REQUIRED_KEYS = [
@@ -19,7 +21,7 @@ export const CANVAS_WORLD_REQUIRED_KEYS = [
   "markDoodadGone", "removeBuild", "removeLoot",
   "setHintCells", "hideBuildGhost", "showBuildGhost", "refreshWindow",
   "animateBuildingUse", "refreshConstructionProgress", "refreshOwnRig",
-  "applyVisualQuality", "minimapSnapshot",
+  "applyVisualSettings", "minimapSnapshot",
   "tileOwner", "buildPool", "lootPool", "cells",
   "updateMinimapInfo", "zoom", "walkQueueClear", "dispose", "setFacing", "setWalking",
 ] as const;

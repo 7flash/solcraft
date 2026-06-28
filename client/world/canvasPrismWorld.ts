@@ -339,6 +339,7 @@ export function createCanvasPrismWorld(opts: CanvasWorldOptions): CanvasWorldApi
     resize(); updateProjection(); rebuildCells(true);
   }
 
+
   const hoverMarker = {
     visible: false,
     position: { x: 0, z: 0 },
@@ -1397,6 +1398,59 @@ export function createCanvasPrismWorld(opts: CanvasWorldOptions): CanvasWorldApi
       staticGroundMarks.push({ x: x + stableRand(i,1,4)-0.5, z: z + stableRand(i,2,5)-0.5, w: 0.14 + stableRand(i,3,6)*0.42, h: 0.06 + stableRand(i,4,7)*0.18, a: (stableRand(i,5,8)-0.5)*1.4, c: stableRand(i,6,9)>0.55 ? "rgba(193,174,119,0.075)" : "rgba(173,212,185,0.055)" });
     }
   }
+
+  function drawTerrainFeatures() {
+    // Max-detail ground feature layer: sparse, soft, non-interactive terrain
+    // features. This intentionally avoids any cell/lot lattice so normal play
+    // reads as a continuous isometric floor. Gameplay diamonds belong only to
+    // placement/hover/build affordances; this layer is just art direction.
+    const cx = Number(me.vx || me.x || 0), cz = Number(me.vz || me.z || 0);
+    const r = (opts.currentTileLoadRadius?.() || 36) + 4;
+    const stride = 5;
+    const L = frameLightForTime();
+    ctx.save();
+    for (let x = Math.floor((cx - r) / stride) * stride; x <= cx + r; x += stride) {
+      for (let z = Math.floor((cz - r) / stride) * stride; z <= cz + r; z += stride) {
+        if (Math.max(Math.abs(x - cx), Math.abs(z - cz)) > r) continue;
+        const roll = stableRand(x, z, 9301);
+        if (roll < 0.58) continue;
+        const wx = x + (stableRand(x, z, 9302) - 0.5) * stride * 0.85;
+        const wz = z + (stableRand(x, z, 9303) - 0.5) * stride * 0.85;
+        const p = proj(wx, 0.032, wz);
+        const dist = Math.max(Math.abs(wx - cx), Math.abs(wz - cz));
+        const fade = clamp(1 - dist / Math.max(1, r) * 0.62, 0.20, 1);
+        const nightMul = clamp(0.55 + L.elev * 0.45, 0.38, 1);
+        const alpha = fade * nightMul;
+        ctx.save();
+        ctx.translate(p.x, p.y);
+        ctx.rotate((stableRand(x, z, 9304) - 0.5) * 1.8);
+        if (roll > 0.86) {
+          // Low-contrast stone/boulder clusters; never harvestable, never picked.
+          const n = 1 + Math.floor(stableRand(x, z, 9305) * 3);
+          for (let i = 0; i < n; i++) {
+            const ox = (stableRand(x, z, 9310 + i) - 0.5) * tileW * 0.55;
+            const oy = (stableRand(x, z, 9320 + i) - 0.5) * tileH * 0.26;
+            ctx.fillStyle = `rgba(94,101,94,${0.070 * alpha})`;
+            ctx.beginPath();
+            ctx.ellipse(ox, oy, tileW * (0.07 + stableRand(x, z, 9330 + i) * 0.055), tileH * (0.045 + stableRand(x, z, 9340 + i) * 0.035), 0, 0, Math.PI * 2);
+            ctx.fill();
+          }
+        } else {
+          // Soft grass/dirt patches. The ellipse is deliberately not diamond- or
+          // axis-aligned so it breaks the rectangular-grid read.
+          const greenish = roll > 0.72;
+          ctx.fillStyle = greenish ? `rgba(82,118,78,${0.052 * alpha})` : `rgba(154,125,76,${0.045 * alpha})`;
+          ctx.beginPath();
+          ctx.ellipse(0, 0, tileW * (0.34 + stableRand(x, z, 9350) * 0.42), tileH * (0.12 + stableRand(x, z, 9360) * 0.18), 0, 0, Math.PI * 2);
+          ctx.fill();
+        }
+        ctx.restore();
+        renderCounters.terrainBlendPatches++;
+      }
+    }
+    ctx.restore();
+  }
+
   function drawGroundWash() {
     const cx = Math.round(me.x), cz = Math.round(me.z);
     const r = opts.currentTileLoadRadius?.() || 36;
