@@ -31,20 +31,34 @@ export function visualPerfFor(visual: any, lowEnd = false) {
   const quality = resolveVisualQuality(visual, lowEnd);
   const motion = pickChoice(visual?.motion, MOTION_FEEL_CHOICES, "smooth");
   const pixelRatioCap =
-    quality === "crisp" ? 1.55 :
+    quality === "crisp" ? 1.65 :
     quality === "balanced" ? 1.25 :
     0.92;
+  const isFast = quality === "fast";
+  const isBalanced = quality === "balanced";
   return {
     quality,
     motion,
-    antialias: quality === "crisp" || (!lowEnd && quality === "balanced"),
+    antialias: quality === "crisp" || (!lowEnd && isBalanced),
     pixelRatioCap,
     // Stage 17 perf: classic should change camera feel only, not cap the render loop.
     // A 22ms cap makes the game feel like ~45fps, especially during horizontal movement.
     frameMs: frameThrottleMsForMotion(motion),
-    decorStep: quality === "fast" ? 0.14 : quality === "balanced" ? 0.085 : 0.055,
-    envStep: quality === "fast" ? 0.40 : quality === "balanced" ? 0.28 : 0.18,
+    decorStep: isFast ? 0.16 : isBalanced ? 0.095 : 0.055,
+    envStep: isFast ? 0.48 : isBalanced ? 0.30 : 0.18,
     cameraMode: motion,
+    // Canvas renderer budgets. These are intentionally semantic instead of
+    // renderer-specific so the settings panel can keep one quality model while
+    // the world decides how to spend the frame.
+    terrainDetailStride: isFast ? 3 : isBalanced ? 2 : 1,
+    cityDecorStride: isFast ? 4 : isBalanced ? 2 : 1,
+    maxCitizens: isFast ? 0 : isBalanced ? 8 : 18,
+    maxCarts: isFast ? 0 : isBalanced ? 2 : 5,
+    birdCount: isFast ? 0 : isBalanced ? 2 : 4,
+    weatherDensity: isFast ? 0.18 : isBalanced ? 0.55 : 1,
+    sparkleDensity: isFast ? 0.25 : isBalanced ? 0.62 : 1,
+    shadowAlphaMul: isFast ? 0.70 : 1,
+    labelMode: isFast ? "essential" : "contextual",
   };
 }
 

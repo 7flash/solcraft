@@ -307,7 +307,7 @@ export default function mount() {
     el.setAttribute("aria-label", "Performance diagnostics");
     el.textContent = "perf starting…";
     root.appendChild(el);
-    const data = { ping: 0, paint: 0, frame: 0, cells: 0, chunks: 0, draws: 0, tris: 0, resources: 0, last: 0 };
+    const data = { ping: 0, paint: 0, frame: 0, cells: 0, draws: 0, terrain: 0, entities: 0, weather: 0, quality: "", skipped: 0, last: 0 };
     function update(partial: any = {}) {
       if (!perfOverlayEnabled) return;
       Object.assign(data, partial || {});
@@ -315,7 +315,8 @@ export default function mount() {
       if (now - data.last < 180) return;
       data.last = now;
       const ping = data.ping ? `${Math.round(data.ping)}ms` : "—";
-      el.textContent = `ping ${ping} · frame ${Math.round(data.frame || 0)}ms · ui ${Math.round(data.paint || 0)}ms · draw ${Math.round(data.draws || 0)} · tri ${Math.round(data.tris || 0)} · res ${Math.round(data.resources || 0)} · cells ${Math.round(data.cells || 0)}`;
+      const q = data.quality ? ` · q ${data.quality}` : "";
+      el.textContent = `ping ${ping} · frame ${Math.round(data.frame || 0)}ms · ui ${Math.round(data.paint || 0)}ms · terrain ${Math.round(data.terrain || 0)} · ent ${Math.round(data.entities || 0)} · weather ${Math.round(data.weather || 0)} · cells ${Math.round(data.cells || 0)}${q}`;
     }
     return { update };
   })();
@@ -354,13 +355,17 @@ export default function mount() {
     // The Three.js rewrite accidentally removed this helper while the new
     // renderer still receives it as an option, causing mount to fail before
     // the page could render. Keep the radius deterministic and bounded.
-    let perf = "";
-    try { perf = String(visualPerfFor?.(ST.visual) || ST.visual?.perf || ST.visual?.quality || "").toLowerCase(); } catch { perf = ""; }
-    const low = perf === "fast" || perf === "low" || perf === "lite" || perf === "battery";
+    let quality = "";
+    try {
+      const perf = visualPerfFor?.(ST.visual);
+      quality = String(perf?.quality || ST.visual?.perf || ST.visual?.quality || "").toLowerCase();
+    } catch { quality = ""; }
+    const low = quality === "fast" || quality === "low" || quality === "lite" || quality === "battery";
+    const crisp = quality === "crisp";
     const zoom = clampCameraZoom(Number(ST.visual?.cameraZoom || 1), 1);
-    const zoomBoost = zoom < 0.9 ? 6 : zoom > 1.22 ? -4 : 0;
-    const base = low ? Math.max(28, RENDER_R) : TILE_LOAD_R;
-    return Math.max(24, Math.min(TILE_LOAD_R_MAX, Math.round(base + zoomBoost)));
+    const zoomBoost = zoom < 0.9 ? 5 : zoom > 1.22 ? -5 : 0;
+    const base = low ? Math.max(26, RENDER_R - 6) : crisp ? TILE_LOAD_R + 2 : TILE_LOAD_R;
+    return Math.max(22, Math.min(TILE_LOAD_R_MAX, Math.round(base + zoomBoost)));
   }
 
   const capitalCompass = (() => {
@@ -4114,6 +4119,19 @@ export default function mount() {
     if (ST.screen !== "playing" || !ST.me) return;
     perf.measure("ui.liveTicker", () => {
       world?.refreshConstructionProgress?.();
+      try {
+        const ms = world?.movementState?.();
+        const rc = ms?.renderCounters || {};
+        perfMini.update({
+          frame: Number(ms?.renderDtMs || 0),
+          quality: ms?.renderQuality || "",
+          cells: world?.cells?.size || 0,
+          terrain: rc.terrainTilesDrawn || 0,
+          entities: rc.entitiesDrawn || rc.entitiesSorted || 0,
+          weather: rc.weatherDrawn || 0,
+          skipped: rc.staticSkipped || 0,
+        });
+      } catch {}
       const m = ST.me, e = liveE();
       liveHudStore.patch({
         energyNow: Math.floor(Math.max(0, e)),

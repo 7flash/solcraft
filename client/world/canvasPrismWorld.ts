@@ -2,6 +2,7 @@
 import { buildingRecipeFor, recipeVisibleParts, type PrismRecipePart } from "./buildingRecipes";
 import { resourceRecipeFor, type ResourcePrismPart } from "./resourceRecipes";
 import { createPickDebugOverlay, type CanvasWorldApi } from "./canvasWorldApi";
+import { visualPerfFor } from "../game/clientSettings";
 
 type Pt = { x: number; y: number };
 type CanvasWorldOptions = {
@@ -165,6 +166,40 @@ export function createCanvasPrismWorld(opts: CanvasWorldOptions): CanvasWorldApi
     offset: stableRand(i, 131, 3) * 2048,
   }));
   let lastVisibleCenter = { x: 1e9, z: 1e9, r: 0 };
+  let renderQuality = visualPerfFor(ST.visual || {}, false);
+  const renderCounters = {
+    terrainTilesDrawn: 0, entitiesSorted: 0, entitiesDrawn: 0, weatherDrawn: 0, staticSkipped: 0,
+    reset() { this.terrainTilesDrawn = 0; this.entitiesSorted = 0; this.entitiesDrawn = 0; this.weatherDrawn = 0; this.staticSkipped = 0; },
+  };
+  function qualityName() { return String(renderQuality?.quality || ST.visual?.quality || "fast").toLowerCase(); }
+  function qualityBudget(name: string, fallback: number) {
+    const n = Number(renderQuality?.[name]);
+    return Number.isFinite(n) ? n : fallback;
+  }
+  function qualityStride(name: string, fallback = 1) {
+    return Math.max(1, Math.trunc(qualityBudget(name, fallback)));
+  }
+  function shouldSkipDecor(x: number, z: number, strideName: string, seed = 0) {
+    const stride = qualityStride(strideName, 1);
+    if (stride <= 1) return false;
+    return Math.abs(Math.trunc(x) * 31 + Math.trunc(z) * 17 + seed) % stride !== 0;
+  }
+  function weatherDensity() { return clamp(qualityBudget("weatherDensity", 1), 0, 1); }
+  function sparkleDensity() { return clamp(qualityBudget("sparkleDensity", 1), 0, 1); }
+  function applyVisualQuality(nextVisual: any = ST.visual) {
+    ST.visual = nextVisual || ST.visual || {};
+    renderQuality = visualPerfFor(ST.visual || {}, false);
+    const q = qualityName();
+    if (q === "fast") {
+      rainStreaks.splice(0); groundRipples.splice(0); windLeaves.splice(0); citySparkles.splice(0);
+    } else {
+      const weatherCap = q === "balanced" ? 130 : 260;
+      if (rainStreaks.length > weatherCap) rainStreaks.splice(0, rainStreaks.length - weatherCap);
+      if (groundRipples.length > Math.round(weatherCap * 0.42)) groundRipples.splice(0, groundRipples.length - Math.round(weatherCap * 0.42));
+      if (windLeaves.length > Math.round(weatherCap * 0.28)) windLeaves.splice(0, windLeaves.length - Math.round(weatherCap * 0.28));
+    }
+    resize(); updateProjection(); rebuildCells(true);
+  }
 
   const hoverMarker = {
     visible: false,
@@ -173,7 +208,8 @@ export function createCanvasPrismWorld(opts: CanvasWorldOptions): CanvasWorldApi
   } as any;
 
   function resize() {
-    const nextDpr = Math.min(2, window.devicePixelRatio || 1);
+    const dprCap = clamp(Number(renderQuality?.pixelRatioCap || 1.25), 0.75, 2);
+    const nextDpr = Math.min(dprCap, window.devicePixelRatio || 1);
     const w = Math.max(1, host.clientWidth || window.innerWidth || 1);
     const h = Math.max(1, host.clientHeight || window.innerHeight || 1);
     if (w === width && h === height && nextDpr === dpr) return;
@@ -301,9 +337,14 @@ export function createCanvasPrismWorld(opts: CanvasWorldOptions): CanvasWorldApi
     }
   }
   function maybeSpawnCitySparkle(nowMs: number) {
+    const density = sparkleDensity();
+    if (density <= 0.02) return;
     const L = lightForTime();
     if (L.night < 0.32 && !L.dusk) return;
-    if (nowMs - lastCitySparkleAt < 95 || citySparkles.length > 54) return;
+    const maxSparkles = Math.max(8, Math.round(54 * density));
+    const interval = Math.round(95 / Math.max(0.18, density));
+    if (nowMs - lastCitySparkleAt < interval || citySparkles.length > maxSparkles) return;
+    if (stableRand(Math.floor(nowMs / 113), Math.trunc(me.x), 996) > density) return;
     lastCitySparkleAt = nowMs;
     const r = opts.currentTileLoadRadius?.() || 36;
     const x = Math.round(me.vx || me.x) + Math.floor((stableRand(Math.floor(nowMs/97), 3, 91) - 0.5) * r * 1.55);
@@ -386,6 +427,7 @@ export function createCanvasPrismWorld(opts: CanvasWorldOptions): CanvasWorldApi
   }
 
   function drawCityFurniture() {
+    if (qualityName() === "fast") { renderCounters.staticSkipped++; return; }
     const step = roadStep();
     const r = opts.currentTileLoadRadius?.() || 36;
     const cx = Math.floor(Number(me.vx || me.x || 0) / step) * step;
@@ -395,10 +437,11 @@ export function createCanvasPrismWorld(opts: CanvasWorldOptions): CanvasWorldApi
     for (let x = Math.floor(minX / step) * step; x <= maxX; x += step) {
       for (let z = Math.floor(minZ / step) * step; z <= maxZ; z += step) {
         const seed = Math.trunc(x * 17 + z * 31);
+        if (shouldSkipDecor(x, z, "cityDecorStride", seed)) { renderCounters.staticSkipped++; continue; }
         drawCrosswalk(x, z, true);
         drawCrosswalk(x, z, false);
         if (stableRand(x, z, 501) > 0.18) drawStreetLamp(x + 1.35, z - 1.35, seed);
-        if (stableRand(x, z, 502) > 0.34) drawStreetLamp(x - 1.35, z + 1.35, seed + 13);
+        if (qualityName() === "crisp" && stableRand(x, z, 502) > 0.34) drawStreetLamp(x - 1.35, z + 1.35, seed + 13);
         if (stableRand(x, z, 503) > 0.78) {
           drawPrismMin(x + 2.05, z + 0.36, 0.04, 0.16, 0.16, 0.44, '#c94a34', '#8f2d24', '#5e1d18', 0.92);
           drawPrismMin(x + 2.05, z + 0.36, 0.48, 0.34, 0.08, 0.14, '#ffd76e', '#a98728', '#755d1a', 0.95);
@@ -459,13 +502,15 @@ export function createCanvasPrismWorld(opts: CanvasWorldOptions): CanvasWorldApi
   function updateAmbientWeather(dtMs: number, nowMs: number) {
     const dt = Math.max(0.012, dtMs / 1000);
     const W = weatherForTime(nowMs);
-    if (nowMs - lastWeatherSpawnAt > 42) {
+    const density = weatherDensity();
+    const spawnEvery = Math.round(42 / Math.max(0.12, density));
+    if (density > 0.02 && nowMs - lastWeatherSpawnAt > spawnEvery) {
       lastWeatherSpawnAt = nowMs;
       const r = opts.currentTileLoadRadius?.() || 36;
       const baseX = Number(me.vx || me.x || 0);
       const baseZ = Number(me.vz || me.z || 0);
       if (W.rain > 0.02) {
-        const count = Math.min(18, Math.max(2, Math.round(3 + W.rain * 13)));
+        const count = Math.min(18, Math.max(1, Math.round((3 + W.rain * 13) * density)));
         for (let i = 0; i < count; i++) {
           const seed = Math.floor(nowMs / 43) + i * 31;
           rainStreaks.push({
@@ -478,7 +523,7 @@ export function createCanvasPrismWorld(opts: CanvasWorldOptions): CanvasWorldApi
             windZ: W.windZ,
             rain: W.rain,
           });
-          if (stableRand(seed, 5, 934) < W.rain * 0.32) {
+          if (stableRand(seed, 5, 934) < W.rain * 0.32 * density) {
             groundRipples.push({
               x: baseX + (stableRand(seed, 6, 935) - 0.5) * r * 1.5,
               z: baseZ + (stableRand(seed, 7, 936) - 0.5) * r * 1.5,
@@ -489,7 +534,7 @@ export function createCanvasPrismWorld(opts: CanvasWorldOptions): CanvasWorldApi
           }
         }
       }
-      if (stableRand(Math.floor(nowMs / 500), Math.trunc(baseX), 940) < W.leafRate * 0.42) {
+      if (stableRand(Math.floor(nowMs / 500), Math.trunc(baseX), 940) < W.leafRate * 0.42 * density) {
         const seed = Math.floor(nowMs / 67);
         windLeaves.push({
           x: baseX + (stableRand(seed, 8, 941) - 0.5) * r * 1.5,
@@ -518,11 +563,14 @@ export function createCanvasPrismWorld(opts: CanvasWorldOptions): CanvasWorldApi
       p.life -= dt; p.x += p.windX * dt * 1.6; p.z += p.windZ * dt * 1.6; p.y += Math.sin(nowMs / 380 + p.phase) * dt * 0.09;
       if (p.life <= 0) windLeaves.splice(i, 1);
     }
-    if (rainStreaks.length > 260) rainStreaks.splice(0, rainStreaks.length - 260);
-    if (groundRipples.length > 110) groundRipples.splice(0, groundRipples.length - 110);
-    if (windLeaves.length > 70) windLeaves.splice(0, windLeaves.length - 70);
+    const weatherCap = Math.max(20, Math.round(260 * Math.max(0.08, density)));
+    if (rainStreaks.length > weatherCap) rainStreaks.splice(0, rainStreaks.length - weatherCap);
+    if (groundRipples.length > Math.round(weatherCap * 0.42)) groundRipples.splice(0, groundRipples.length - Math.round(weatherCap * 0.42));
+    if (windLeaves.length > Math.round(weatherCap * 0.28)) windLeaves.splice(0, windLeaves.length - Math.round(weatherCap * 0.28));
   }
   function drawAmbientWeatherGround() {
+    const density = weatherDensity();
+    if (density <= 0.20) return;
     const W = weatherForTime();
     if (W.puddle > 0.04) {
       const step = roadStep();
@@ -550,6 +598,8 @@ export function createCanvasPrismWorld(opts: CanvasWorldOptions): CanvasWorldApi
     }
   }
   function drawWeatherOverlay() {
+    const density = weatherDensity();
+    if (density <= 0.02) return;
     const W = weatherForTime();
     if (W.mist > 0.04) {
       const g = ctx.createLinearGradient(0, height * 0.18, 0, height);
@@ -558,18 +608,20 @@ export function createCanvasPrismWorld(opts: CanvasWorldOptions): CanvasWorldApi
       ctx.fillStyle = g; ctx.fillRect(0, 0, width, height);
     }
     if (windLeaves.length) {
+      renderCounters.weatherDrawn += windLeaves.length;
       ctx.save();
       for (const leaf of windLeaves) {
         const p = proj(leaf.x, leaf.y, leaf.z);
         const a = clamp(leaf.life / leaf.maxLife, 0, 1);
         ctx.translate(p.x, p.y); ctx.rotate(Math.sin(performance.now()/260 + leaf.phase) * 0.9);
-        ctx.fillStyle = leaf.color.replace(/,0\.[0-9]+\)$/, `,${0.50 * a})`);
+        ctx.fillStyle = leaf.color.replace(/,0.[0-9]+)$/, `,${0.50 * a})`);
         ctx.fillRect(-2.8 * visualZoom(), -1.1 * visualZoom(), 5.6 * visualZoom(), 2.2 * visualZoom());
         ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
       }
       ctx.restore();
     }
     if (rainStreaks.length) {
+      renderCounters.weatherDrawn += rainStreaks.length;
       ctx.save(); ctx.lineWidth = Math.max(0.8, 1.1 * visualZoom()); ctx.strokeStyle = `rgba(188,220,236,${0.22 + W.rain * 0.36})`;
       for (const drop of rainStreaks) {
         const a = proj(drop.x, drop.y, drop.z);
@@ -587,8 +639,8 @@ export function createCanvasPrismWorld(opts: CanvasWorldOptions): CanvasWorldApi
       const [r,g,b] = hexToRgb(s);
       return `rgba(${r|0},${g|0},${b|0},${a})`;
     }
-    if (/^rgba\(/i.test(s)) return s.replace(/,\s*[0-9.]+\)$/, `,${a})`);
-    if (/^rgb\(/i.test(s)) return s.replace(/^rgb\(/i, "rgba(").replace(/\)$/, `,${a})`);
+    if (/^rgba(/i.test(s)) return s.replace(/,s*[0-9.]+)$/, `,${a})`);
+    if (/^rgb(/i.test(s)) return s.replace(/^rgb(/i, "rgba(").replace(/)$/, `,${a})`);
     return s || `rgba(255,215,110,${a})`;
   }
   function drawDiamond(cx: number, z: number, color: string, alpha = 1, lift = 0.01, scale = 1) {
@@ -833,7 +885,8 @@ export function createCanvasPrismWorld(opts: CanvasWorldOptions): CanvasWorldApi
   }
   function drawShadow(cx: number, z: number, rx = 0.8, ry = 0.42, alpha = 0.18) {
     const p = proj(cx + 0.13, 0.02, z + 0.10);
-    ctx.fillStyle = `rgba(6,12,10,${alpha})`;
+    const a = alpha * clamp(qualityBudget("shadowAlphaMul", 1), 0.35, 1.15);
+    ctx.fillStyle = `rgba(6,12,10,${a})`;
     ctx.beginPath(); ctx.ellipse(p.x, p.y, rx * tileW, ry * tileH, 0, 0, Math.PI * 2); ctx.fill();
   }
   function terrainColor(x: number, z: number) {
@@ -848,21 +901,25 @@ export function createCanvasPrismWorld(opts: CanvasWorldOptions): CanvasWorldApi
     const r = opts.currentTileLoadRadius?.() || 36;
     const cx = Math.round(me.x), cz = Math.round(me.z);
     const minX = cx - r, maxX = cx + r, minZ = cz - r, maxZ = cz + r;
+    const detailStride = qualityStride("terrainDetailStride", 1);
     for (let x = minX; x <= maxX; x++) for (let z = minZ; z <= maxZ; z++) {
       if (Math.max(Math.abs(x-cx), Math.abs(z-cz)) > r) continue;
+      const skipFineDetail = detailStride > 1 && Math.abs(x * 31 + z * 17) % detailStride !== 0;
       const edge = 0.515;
       const a = proj(x - edge, 0, z), b = proj(x, 0, z - edge), c = proj(x + edge, 0, z), d = proj(x, 0, z + edge);
       poly([a,b,c,d], terrainColor(x,z), "");
-      if (stableRand(x,z,101) > 0.86) {
+      if (!skipFineDetail && stableRand(x,z,101) > 0.86) {
         const p = proj(x + (stableRand(x,z,4)-0.5)*0.42, 0.016, z + (stableRand(x,z,5)-0.5)*0.42);
         const w = (0.12 + stableRand(x,z,6)*0.22) * tileW;
         const h = (0.018 + stableRand(x,z,7)*0.030) * tileW;
         ctx.save(); ctx.translate(p.x,p.y); ctx.rotate((stableRand(x,z,8)-0.5)*1.3); ctx.fillStyle = stableRand(x,z,9)>0.55 ? "rgba(177,156,104,0.10)" : "rgba(189,218,187,0.08)"; ctx.fillRect(-w/2,-h/2,w,h); ctx.restore();
       }
+      renderCounters.terrainTilesDrawn++;
     }
     // Larger authored scuff sheets, deterministic around the player. These are
     // visible enough to kill the green void but quiet enough to avoid the old debug grid.
-    for (let i = 0; i < staticGroundMarks.length; i++) {
+    const markStride = qualityStride("terrainDetailStride", 1);
+    for (let i = 0; i < staticGroundMarks.length; i += markStride) {
       const m = staticGroundMarks[i];
       if (Math.max(Math.abs(m.x-cx), Math.abs(m.z-cz)) > r + 4) continue;
       const p = proj(m.x, 0.02, m.z);
@@ -989,6 +1046,7 @@ export function createCanvasPrismWorld(opts: CanvasWorldOptions): CanvasWorldApi
     ctx.fillRect(-6 + leg,14,5,6); ctx.fillRect(2 - leg,14,5,6);
     ctx.fillStyle = "#2b211d"; ctx.beginPath(); ctx.arc(-3,-16,1.2,0,Math.PI*2); ctx.arc(4,-16,1.2,0,Math.PI*2); ctx.fill();
     ctx.strokeStyle = "#7a4135"; ctx.lineWidth = 1; ctx.beginPath(); ctx.arc(1,-13,3,0.15,Math.PI-0.15); ctx.stroke();
+    if (isMe) drawHeldToolOverlay(sc);
     ctx.restore();
     const label = String(ply.name || (isMe ? 'You' : '') || '').slice(0, 18);
     if (label && (isMe || visualZoom() > 0.82)) {
@@ -1004,6 +1062,31 @@ export function createCanvasPrismWorld(opts: CanvasWorldOptions): CanvasWorldApi
       ctx.restore();
     }
   }
+  function drawHeldToolOverlay(sc: number) {
+    const tool = String(ST?.tool || ST?.mode || "").toLowerCase();
+    if (!tool || tool === "none" || tool === "explore") return;
+    ctx.save();
+    ctx.lineWidth = Math.max(1.2, 1.7 * sc);
+    ctx.lineCap = "round";
+    if (/axe|chop|tree/.test(tool)) {
+      ctx.strokeStyle = "rgba(92,56,32,0.96)"; ctx.beginPath(); ctx.moveTo(8*sc,-18*sc); ctx.lineTo(15*sc,-33*sc); ctx.stroke();
+      ctx.fillStyle = "rgba(205,216,218,0.96)"; ctx.beginPath(); ctx.ellipse(16*sc,-34*sc,4*sc,2.4*sc,-0.5,0,Math.PI*2); ctx.fill();
+    } else if (/pick|mine|rock/.test(tool)) {
+      ctx.strokeStyle = "rgba(92,56,32,0.96)"; ctx.beginPath(); ctx.moveTo(8*sc,-18*sc); ctx.lineTo(17*sc,-31*sc); ctx.stroke();
+      ctx.strokeStyle = "rgba(205,216,218,0.96)"; ctx.beginPath(); ctx.moveTo(10*sc,-34*sc); ctx.lineTo(22*sc,-29*sc); ctx.stroke();
+    } else if (/build|hammer/.test(tool)) {
+      ctx.strokeStyle = "rgba(92,56,32,0.96)"; ctx.beginPath(); ctx.moveTo(8*sc,-18*sc); ctx.lineTo(14*sc,-29*sc); ctx.stroke();
+      ctx.fillStyle = "rgba(180,164,138,0.98)"; ctx.fillRect(11*sc, -32*sc, 9*sc, 4*sc);
+    } else if (/capture/.test(tool)) {
+      ctx.strokeStyle = "rgba(215,223,207,0.96)"; ctx.beginPath(); ctx.moveTo(9*sc,-14*sc); ctx.lineTo(9*sc,-34*sc); ctx.stroke();
+      ctx.fillStyle = "rgba(20,241,149,0.92)"; ctx.beginPath(); ctx.moveTo(10*sc,-34*sc); ctx.lineTo(23*sc,-30*sc); ctx.lineTo(10*sc,-26*sc); ctx.closePath(); ctx.fill();
+    } else if (/sword|combat|attack/.test(tool)) {
+      ctx.strokeStyle = "rgba(220,230,236,0.98)"; ctx.beginPath(); ctx.moveTo(8*sc,-15*sc); ctx.lineTo(19*sc,-31*sc); ctx.stroke();
+      ctx.strokeStyle = "rgba(255,215,110,0.98)"; ctx.beginPath(); ctx.moveTo(11*sc,-19*sc); ctx.lineTo(16*sc,-16*sc); ctx.stroke();
+    }
+    ctx.restore();
+  }
+
   function drawLoot(l: any) {
     const x = Number(l.x || 0), z = Number(l.z || 0);
     drawShadow(x, z, 0.20, 0.10, 0.14);
@@ -1141,6 +1224,22 @@ export function createCanvasPrismWorld(opts: CanvasWorldOptions): CanvasWorldApi
     ctx.restore();
   }
 
+  function drawPendingPathHints() {
+    if (!pendingPath.length) return;
+    const maxDots = Math.min(14, pendingPath.length);
+    ctx.save();
+    for (let i = 0; i < maxDots; i++) {
+      const step = pendingPath[i];
+      const p = proj(step.x, 0.075, step.z);
+      const a = 0.42 * (1 - i / Math.max(2, maxDots + 1));
+      ctx.fillStyle = `rgba(255,215,110,${a})`;
+      ctx.beginPath();
+      ctx.ellipse(p.x, p.y, Math.max(2, tileW * 0.055), Math.max(1.2, tileH * 0.045), 0, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.restore();
+  }
+
   function rebuildCells(force = false) {
     const r = opts.currentTileLoadRadius?.() || 36;
     const cx = Math.round(me.x), cz = Math.round(me.z);
@@ -1171,6 +1270,7 @@ export function createCanvasPrismWorld(opts: CanvasWorldOptions): CanvasWorldApi
     }
   }
   function draw() {
+    renderCounters.reset();
     resize(); updateProjection(); ensureGroundMarks();
     const cx = Number(me.vx || me.x || 0), cz = Number(me.vz || me.z || 0);
     targetCameraX = width / 2 - (cx - cz) * tileW;
@@ -1184,6 +1284,7 @@ export function createCanvasPrismWorld(opts: CanvasWorldOptions): CanvasWorldApi
     haze.addColorStop(0,"rgba(80,124,92,0.18)"); haze.addColorStop(1,"rgba(5,12,18,0.24)"); ctx.fillStyle = haze; ctx.fillRect(0,0,width,height);
     drawTerrain(); drawGroundWash(); drawCityRoads(); drawCityGrid(); drawCityFurniture(); drawAmbientWeatherGround(); drawOverlayCells();
 
+    drawPendingPathHints();
     drawChannelHint();
 
     const ents: any[] = [];
@@ -1197,17 +1298,23 @@ export function createCanvasPrismWorld(opts: CanvasWorldOptions): CanvasWorldApi
     for (const n of npcPool.values()) ents.push({ kind:"npc", x:Number(n.x||0), z:Number(n.z||0), y:0, h:1.7, data:n });
     for (const p of remotes) if (p && p.id !== me.id) ents.push({ kind:"remote", x:remoteVisualX(p), z:remoteVisualZ(p), y:0, h:1.6, data:p });
     const nowMs = performance.now();
-    for (const c of ambientCitizens) {
+    const citizenBudget = Math.max(0, Math.min(ambientCitizens.length, Math.trunc(qualityBudget("maxCitizens", ambientCitizens.length))));
+    for (let i = 0; i < citizenBudget; i++) {
+      const c = ambientCitizens[i];
       const pos = cityLoopPos(c.seed, c.offset, c.speed, nowMs);
       ents.push({ kind:'citizen', x:pos.x, z:pos.z, y:0, h:1.0, data:{...c, ...pos, phase: nowMs / 165 + c.seed} });
     }
-    for (const c of ambientCarts) {
+    const cartBudget = Math.max(0, Math.min(ambientCarts.length, Math.trunc(qualityBudget("maxCarts", ambientCarts.length))));
+    for (let i = 0; i < cartBudget; i++) {
+      const c = ambientCarts[i];
       const pos = cityLoopPos(c.seed, c.offset, c.speed, nowMs);
       ents.push({ kind:'cart', x:pos.x, z:pos.z, y:0, h:0.7, data:{...c, ...pos, horizontal: Math.abs(pos.dx) > Math.abs(pos.dz)} });
     }
     ents.push({ kind:"me", x: visualX(me), z: visualZ(me), y:0, h:1.8, data:me });
+    renderCounters.entitiesSorted = ents.length;
     ents.sort((a,b) => ((a.x + a.z + (a.y || 0) * 0.45 + a.h * 0.18) - (b.x + b.z + (b.y || 0) * 0.45 + b.h * 0.18)));
     for (const e of ents) {
+      renderCounters.entitiesDrawn++;
       if (e.kind === "building") drawBuilding(e.data);
       else if (e.kind === "doodad") drawDoodad(e.data);
       else if (e.kind === "loot") drawLoot(e.data);
@@ -1237,7 +1344,9 @@ export function createCanvasPrismWorld(opts: CanvasWorldOptions): CanvasWorldApi
       ctx.fillStyle = `rgba(255,231,160,${a * 0.25})`;
       ctx.beginPath(); ctx.arc(p.x, p.y, Math.max(3.5, 5.0 * visualZoom()), 0, Math.PI * 2); ctx.fill();
     }
-    for (const bird of ambientBirds) {
+    const birdBudget = Math.max(0, Math.min(ambientBirds.length, Math.trunc(qualityBudget("birdCount", ambientBirds.length))));
+    for (let bi = 0; bi < birdBudget; bi++) {
+      const bird = ambientBirds[bi];
       const L = lightForTime();
       if (L.night > 0.54) continue;
       const t = ((performance.now() / 1000) * bird.speed + bird.phase) % 1.25;
@@ -1636,7 +1745,7 @@ export function createCanvasPrismWorld(opts: CanvasWorldOptions): CanvasWorldApi
   function worldToScreen(x:number, z:number, y = 0) { return proj(Number(x), Number(y), Number(z)); }
   function screenToWorldPoint(sx:number, sy:number) { return screenToWorld(Number(sx), Number(sy)); }
   function visibleCells() { return Array.from(cells.values()).map((c:any) => ({ x: c.cx ?? c.x, z: c.cz ?? c.z, owner: c.owner || 0 })); }
-  function movementState() { return { x: me.x, z: me.z, visualX: me.vx, visualZ: me.vz, visualSpeed: me.renderSpeed, authoritativeX: lastAuthoritative.x, authoritativeZ: lastAuthoritative.z, inFlight, maxInFlight, pending: pendingPath.length, ackSeq, moveSeq, canIssueMove: canIssueMoveNow() }; }
+  function movementState() { return { x: me.x, z: me.z, visualX: me.vx, visualZ: me.vz, visualSpeed: me.renderSpeed, authoritativeX: lastAuthoritative.x, authoritativeZ: lastAuthoritative.z, inFlight, maxInFlight, pending: pendingPath.length, ackSeq, moveSeq, canIssueMove: canIssueMoveNow(), renderDtMs, renderQuality: qualityName(), renderCounters: { ...renderCounters } }; }
   function capitalBearing() {
     const ax = Number(ST.ax || 0), az = Number(ST.az || 0);
     const dx = ax - Number(me.x || 0), dz = az - Number(me.z || 0);
@@ -1649,7 +1758,7 @@ export function createCanvasPrismWorld(opts: CanvasWorldOptions): CanvasWorldApi
   function dispose() { disposed = true; cancelAnimationFrame(raf); window.removeEventListener("resize", resize); try { pickDebug.remove(); } catch {} try { canvas.remove(); } catch {} }
 
   window.addEventListener("resize", resize);
-  resize(); updateProjection(); applyMe(ST.me); rebuildCells(true); raf = requestAnimationFrame(tick);
+  applyVisualQuality(ST.visual); applyMe(ST.me); rebuildCells(true); raf = requestAnimationFrame(tick);
 
   return {
     get rev() { return Number(ST.rev || 0) || 0; },
@@ -1660,9 +1769,9 @@ export function createCanvasPrismWorld(opts: CanvasWorldOptions): CanvasWorldApi
     applyWorld, applyPlayers, applyMe, me, cellFromEvent, buildingFromEvent, tradePostFromEvent, npcFromEvent, playerFromEvent, pickFromEvent, worldToScreen, screenToWorldPoint, visibleCells, movementState, capitalBearing, pathTo, pathToNear, tryMoveDelta,
     blocked, buildPoolAt, doodadVisible, doodadAt, doodadAtCell, resolveDoodadCell, doodadFromEvent, burst, floatText, shockwave, hoverMarker, hardSnapMe, markDoodadGone, removeBuild, removeLoot,
     setHintCells, hideBuildGhost, showBuildGhost, refreshWindow, rebuildBuilding: (uid:any) => {}, animateBuildingUse: (uid:any) => { const b=buildPool.get(uid); if (b) floatText(b.x,b.z,"used","#ffd76e"); }, refreshConstructionProgress: () => {},
-    refreshOwnRig: () => {}, applyVisualQuality: () => {}, hasPendingMove, canIssueMove, minimapSnapshot,
+    refreshOwnRig: () => {}, applyVisualQuality, hasPendingMove, canIssueMove, minimapSnapshot,
     tileOwner, buildPool, buildAt, lootPool, rigPool, tradePostPool, npcPool, cells, updateMinimapInfo,
-    rotateCam: () => {}, refreshCameraRotation: () => {}, refreshCameraZoom: () => { updateProjection(); rebuildCells(true); }, refreshEnvironment: () => {},
+    rotateCam: () => {}, refreshCameraRotation: () => {}, refreshCameraZoom: () => { updateProjection(); rebuildCells(true); }, refreshEnvironment: () => { rainStreaks.splice(0); groundRipples.splice(0); windLeaves.splice(0); citySparkles.splice(0); },
     zoom: (delta = 0) => { zoomValue = clamp(zoomValue + Number(delta || 0), 0.72, 1.55); updateProjection(); },
     walkQueueClear: () => { pendingPath.length = 0; }, dispose, setFacing, setWalking, setInputVelocity,
   };
