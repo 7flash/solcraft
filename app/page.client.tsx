@@ -307,7 +307,7 @@ export default function mount() {
     el.setAttribute("aria-label", "Performance diagnostics");
     el.textContent = "perf starting…";
     root.appendChild(el);
-    const data = { ping: 0, paint: 0, frame: 0, cells: 0, draws: 0, terrain: 0, entities: 0, weather: 0, quality: "", skipped: 0, last: 0 };
+    const data = { ping: 0, paint: 0, frame: 0, cells: 0, draws: 0, terrain: 0, entities: 0, weather: 0, quality: "", staticMs: 0, dynamicMs: 0, prisms: 0, particles: 0, cache: "", skipped: 0, last: 0 };
     function update(partial: any = {}) {
       if (!perfOverlayEnabled) return;
       Object.assign(data, partial || {});
@@ -316,7 +316,8 @@ export default function mount() {
       data.last = now;
       const ping = data.ping ? `${Math.round(data.ping)}ms` : "—";
       const q = data.quality ? ` · q ${data.quality}` : "";
-      el.textContent = `ping ${ping} · frame ${Math.round(data.frame || 0)}ms · ui ${Math.round(data.paint || 0)}ms · terrain ${Math.round(data.terrain || 0)} · ent ${Math.round(data.entities || 0)} · weather ${Math.round(data.weather || 0)} · cells ${Math.round(data.cells || 0)}${q}`;
+      const cache = data.cache ? ` · cache ${data.cache}` : "";
+      el.textContent = `ping ${ping} · frame ${Math.round(data.frame || 0)}ms · ui ${Math.round(data.paint || 0)}ms · static ${Math.round(data.staticMs || 0)}ms · dyn ${Math.round(data.dynamicMs || 0)}ms · prism ${Math.round(data.prisms || 0)} · part ${Math.round(data.particles || 0)} · cells ${Math.round(data.cells || 0)}${q}${cache}`;
     }
     return { update };
   })();
@@ -4129,6 +4130,11 @@ export default function mount() {
           terrain: rc.terrainTilesDrawn || 0,
           entities: rc.entitiesDrawn || rc.entitiesSorted || 0,
           weather: rc.weatherDrawn || 0,
+          staticMs: rc.staticRebuildMs || 0,
+          dynamicMs: rc.dynamicDrawMs || 0,
+          prisms: rc.prismPartsDrawn || 0,
+          particles: rc.particlesDrawn || 0,
+          cache: `${rc.staticCacheHits || 0}/${rc.staticCacheMisses || 0}`,
           skipped: rc.staticSkipped || 0,
         });
       } catch {}

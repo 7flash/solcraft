@@ -59,6 +59,16 @@ export function visualPerfFor(visual: any, lowEnd = false) {
     sparkleDensity: isFast ? 0.25 : isBalanced ? 0.62 : 1,
     shadowAlphaMul: isFast ? 0.70 : 1,
     labelMode: isFast ? "essential" : "contextual",
+    // One-phase visual/mechanics budgets. The Canvas world reads these to
+    // decide how much construction polish, Wonder aura, static caching, and
+    // observability to spend before the player notices frame cost.
+    staticLayer: true,
+    staticCameraSnapPx: isFast ? 4 : isBalanced ? 2 : 1,
+    maxPrismPartsPerBuilding: isFast ? 24 : isBalanced ? 42 : 72,
+    constructionFx: isFast ? 0.45 : isBalanced ? 0.75 : 1,
+    wonderAuraDensity: isFast ? 0.35 : isBalanced ? 0.70 : 1,
+    influenceTintAlpha: isFast ? 0.050 : isBalanced ? 0.075 : 0.105,
+    perfBudgetWarnMs: isFast ? 33 : 24,
   };
 }
 

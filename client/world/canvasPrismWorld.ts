@@ -70,7 +70,10 @@ export function createCanvasPrismWorld(opts: CanvasWorldOptions): CanvasWorldApi
   canvas.className = "sc-canvas-world";
   canvas.setAttribute("aria-label", "SolCraft canvas prism world");
   host.appendChild(canvas);
-  const ctx = canvas.getContext("2d", { alpha: false })!;
+  const screenCtx = canvas.getContext("2d", { alpha: false })!;
+  const staticCanvas = document.createElement("canvas");
+  const staticCtx = staticCanvas.getContext("2d", { alpha: true })!;
+  let ctx: CanvasRenderingContext2D = screenCtx;
 
   let dpr = 1, width = 1, height = 1;
   let tileW = 54, tileH = 27, heightScale = 46;
@@ -167,14 +170,29 @@ export function createCanvasPrismWorld(opts: CanvasWorldOptions): CanvasWorldApi
   }));
   let lastVisibleCenter = { x: 1e9, z: 1e9, r: 0 };
   let renderQuality = visualPerfFor(ST.visual || {}, false);
+  let staticDirty = true;
+  let staticCacheKey = "";
+  let lastStaticRebuildReason = "boot";
   const renderCounters = {
     terrainTilesDrawn: 0, entitiesSorted: 0, entitiesDrawn: 0, weatherDrawn: 0, staticSkipped: 0,
-    reset() { this.terrainTilesDrawn = 0; this.entitiesSorted = 0; this.entitiesDrawn = 0; this.weatherDrawn = 0; this.staticSkipped = 0; },
+    staticRebuildMs: 0, dynamicDrawMs: 0, staticCacheHits: 0, staticCacheMisses: 0,
+    prismPartsDrawn: 0, shadowsDrawn: 0, labelsDrawn: 0, particlesDrawn: 0,
+    influenceAuras: 0, constructionVisuals: 0, perfWarnings: 0,
+    reset() {
+      this.terrainTilesDrawn = 0; this.entitiesSorted = 0; this.entitiesDrawn = 0; this.weatherDrawn = 0; this.staticSkipped = 0;
+      this.staticRebuildMs = 0; this.dynamicDrawMs = 0; this.staticCacheHits = 0; this.staticCacheMisses = 0;
+      this.prismPartsDrawn = 0; this.shadowsDrawn = 0; this.labelsDrawn = 0; this.particlesDrawn = 0;
+      this.influenceAuras = 0; this.constructionVisuals = 0; this.perfWarnings = 0;
+    },
   };
   function qualityName() { return String(renderQuality?.quality || ST.visual?.quality || "fast").toLowerCase(); }
   function qualityBudget(name: string, fallback: number) {
     const n = Number(renderQuality?.[name]);
     return Number.isFinite(n) ? n : fallback;
+  }
+  function invalidateStatic(reason = "world") {
+    staticDirty = true;
+    lastStaticRebuildReason = String(reason || "world");
   }
   function qualityStride(name: string, fallback = 1) {
     return Math.max(1, Math.trunc(qualityBudget(name, fallback)));
@@ -198,6 +216,7 @@ export function createCanvasPrismWorld(opts: CanvasWorldOptions): CanvasWorldApi
       if (groundRipples.length > Math.round(weatherCap * 0.42)) groundRipples.splice(0, groundRipples.length - Math.round(weatherCap * 0.42));
       if (windLeaves.length > Math.round(weatherCap * 0.28)) windLeaves.splice(0, windLeaves.length - Math.round(weatherCap * 0.28));
     }
+    invalidateStatic("quality");
     resize(); updateProjection(); rebuildCells(true);
   }
 
@@ -216,8 +235,13 @@ export function createCanvasPrismWorld(opts: CanvasWorldOptions): CanvasWorldApi
     dpr = nextDpr; width = w; height = h;
     canvas.width = Math.max(1, Math.floor(w * dpr));
     canvas.height = Math.max(1, Math.floor(h * dpr));
+    staticCanvas.width = canvas.width;
+    staticCanvas.height = canvas.height;
     canvas.style.width = `${w}px`; canvas.style.height = `${h}px`;
-    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    screenCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    staticCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx = screenCtx;
+    invalidateStatic("resize");
   }
 
   function visualZoom() { return clamp(Number(ST.visual?.cameraZoom || 1) || 1, 0.72, 1.55) * zoomValue; }
@@ -471,6 +495,7 @@ export function createCanvasPrismWorld(opts: CanvasWorldOptions): CanvasWorldApi
 
   function drawActionEffects() {
     const dt = Math.max(0.012, renderDtMs / 1000);
+    renderCounters.particlesDrawn += actionRings.length + actionBursts.length;
     for (let i = actionRings.length - 1; i >= 0; i--) {
       const r = actionRings[i];
       r.life -= dt * 1.05; r.radius += dt * (1.7 + Number(r.power || 1) * 0.8);
@@ -639,7 +664,7 @@ export function createCanvasPrismWorld(opts: CanvasWorldOptions): CanvasWorldApi
       const [r,g,b] = hexToRgb(s);
       return `rgba(${r|0},${g|0},${b|0},${a})`;
     }
-    if (/^rgba(/i.test(s)) return s.replace(/,s*[0-9.]+)$/, `,${a})`);
+    if (/^rgba(/i.test(s)) return s.replace(/,\s*[0-9.]+\)$/, `,${a})`);
     if (/^rgb(/i.test(s)) return s.replace(/^rgb(/i, "rgba(").replace(/)$/, `,${a})`);
     return s || `rgba(255,215,110,${a})`;
   }
@@ -851,6 +876,7 @@ export function createCanvasPrismWorld(opts: CanvasWorldOptions): CanvasWorldApi
     }
   }
   function drawPrismMin(x: number, z: number, y: number, w: number, d: number, h: number, top: string, left?: string, right?: string, alpha = 1, windows: any = null, seed = 0) {
+    renderCounters.prismPartsDrawn++;
     const L = lightForTime();
     const x0 = x, z0 = z, y0 = y, x1 = x + w, z1 = z + d, y1 = y + h;
     const at = proj(x0,y1,z0), bt = proj(x1,y1,z0), ct = proj(x1,y1,z1), dt = proj(x0,y1,z1);
@@ -884,6 +910,7 @@ export function createCanvasPrismWorld(opts: CanvasWorldOptions): CanvasWorldApi
     drawPrismMin(x, z, part.y * scale, w, d, part.h * scale, part.top, part.left, part.right);
   }
   function drawShadow(cx: number, z: number, rx = 0.8, ry = 0.42, alpha = 0.18) {
+    renderCounters.shadowsDrawn++;
     const p = proj(cx + 0.13, 0.02, z + 0.10);
     const a = alpha * clamp(qualityBudget("shadowAlphaMul", 1), 0.35, 1.15);
     ctx.fillStyle = `rgba(6,12,10,${a})`;
@@ -971,6 +998,95 @@ export function createCanvasPrismWorld(opts: CanvasWorldOptions): CanvasWorldApi
     if (k === "garden" || k === "flowerbed" || k === "bench" || k === "campfire") return 2.75;
     return 3.28;
   }
+  function constructionStateFor(b: any) {
+    const end = Number(b?.constructUntil || b?.cdUntil || b?.buildUntil || b?.finishAt || 0);
+    const start = Number(b?.constructAt || b?.accAt || b?.buildAt || b?.startedAt || 0);
+    if (!end || end <= Date.now()) return null;
+    const safeStart = start && start < end ? start : Date.now() - Math.max(1, Number(b?.buildProgress || 0)) * (end - Date.now());
+    const total = Math.max(1, end - safeStart);
+    const progress = clamp((Date.now() - safeStart) / total, 0.03, 0.98);
+    return { start: safeStart, end, total, left: Math.max(0, end - Date.now()), progress };
+  }
+  function visualProgressForBuilding(b: any) {
+    const c = constructionStateFor(b);
+    if (c) return c.progress;
+    if (b?.buildProgress != null) return clamp(Number(b.buildProgress) || 1, 0.05, 1);
+    return 1;
+  }
+  function buildingDistanceFromPlayer(b: any) {
+    return Math.max(Math.abs(Number(b?.x || 0) - Number(me.vx || me.x || 0)), Math.abs(Number(b?.z || 0) - Number(me.vz || me.z || 0)));
+  }
+  function maxRecipePartsForBuilding(kind: string, dist: number, recipeLen: number) {
+    const base = Math.max(4, Math.trunc(qualityBudget("maxPrismPartsPerBuilding", recipeLen)));
+    const q = qualityName();
+    if (String(kind).toLowerCase() === "worldwonder") return Math.max(base, q === "fast" ? 32 : q === "balanced" ? 54 : 96);
+    if (dist > 32) return Math.max(6, Math.min(base, 12));
+    if (dist > 22) return Math.max(10, Math.min(base, 20));
+    return base;
+  }
+  function drawConstructionOverlay(b: any, c: any, fp: number, scale: number) {
+    if (!c) return;
+    const fx = clamp(qualityBudget("constructionFx", 1), 0, 1);
+    if (fx <= 0.05) return;
+    renderCounters.constructionVisuals++;
+    const x = Number(b.x || 0), z = Number(b.z || 0);
+    const color = String(b.kind || "") === "worldwonder" ? "#9945ff" : "#ffd76e";
+    const half = Math.max(0.75, fp * 0.20);
+    const t = performance.now() / 1000;
+    const pulse = 0.78 + Math.sin(t * 3.2 + x + z) * 0.18;
+    drawTargetRing(x, z, color, Math.max(0.92, fp * 0.18 + c.progress * 0.18), 0.10, 0.40 * fx * pulse);
+    ctx.save();
+    ctx.lineWidth = Math.max(1, 1.3 * visualZoom());
+    ctx.strokeStyle = `rgba(255,231,165,${0.26 * fx})`;
+    const posts = [
+      [x - half, z - half], [x + half, z - half], [x + half, z + half], [x - half, z + half]
+    ];
+    for (const [px, pz] of posts) {
+      const a = proj(px, 0.12, pz), b2 = proj(px, 1.25 + c.progress * scale * 0.30, pz);
+      ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b2.x, b2.y); ctx.stroke();
+    }
+    for (let i = 0; i < posts.length; i++) {
+      const a = posts[i], b2 = posts[(i + 1) % posts.length];
+      const p0 = proj(a[0], 0.82 + c.progress * 0.35, a[1]);
+      const p1 = proj(b2[0], 0.82 + c.progress * 0.35, b2[1]);
+      ctx.beginPath(); ctx.moveTo(p0.x, p0.y); ctx.lineTo(p1.x, p1.y); ctx.stroke();
+    }
+    const p = proj(x, 2.12 + c.progress * Math.min(2.0, scale * 0.20), z);
+    const bw = Math.max(42, 58 * visualZoom()), bh = Math.max(4, 5 * visualZoom());
+    ctx.fillStyle = "rgba(8,12,18,0.72)"; ctx.fillRect(p.x - bw/2, p.y, bw, bh);
+    ctx.fillStyle = color; ctx.fillRect(p.x - bw/2, p.y, bw * c.progress, bh);
+    ctx.font = `900 ${Math.max(9, 10 * visualZoom())}px system-ui, sans-serif`;
+    ctx.textAlign = "center"; ctx.lineWidth = Math.max(2, 3 * visualZoom());
+    ctx.strokeStyle = "rgba(9,12,18,0.72)"; ctx.fillStyle = "rgba(255,240,184,0.94)";
+    const label = `${Math.round(c.progress * 100)}% building`;
+    ctx.strokeText(label, p.x, p.y - 6 * visualZoom()); ctx.fillText(label, p.x, p.y - 6 * visualZoom());
+    renderCounters.labelsDrawn++;
+    ctx.restore();
+  }
+  function drawWonderAura(b: any, c: any) {
+    if (String(b?.kind || b?.type || "").toLowerCase() !== "worldwonder") return;
+    const density = clamp(qualityBudget("wonderAuraDensity", 1), 0, 1);
+    if (density <= 0.03) return;
+    renderCounters.influenceAuras++;
+    const x = Number(b.x || 0), z = Number(b.z || 0);
+    const progress = c ? c.progress : 1;
+    const t = performance.now() / 1000;
+    const r = (2.2 + 2.1 * progress) * (0.92 + 0.04 * Math.sin(t * 1.5));
+    const p = proj(x, 0.055, z);
+    ctx.save();
+    const aura = ctx.createRadialGradient(p.x, p.y, tileW * 0.22, p.x, p.y, tileW * r);
+    const alpha = clamp(qualityBudget("influenceTintAlpha", 0.08), 0.02, 0.16) * density * (c ? 0.68 : 1);
+    aura.addColorStop(0, `rgba(153,69,255,${alpha * 1.15})`);
+    aura.addColorStop(0.55, `rgba(20,241,149,${alpha * 0.62})`);
+    aura.addColorStop(1, "rgba(20,241,149,0)");
+    ctx.fillStyle = aura;
+    ctx.beginPath(); ctx.ellipse(p.x, p.y, tileW * r, tileH * r * 0.66, 0, 0, Math.PI * 2); ctx.fill();
+    ctx.strokeStyle = `rgba(255,215,110,${(0.18 + 0.12 * Math.sin(t * 2.2)) * density})`;
+    ctx.lineWidth = Math.max(1, 1.2 * visualZoom());
+    ctx.beginPath(); ctx.ellipse(p.x, p.y, tileW * (r * 0.72), tileH * (r * 0.45), 0, 0, Math.PI * 2); ctx.stroke();
+    ctx.restore();
+  }
+
   function drawBuildFootprint(x: number, z: number, color = "#ffd76e", alpha = 0.22) {
     const half = visualCityFootprint / 2;
     ctx.save();
@@ -1006,16 +1122,38 @@ export function createCanvasPrismWorld(opts: CanvasWorldOptions): CanvasWorldApi
   }
   function drawBuilding(b: any) {
     const kind = String(b.kind || b.type || "building").toLowerCase();
-    const progress = b.buildProgress == null ? 1 : Number(b.buildProgress) || 1;
-    const recipe = recipeVisibleParts(buildingRecipeFor(kind, { color: cssHex(b.cl || b.color || "#d6604f"), plinth: "#8f7b53", name: b.nm || b.name, buildProgress: progress }), progress);
+    const progress = visualProgressForBuilding(b);
+    const construction = constructionStateFor(b);
+    let recipe = recipeVisibleParts(buildingRecipeFor(kind, { color: cssHex(b.cl || b.color || "#d6604f"), plinth: "#8f7b53", name: b.nm || b.name, buildProgress: progress }), progress);
     const scale = visualScaleForKind(kind);
     const ox = Number(b.x || 0), oz = Number(b.z || 0);
     const fp = visualFootprintForKind(kind);
+    const dist = buildingDistanceFromPlayer(b);
+    const maxParts = maxRecipePartsForBuilding(kind, dist, recipe.length);
+    if (recipe.length > maxParts) recipe = recipe.slice(0, maxParts);
+    drawWonderAura(b, construction);
     drawShadow(ox, oz, 0.36 * fp, 0.17 * fp, lightForTime().shadow * 0.95);
-    for (const part of recipe) drawRecipePart(ox, oz, part, scale);
-    if (b.constructUntil && b.constructUntil > Date.now()) {
-      const p = proj(ox, 2.2, oz);
-      ctx.fillStyle = "rgba(255,215,110,0.88)"; ctx.font = `800 ${Math.max(11, 12*visualZoom())}px system-ui, sans-serif`; ctx.textAlign = "center"; ctx.fillText("building", p.x, p.y);
+    if (construction) {
+      ctx.save();
+      ctx.globalAlpha = 0.38 + 0.52 * progress;
+      for (const part of recipe) drawRecipePart(ox, oz, part, scale);
+      ctx.globalAlpha = 1;
+      ctx.restore();
+      drawConstructionOverlay(b, construction, fp, scale);
+    } else {
+      for (const part of recipe) drawRecipePart(ox, oz, part, scale);
+      if (kind === "worldwonder") {
+        const p = proj(ox, 3.65, oz);
+        const name = String(b.nm || b.name || "Wonder").slice(0, 28);
+        ctx.save();
+        ctx.font = `900 ${Math.max(10, 11 * visualZoom())}px system-ui, sans-serif`;
+        ctx.textAlign = "center";
+        ctx.lineWidth = Math.max(2, 3 * visualZoom());
+        ctx.strokeStyle = "rgba(8,10,18,0.72)"; ctx.fillStyle = "#fff0a8";
+        ctx.strokeText(name, p.x, p.y); ctx.fillText(name, p.x, p.y);
+        renderCounters.labelsDrawn++;
+        ctx.restore();
+      }
     }
   }
   function drawDoodad(d: any) {
@@ -1059,6 +1197,7 @@ export function createCanvasPrismWorld(opts: CanvasWorldOptions): CanvasWorldApi
       ctx.fillStyle = isMe ? '#fff0a8' : 'rgba(225,236,247,0.92)';
       ctx.strokeText(label, lp.x, lp.y);
       ctx.fillText(label, lp.x, lp.y);
+      renderCounters.labelsDrawn++;
       ctx.restore();
     }
   }
@@ -1104,6 +1243,7 @@ export function createCanvasPrismWorld(opts: CanvasWorldOptions): CanvasWorldApi
     ctx.font = `900 ${Math.max(9, 10 * visualZoom())}px system-ui, sans-serif`;
     ctx.textAlign = "center";
     ctx.fillText("trade", p.x, p.y);
+    renderCounters.labelsDrawn++;
   }
   function drawNpc(n: any) {
     const row = {
@@ -1120,6 +1260,7 @@ export function createCanvasPrismWorld(opts: CanvasWorldOptions): CanvasWorldApi
     ctx.font = `900 ${Math.max(10, 11 * visualZoom())}px system-ui, sans-serif`;
     ctx.textAlign = "center";
     ctx.fillText("?", p.x, p.y);
+    renderCounters.labelsDrawn++;
   }
   function drawTargetRing(x: number, z: number, color = "#ffd76e", radius = 0.72, y = 0.07, alpha = 0.78) {
     const p = proj(Number(x), Number(y), Number(z));
@@ -1158,6 +1299,7 @@ export function createCanvasPrismWorld(opts: CanvasWorldOptions): CanvasWorldApi
     ctx.beginPath(); ctx.roundRect(sp.x - w/2, sp.y - h/2, w, h, 8 * visualZoom()); ctx.fill(); ctx.stroke();
     ctx.fillStyle = p.primary === 'doodad' ? '#9df38f' : p.primary === 'building' ? '#ffd76e' : '#d7dfcf';
     ctx.fillText(label, sp.x, sp.y + 0.5);
+    renderCounters.labelsDrawn++;
     ctx.restore();
   }
   function drawGhostBuildingPreview() {
@@ -1268,21 +1410,63 @@ export function createCanvasPrismWorld(opts: CanvasWorldOptions): CanvasWorldApi
         if (npc) npcPool.set(kk, { ...npc, x, z, kind: "npc", uid: `npc:${kk}` });
       } catch {}
     }
+    if (force) invalidateStatic("window");
   }
+  function staticCameraSnapPx() {
+    return Math.max(1, Math.trunc(qualityBudget("staticCameraSnapPx", 2)));
+  }
+  function staticLayerKey() {
+    const snap = staticCameraSnapPx();
+    const hourBand = Math.floor(currentHour() / 2);
+    return [
+      width, height, dpr.toFixed(2), qualityName(), hourBand,
+      Math.round(cameraX / snap), Math.round(cameraY / snap),
+      opts.currentTileLoadRadius?.() || 36,
+      Number(ST.rev || 0), tileOwner.size, cells.size,
+    ].join("|");
+  }
+  function renderStaticLayerToCache(nextKey: string) {
+    const prev = ctx;
+    const started = performance.now();
+    ctx = staticCtx;
+    staticCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    staticCtx.clearRect(0, 0, width, height);
+    drawTerrain();
+    drawGroundWash();
+    drawCityRoads();
+    drawCityGrid();
+    drawCityFurniture();
+    ctx = prev;
+    staticCacheKey = nextKey;
+    staticDirty = false;
+    renderCounters.staticCacheMisses++;
+    renderCounters.staticRebuildMs = performance.now() - started;
+  }
+  function drawStaticLayer() {
+    const key = staticLayerKey();
+    if (staticDirty || key !== staticCacheKey) renderStaticLayerToCache(key);
+    else renderCounters.staticCacheHits++;
+    ctx.drawImage(staticCanvas, 0, 0, width, height);
+  }
+
   function draw() {
     renderCounters.reset();
+    const dynamicStarted = performance.now();
     resize(); updateProjection(); ensureGroundMarks();
+    ctx = screenCtx;
     const cx = Number(me.vx || me.x || 0), cz = Number(me.vz || me.z || 0);
     targetCameraX = width / 2 - (cx - cz) * tileW;
     targetCameraY = height * 0.55 - (cx + cz) * tileH;
     const cameraA = smoothAmount(renderDtMs, 7.5);
     cameraX += (targetCameraX - cameraX) * cameraA;
     cameraY += (targetCameraY - cameraY) * cameraA;
-    ctx.clearRect(0,0,width,height);
+    screenCtx.clearRect(0,0,width,height);
     drawSkyBackdrop();
     const haze = ctx.createRadialGradient(width*0.45,height*0.35,0,width*0.50,height*0.56,Math.max(width,height)*0.78);
     haze.addColorStop(0,"rgba(80,124,92,0.18)"); haze.addColorStop(1,"rgba(5,12,18,0.24)"); ctx.fillStyle = haze; ctx.fillRect(0,0,width,height);
-    drawTerrain(); drawGroundWash(); drawCityRoads(); drawCityGrid(); drawCityFurniture(); drawAmbientWeatherGround(); drawOverlayCells();
+    drawStaticLayer();
+    drawAmbientWeatherGround();
+    drawOverlayCells();
 
     drawPendingPathHints();
     drawChannelHint();
@@ -1326,6 +1510,7 @@ export function createCanvasPrismWorld(opts: CanvasWorldOptions): CanvasWorldApi
       else if (e.kind === "me") drawPlayerSprite(me, true);
     }
     drawActionEffects();
+    renderCounters.particlesDrawn += dustPuffs.length + citySparkles.length + floaters.length;
     for (let i = dustPuffs.length - 1; i >= 0; i--) {
       const d = dustPuffs[i]; d.life -= Math.max(0.012, renderDtMs / 1000); d.y += 0.008; d.r += 0.010;
       if (d.life <= 0) { dustPuffs.splice(i, 1); continue; }
@@ -1371,6 +1556,8 @@ export function createCanvasPrismWorld(opts: CanvasWorldOptions): CanvasWorldApi
       ctx.fillStyle = v;
       ctx.fillRect(0,0,width,height);
     }
+    renderCounters.dynamicDrawMs = performance.now() - dynamicStarted;
+    if (renderCounters.dynamicDrawMs > Number(qualityBudget("perfBudgetWarnMs", 24))) renderCounters.perfWarnings++;
   }
   function normalizeDoodadKind(value: any) {
     const k = String(value?.type || value?.kind || value || "").toLowerCase();
@@ -1532,6 +1719,7 @@ export function createCanvasPrismWorld(opts: CanvasWorldOptions): CanvasWorldApi
       buildPool.set(uid,row); buildAt.set(kfn(row.x,row.z), row);
     }
     for (const l of w.loot || []) { const id = l.id ?? `${l.x},${l.z},${l.g || 0}`; lootPool.set(id, { ...l, id }); }
+    invalidateStatic("world");
     rebuildCells(true);
   }
   function applyMe(p: any) {
@@ -1618,7 +1806,7 @@ export function createCanvasPrismWorld(opts: CanvasWorldOptions): CanvasWorldApi
     const d = doodadAt(Number(x), Number(z), 1.35);
     return d ? normalizeDoodadKind(d) || true : false;
   }
-  function refreshWindow(force = false) { rebuildCells(!!force); }
+  function refreshWindow(force = false) { if (force) invalidateStatic("refresh-window"); rebuildCells(!!force); }
   function pathTo(x:number,z:number) { const p = computePath(Math.trunc(x),Math.trunc(z),false); if (!p.length) return false; pendingPath = p; return true; }
   function pathToNear(x:number,z:number) { const p = computePath(Math.trunc(x),Math.trunc(z),true); if (!p.length) return false; pendingPath = p; return true; }
   function canIssueMove() { return canIssueMoveNow(); }
@@ -1646,8 +1834,8 @@ export function createCanvasPrismWorld(opts: CanvasWorldOptions): CanvasWorldApi
     const c = numColorToHex(color,"#ffd76e");
     actionRings.push({ x:Number(x), z:Number(z), color:c, life:0.62, maxLife:0.62, radius:0.28, power:1.35 });
   }
-  function markDoodadGone(x:number,z:number) { const kk=kfn(x,z); exceptions.set(kk,"gone"); doodads.delete(kk); }
-  function removeBuild(uid:any) { const b=buildPool.get(uid); if (!b) return; buildPool.delete(uid); buildAt.delete(kfn(b.x,b.z)); }
+  function markDoodadGone(x:number,z:number) { const kk=kfn(x,z); exceptions.set(kk,"gone"); doodads.delete(kk); invalidateStatic("doodad-gone"); }
+  function removeBuild(uid:any) { const b=buildPool.get(uid); if (!b) return; buildPool.delete(uid); buildAt.delete(kfn(b.x,b.z)); invalidateStatic("build-remove"); }
   function removeLoot(id: any, x?: number, z?: number) {
     const candidates = [id, String(id), Number(id)].filter((v, i, a) => v != null && v === v && a.indexOf(v) === i);
     for (const k of candidates) {
@@ -1745,7 +1933,7 @@ export function createCanvasPrismWorld(opts: CanvasWorldOptions): CanvasWorldApi
   function worldToScreen(x:number, z:number, y = 0) { return proj(Number(x), Number(y), Number(z)); }
   function screenToWorldPoint(sx:number, sy:number) { return screenToWorld(Number(sx), Number(sy)); }
   function visibleCells() { return Array.from(cells.values()).map((c:any) => ({ x: c.cx ?? c.x, z: c.cz ?? c.z, owner: c.owner || 0 })); }
-  function movementState() { return { x: me.x, z: me.z, visualX: me.vx, visualZ: me.vz, visualSpeed: me.renderSpeed, authoritativeX: lastAuthoritative.x, authoritativeZ: lastAuthoritative.z, inFlight, maxInFlight, pending: pendingPath.length, ackSeq, moveSeq, canIssueMove: canIssueMoveNow(), renderDtMs, renderQuality: qualityName(), renderCounters: { ...renderCounters } }; }
+  function movementState() { return { x: me.x, z: me.z, visualX: me.vx, visualZ: me.vz, visualSpeed: me.renderSpeed, authoritativeX: lastAuthoritative.x, authoritativeZ: lastAuthoritative.z, inFlight, maxInFlight, pending: pendingPath.length, ackSeq, moveSeq, canIssueMove: canIssueMoveNow(), renderDtMs, renderQuality: qualityName(), renderCounters: { ...renderCounters, staticReason: lastStaticRebuildReason } }; }
   function capitalBearing() {
     const ax = Number(ST.ax || 0), az = Number(ST.az || 0);
     const dx = ax - Number(me.x || 0), dz = az - Number(me.z || 0);
@@ -1771,8 +1959,8 @@ export function createCanvasPrismWorld(opts: CanvasWorldOptions): CanvasWorldApi
     setHintCells, hideBuildGhost, showBuildGhost, refreshWindow, rebuildBuilding: (uid:any) => {}, animateBuildingUse: (uid:any) => { const b=buildPool.get(uid); if (b) floatText(b.x,b.z,"used","#ffd76e"); }, refreshConstructionProgress: () => {},
     refreshOwnRig: () => {}, applyVisualQuality, hasPendingMove, canIssueMove, minimapSnapshot,
     tileOwner, buildPool, buildAt, lootPool, rigPool, tradePostPool, npcPool, cells, updateMinimapInfo,
-    rotateCam: () => {}, refreshCameraRotation: () => {}, refreshCameraZoom: () => { updateProjection(); rebuildCells(true); }, refreshEnvironment: () => { rainStreaks.splice(0); groundRipples.splice(0); windLeaves.splice(0); citySparkles.splice(0); },
-    zoom: (delta = 0) => { zoomValue = clamp(zoomValue + Number(delta || 0), 0.72, 1.55); updateProjection(); },
+    rotateCam: () => {}, refreshCameraRotation: () => {}, refreshCameraZoom: () => { updateProjection(); invalidateStatic("camera"); rebuildCells(true); }, refreshEnvironment: () => { rainStreaks.splice(0); groundRipples.splice(0); windLeaves.splice(0); citySparkles.splice(0); invalidateStatic("environment"); },
+    zoom: (delta = 0) => { zoomValue = clamp(zoomValue + Number(delta || 0), 0.72, 1.55); updateProjection(); invalidateStatic("zoom"); },
     walkQueueClear: () => { pendingPath.length = 0; }, dispose, setFacing, setWalking, setInputVelocity,
   };
 }
