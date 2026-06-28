@@ -9,6 +9,8 @@ export type PrismRecipePart = {
   top: string;
   left?: string;
   right?: string;
+  /** Optional procedural lit-window grid drawn by the canvas renderer. */
+  windows?: { cols?: number; rows?: number; glow?: boolean; face?: "left" | "right" | "both" };
 };
 
 export type BuildingRecipeOptions = {
@@ -47,6 +49,10 @@ function isTerrainGreenish(hex: string) {
 
 function part(id: string, x: number, z: number, y: number, w: number, d: number, h: number, top: string, left?: string, right?: string): PrismRecipePart {
   return { id, x, z, y, w, d, h, top, left, right };
+}
+
+function win(p: PrismRecipePart, cols = 2, rows = 2, glow = true, face: "left" | "right" | "both" = "both"): PrismRecipePart {
+  return { ...p, windows: { cols, rows, glow, face } };
 }
 
 // next12 material rule:
@@ -140,7 +146,7 @@ function accentForKind(k: string, raw: any) {
 function house(_color: string, plinth: string): PrismRecipePart[] {
   return [
     ...baseParts(plinth, 0.98),
-    part("body", 0, 0, 0.22, 0.66, 0.48, 0.44, MAT.creamTop, MAT.creamLeft, MAT.creamRight),
+    win(part("body", 0, 0, 0.22, 0.72, 0.54, 0.62, MAT.creamTop, MAT.creamLeft, MAT.creamRight), 2, 2),
     part("door", 0, 0.255, 0.28, 0.16, 0.048, 0.24, "#4b2d1d", "#3b2114", "#28150d"),
     part("window-l", -0.22, -0.255, 0.40, 0.12, 0.045, 0.10, "#8bd8e1", "#4f9dac", "#37717d"),
     part("window-r", 0.22, -0.255, 0.40, 0.12, 0.045, 0.10, "#8bd8e1", "#4f9dac", "#37717d"),
@@ -169,8 +175,8 @@ function market(color: string, plinth: string): PrismRecipePart[] {
 function gateTower(_color: string, plinth: string, id = "gate"): PrismRecipePart[] {
   return [
     ...baseParts(plinth, 1.04),
-    part(`${id}-body-low`, 0, 0, 0.23, 0.54, 0.54, 0.68, MAT.darkRedTop, MAT.darkRedLeft, MAT.darkRedRight),
-    part(`${id}-body-mid`, 0, 0, 0.89, 0.46, 0.46, 0.58, "#a52b22", "#761c17", "#50110e"),
+    win(part(`${id}-body-low`, 0, 0, 0.23, 0.64, 0.64, 0.98, MAT.darkRedTop, MAT.darkRedLeft, MAT.darkRedRight), 2, 3),
+    win(part(`${id}-body-mid`, 0, 0, 1.16, 0.52, 0.52, 0.72, "#a52b22", "#761c17", "#50110e"), 2, 3),
     part(`${id}-brass-ring-low`, 0, 0, 0.74, 0.70, 0.66, 0.080, MAT.brassTop, MAT.brassLeft, MAT.brassRight),
     part(`${id}-brass-ring-top`, 0, 0, 1.405, 0.64, 0.60, 0.090, MAT.brassTop, MAT.brassLeft, MAT.brassRight),
     part(`${id}-roof-base`, 0, 0, 1.535, 0.66, 0.62, 0.145, MAT.redTop, MAT.redLeft, MAT.redRight),
@@ -184,10 +190,10 @@ function gateTower(_color: string, plinth: string, id = "gate"): PrismRecipePart
 function bank(_color: string, plinth: string): PrismRecipePart[] {
   return [
     ...baseParts(plinth, 1.10),
-    part("stone-core", 0, 0, 0.22, 0.74, 0.56, 0.54, "#c9c6ae", "#928d76", "#68634f"),
+    win(part("stone-core", 0, 0, 0.22, 0.84, 0.62, 0.82, "#c9c6ae", "#928d76", "#68634f"), 3, 3),
     part("vault-door", 0, 0.305, 0.34, 0.25, 0.052, 0.29, "#222f42", "#172232", "#101722"),
     part("brass-band", 0, 0.02, 0.715, 0.86, 0.64, 0.085, MAT.brassTop, MAT.brassLeft, MAT.brassRight),
-    part("upper", 0, -0.01, 0.805, 0.60, 0.44, 0.31, MAT.creamTop, MAT.creamLeft, MAT.creamRight),
+    win(part("upper", 0, -0.01, 1.045, 0.64, 0.46, 0.46, MAT.creamTop, MAT.creamLeft, MAT.creamRight), 2, 2),
     part("light-roof-plate", 0, -0.025, 1.105, 0.72, 0.54, 0.12, "#c7d8c8", "#879b85", "#607260"),
     part("brass-cap-lip", 0, -0.030, 1.230, 0.52, 0.39, 0.060, MAT.brassTop, MAT.brassLeft, MAT.brassRight),
     part("gem", 0.28, -0.18, 1.28, 0.12, 0.08, 0.10, "#7fffd2", "#31a57a", "#1d6b4e"),
@@ -197,7 +203,7 @@ function bank(_color: string, plinth: string): PrismRecipePart[] {
 function hall(_color: string, plinth: string): PrismRecipePart[] {
   return [
     ...baseParts(plinth, 1.18),
-    part("hall-body", 0, 0, 0.22, 0.90, 0.66, 0.56, "#b9854a", "#82582f", "#5a3a20"),
+    win(part("hall-body", 0, 0, 0.22, 0.98, 0.72, 0.86, "#b9854a", "#82582f", "#5a3a20"), 4, 3),
     part("entry", 0, 0.37, 0.31, 0.30, 0.06, 0.34, "#392319", "#24150d", "#160c07"),
     part("left-wing", -0.44, 0.02, 0.27, 0.24, 0.50, 0.42, "#d0b46a", "#9b7940", "#6e542e"),
     part("right-wing", 0.44, 0.02, 0.27, 0.24, 0.50, 0.42, "#d0b46a", "#9b7940", "#6e542e"),
@@ -212,7 +218,7 @@ function hall(_color: string, plinth: string): PrismRecipePart[] {
 function workshop(_color: string, plinth: string): PrismRecipePart[] {
   return [
     ...baseParts(plinth, 1.02),
-    part("body", 0, 0, 0.22, 0.76, 0.56, 0.44, MAT.umberTop, MAT.umberLeft, MAT.umberRight),
+    win(part("body", 0, 0, 0.22, 0.84, 0.62, 0.64, MAT.umberTop, MAT.umberLeft, MAT.umberRight), 2, 2),
     part("forge", -0.22, 0.20, 0.36, 0.24, 0.18, 0.28, MAT.redTop, MAT.redLeft, MAT.redRight),
     part("anvil", 0.22, 0.16, 0.34, 0.24, 0.16, 0.18, MAT.slateTop, MAT.slateLeft, MAT.slateRight),
     part("roof-lip", 0, 0, 0.615, 0.90, 0.66, 0.075, MAT.brassTop, MAT.brassLeft, MAT.brassRight),
@@ -254,7 +260,7 @@ function farm(_color: string, plinth: string): PrismRecipePart[] {
 }
 
 function warehouse(_color: string, plinth: string): PrismRecipePart[] {
-  const rows: PrismRecipePart[] = [...baseParts(plinth, 1.12), part("body", 0, 0, 0.22, 0.86, 0.64, 0.60, "#b78652", "#80522d", "#5b3820")];
+  const rows: PrismRecipePart[] = [...baseParts(plinth, 1.18), win(part("body", 0, 0, 0.22, 0.96, 0.72, 0.88, "#b78652", "#80522d", "#5b3820"), 3, 3)];
   rows.push(part("rib-lip", 0, 0, 0.79, 0.98, 0.72, 0.075, MAT.brassTop, MAT.brassLeft, MAT.brassRight));
   rows.push(...roofStack("warehouse", 0.860, "#7f5632", "#56371f", "#3a2414", 1.02, 0.74));
   [-0.28, 0, 0.28].forEach((x, i) => rows.push(part(`crate-${i}`, x, 0.32, 0.30 + i * 0.03, 0.18, 0.10, 0.20, "#3b2418", "#26170f", "#180d08")));
@@ -273,11 +279,26 @@ function wonder(_color: string, plinth: string): PrismRecipePart[] {
   ];
 }
 
+function cityTower(_color: string, plinth: string): PrismRecipePart[] {
+  return [
+    ...baseParts(plinth, 1.28),
+    win(part("tower-lower", 0, 0, 0.24, 0.92, 0.70, 1.42, "#71879b", "#4e6477", "#35495a"), 4, 6),
+    part("tower-sky-lobby", 0, 0, 1.61, 1.00, 0.76, 0.13, MAT.brassTop, MAT.brassLeft, MAT.brassRight),
+    win(part("tower-mid", 0, -0.02, 1.72, 0.74, 0.58, 1.12, "#637a90", "#465b70", "#304252"), 4, 5),
+    part("tower-brass-waist", 0, -0.03, 2.78, 0.82, 0.64, 0.12, MAT.brassTop, MAT.brassLeft, MAT.brassRight),
+    win(part("tower-upper", 0, -0.05, 2.88, 0.56, 0.46, 1.05, "#5c7186", "#405569", "#2c3d4d"), 3, 5),
+    part("tower-roof-deck", 0, -0.05, 3.88, 0.70, 0.56, 0.16, MAT.slateTop, MAT.slateLeft, MAT.slateRight),
+    part("tower-antenna-base", 0, -0.05, 4.02, 0.22, 0.18, 0.20, MAT.brassTop, MAT.brassLeft, MAT.brassRight),
+    part("tower-antenna", 0, -0.05, 4.22, 0.045, 0.045, 0.80, "#d7dfcf", "#a3ada4", "#747f78"),
+    ...flag("tower", 0.24, -0.20, 4.36, MAT.redTop),
+  ];
+}
+
 function generic(color: string, plinth: string): PrismRecipePart[] {
   const accent = isTerrainGreenish(color) ? MAT.redTop : color;
   return [
     ...baseParts(plinth, 0.98),
-    part("body", 0, 0, 0.22, 0.72, 0.52, 0.46, MAT.creamTop, MAT.creamLeft, MAT.creamRight),
+    win(part("body", 0, 0, 0.22, 0.80, 0.58, 0.72, MAT.creamTop, MAT.creamLeft, MAT.creamRight), 2, 3),
     part("accent-band", 0, 0, 0.665, 0.78, 0.58, 0.065, accent, shade(accent, -0.26), shade(accent, -0.38)),
     ...roofStack("generic", 0.730, MAT.brassTop, MAT.brassLeft, MAT.brassRight, 0.66, 0.48),
   ];
@@ -289,6 +310,7 @@ export function buildingRecipeFor(kind: string, opts: BuildingRecipeOptions = {}
   const plinth = safePlinth(opts.plinth);
 
   if (k === "cottage" || k === "house") return house(accent, plinth);
+  if (k === "tower" || k === "skyscraper" || k === "highrise" || k === "citytower" || k === "apartment") return cityTower(accent, plinth);
   if (k === "market" || k === "tradepost") return market(accent, plinth);
   if (k === "townhall" || k === "guidehall" || k === "academy") return hall(accent, plinth);
   if (k === "vault" || k === "bank" || k === "goldmine") return bank(accent, plinth);

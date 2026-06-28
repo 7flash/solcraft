@@ -138,6 +138,11 @@ export function createCanvasPrismWorld(opts: CanvasWorldOptions): CanvasWorldApi
   const skyClouds = Array.from({ length: 7 }, (_, i) => ({
     x: stableRand(i, 37, 6), y: 0.06 + stableRand(i, 41, 7) * 0.25, s: 22 + stableRand(i, 43, 8) * 34, spd: 0.010 + stableRand(i, 47, 9) * 0.018,
   }));
+  const ambientBirds = Array.from({ length: 4 }, (_, i) => ({
+    lane: i, phase: stableRand(i, 71, 4) * Math.PI * 2, speed: 0.055 + stableRand(i, 73, 5) * 0.035, scale: 0.65 + stableRand(i, 79, 6) * 0.55,
+  }));
+  const citySparkles: any[] = [];
+  let lastCitySparkleAt = 0;
   let lastVisibleCenter = { x: 1e9, z: 1e9, r: 0 };
 
   const hoverMarker = {
@@ -184,6 +189,8 @@ export function createCanvasPrismWorld(opts: CanvasWorldOptions): CanvasWorldApi
   }
   function visualX(p: any) { return p === me ? Number(me.vx || me.x || 0) : Number(p?.x || 0); }
   function visualZ(p: any) { return p === me ? Number(me.vz || me.z || 0) : Number(p?.z || 0); }
+  function remoteVisualX(p: any) { return Number.isFinite(Number(p?.__vx)) ? Number(p.__vx) : Number(p?.x || 0); }
+  function remoteVisualZ(p: any) { return Number.isFinite(Number(p?.__vz)) ? Number(p.__vz) : Number(p?.z || 0); }
   function nudgeVisualToward(x: number, z: number, strength: number) {
     if (!Number.isFinite(x) || !Number.isFinite(z)) return;
     const a = clamp(Number(strength || 0), 0, 1);
@@ -247,6 +254,40 @@ export function createCanvasPrismWorld(opts: CanvasWorldOptions): CanvasWorldApi
     me.renderSpeed = Math.max(inputSpeed * 0.55, Math.min(1.8, Math.hypot(me.velX, me.velZ) / 7.2));
     if (moving) spawnStepDust(nowMs);
     if (Math.max(Math.abs(me.x - me.vx), Math.abs(me.z - me.vz)) < 0.012 && !hasPendingMove()) snapVisualToLogical();
+  }
+  function updateRemoteVisuals(dtMs: number) {
+    const a = smoothAmount(dtMs, 11.5);
+    const dt = Math.max(0.001, dtMs / 1000);
+    for (const p of remotes) {
+      if (!p) continue;
+      const tx = Number(p.x || 0), tz = Number(p.z || 0);
+      if (!Number.isFinite(Number(p.__vx)) || !Number.isFinite(Number(p.__vz))) {
+        p.__vx = tx; p.__vz = tz; p.__velX = 0; p.__velZ = 0; p.__renderSpeed = 0; p.__walkPhase = 0;
+        continue;
+      }
+      const prevX = Number(p.__vx || tx), prevZ = Number(p.__vz || tz);
+      const drift = Math.hypot(tx - prevX, tz - prevZ);
+      if (drift > 8) {
+        p.__vx = tx; p.__vz = tz; p.__velX = 0; p.__velZ = 0; p.__renderSpeed = 0;
+        continue;
+      }
+      p.__vx += (tx - p.__vx) * a;
+      p.__vz += (tz - p.__vz) * a;
+      p.__velX = (p.__vx - prevX) / dt;
+      p.__velZ = (p.__vz - prevZ) / dt;
+      p.__renderSpeed = Math.min(1.2, Math.hypot(p.__velX, p.__velZ) / 7.2);
+      if (p.__renderSpeed > 0.04) p.__walkPhase = Number(p.__walkPhase || 0) + dtMs * (0.006 + p.__renderSpeed * 0.010);
+    }
+  }
+  function maybeSpawnCitySparkle(nowMs: number) {
+    const L = lightForTime();
+    if (L.night < 0.32 && !L.dusk) return;
+    if (nowMs - lastCitySparkleAt < 95 || citySparkles.length > 54) return;
+    lastCitySparkleAt = nowMs;
+    const r = opts.currentTileLoadRadius?.() || 36;
+    const x = Math.round(me.vx || me.x) + Math.floor((stableRand(Math.floor(nowMs/97), 3, 91) - 0.5) * r * 1.55);
+    const z = Math.round(me.vz || me.z) + Math.floor((stableRand(Math.floor(nowMs/113), 7, 92) - 0.5) * r * 1.55);
+    citySparkles.push({ x, z, y: 0.45 + stableRand(x,z,33) * 2.2, life: 1.0, phase: stableRand(x,z,44) * Math.PI * 2 });
   }
   function poly(pts: Pt[], fill: string, stroke = "") {
     ctx.beginPath(); ctx.moveTo(pts[0].x, pts[0].y);
@@ -353,6 +394,43 @@ export function createCanvasPrismWorld(opts: CanvasWorldOptions): CanvasWorldApi
       ctx.fill();
     }
   }
+  function roadFillForTime() {
+    const L = lightForTime();
+    return L.night > 0.45 ? "rgba(31,39,52,0.58)" : "rgba(70,82,70,0.34)";
+  }
+  function drawRoadStripX(x: number, z0: number, z1: number, widthCells: number) {
+    const hw = widthCells / 2;
+    const a = proj(x - hw, 0.026, z0), b = proj(x + hw, 0.026, z0), c = proj(x + hw, 0.026, z1), d = proj(x - hw, 0.026, z1);
+    poly([a,b,c,d], roadFillForTime(), "rgba(255,255,255,0.030)");
+    const mid0 = proj(x, 0.031, z0), mid1 = proj(x, 0.031, z1);
+    ctx.strokeStyle = "rgba(255,231,165,0.12)";
+    ctx.lineWidth = Math.max(0.6, visualZoom() * 0.75);
+    ctx.setLineDash([Math.max(5, 7 * visualZoom()), Math.max(7, 9 * visualZoom())]);
+    ctx.beginPath(); ctx.moveTo(mid0.x, mid0.y); ctx.lineTo(mid1.x, mid1.y); ctx.stroke(); ctx.setLineDash([]);
+  }
+  function drawRoadStripZ(z: number, x0: number, x1: number, widthCells: number) {
+    const hw = widthCells / 2;
+    const a = proj(x0, 0.026, z - hw), b = proj(x1, 0.026, z - hw), c = proj(x1, 0.026, z + hw), d = proj(x0, 0.026, z + hw);
+    poly([a,b,c,d], roadFillForTime(), "rgba(255,255,255,0.030)");
+    const mid0 = proj(x0, 0.031, z), mid1 = proj(x1, 0.031, z);
+    ctx.strokeStyle = "rgba(255,231,165,0.12)";
+    ctx.lineWidth = Math.max(0.6, visualZoom() * 0.75);
+    ctx.setLineDash([Math.max(5, 7 * visualZoom()), Math.max(7, 9 * visualZoom())]);
+    ctx.beginPath(); ctx.moveTo(mid0.x, mid0.y); ctx.lineTo(mid1.x, mid1.y); ctx.stroke(); ctx.setLineDash([]);
+  }
+  function drawCityRoads() {
+    const r = opts.currentTileLoadRadius?.() || 36;
+    const cx = Math.round(me.vx || me.x), cz = Math.round(me.vz || me.z);
+    const roadStep = cityGridStep * 4;
+    const minX = Math.floor((cx - r - roadStep) / roadStep) * roadStep;
+    const maxX = Math.ceil((cx + r + roadStep) / roadStep) * roadStep;
+    const minZ = Math.floor((cz - r - roadStep) / roadStep) * roadStep;
+    const maxZ = Math.ceil((cz + r + roadStep) / roadStep) * roadStep;
+    ctx.save();
+    for (let x = minX; x <= maxX; x += roadStep) drawRoadStripX(x, minZ, maxZ, 1.35);
+    for (let z = minZ; z <= maxZ; z += roadStep) drawRoadStripZ(z, minX, maxX, 1.35);
+    ctx.restore();
+  }
   function drawCityGrid() {
     const r = opts.currentTileLoadRadius?.() || 36;
     const cx = Math.round(me.vx || me.x), cz = Math.round(me.vz || me.z);
@@ -360,20 +438,26 @@ export function createCanvasPrismWorld(opts: CanvasWorldOptions): CanvasWorldApi
     const gz = Math.floor(cz / cityGridStep) * cityGridStep;
     const L = lightForTime();
     ctx.save();
-    ctx.strokeStyle = `rgba(255,255,255,${0.075 + 0.07 * Math.max(0, L.elev)})`;
-    ctx.lineWidth = Math.max(0.7, 1.0 * visualZoom());
+    const minorAlpha = 0.045 + 0.035 * Math.max(0, L.elev);
+    const majorAlpha = 0.105 + 0.080 * Math.max(0, L.elev);
+    ctx.lineWidth = Math.max(0.55, 0.85 * visualZoom());
     ctx.beginPath();
     for (let x = gx - r - cityGridStep; x <= gx + r + cityGridStep; x += cityGridStep) {
-      const a = proj(x, 0.032, gz - r - cityGridStep);
-      const b = proj(x, 0.032, gz + r + cityGridStep);
+      const major = Math.abs(x % (cityGridStep * 4)) === 0;
+      const a = proj(x, 0.036, gz - r - cityGridStep);
+      const b = proj(x, 0.036, gz + r + cityGridStep);
       ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y);
+      if (major) { ctx.strokeStyle = `rgba(255,244,207,${majorAlpha})`; ctx.stroke(); ctx.beginPath(); }
     }
+    ctx.strokeStyle = `rgba(255,255,255,${minorAlpha})`; ctx.stroke(); ctx.beginPath();
     for (let z = gz - r - cityGridStep; z <= gz + r + cityGridStep; z += cityGridStep) {
-      const a = proj(gx - r - cityGridStep, 0.032, z);
-      const b = proj(gx + r + cityGridStep, 0.032, z);
+      const major = Math.abs(z % (cityGridStep * 4)) === 0;
+      const a = proj(gx - r - cityGridStep, 0.036, z);
+      const b = proj(gx + r + cityGridStep, 0.036, z);
       ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y);
+      if (major) { ctx.strokeStyle = `rgba(255,244,207,${majorAlpha})`; ctx.stroke(); ctx.beginPath(); }
     }
-    ctx.stroke();
+    ctx.strokeStyle = `rgba(255,255,255,${minorAlpha})`; ctx.stroke();
     ctx.restore();
   }
   function drawFaceWindows(f00: Pt, f10: Pt, f11: Pt, f01: Pt, cols: number, rows: number, seed: number, glow = true) {
@@ -519,6 +603,18 @@ export function createCanvasPrismWorld(opts: CanvasWorldOptions): CanvasWorldApi
     const c = proj(x + half, 0.060, z);
     const d = proj(x, 0.060, z + half);
     poly([a,b,c,d], ctx.fillStyle as any, ctx.strokeStyle as any);
+
+    // Interior 4x4 lot tiles make placement read as an intentional city-builder
+    // footprint without tying the character animation to grid snapping.
+    const startX = Math.floor(x - half + 0.5);
+    const startZ = Math.floor(z - half + 0.5);
+    ctx.strokeStyle = `${color}${Math.round(255 * Math.min(0.72, alpha + 0.20)).toString(16).padStart(2, "0")}`;
+    ctx.lineWidth = Math.max(0.55, 0.75 * visualZoom());
+    for (let ix = 0; ix < visualCityFootprint; ix++) for (let iz = 0; iz < visualCityFootprint; iz++) {
+      const tx = startX + ix, tz = startZ + iz;
+      const da = proj(tx - 0.48, 0.066, tz), db = proj(tx, 0.066, tz - 0.48), dc = proj(tx + 0.48, 0.066, tz), dd = proj(tx, 0.066, tz + 0.48);
+      ctx.beginPath(); ctx.moveTo(da.x, da.y); ctx.lineTo(db.x, db.y); ctx.lineTo(dc.x, dc.y); ctx.lineTo(dd.x, dd.y); ctx.closePath(); ctx.stroke();
+    }
     ctx.restore();
   }
   function drawBuilding(b: any) {
@@ -542,17 +638,18 @@ export function createCanvasPrismWorld(opts: CanvasWorldOptions): CanvasWorldApi
     for (const part of resourceRecipeFor(kind, 0)) drawResourcePart(Number(d.x||0), Number(d.z||0), part, scale);
   }
   function drawPlayerSprite(ply: any, isMe = false) {
-    const x = isMe ? visualX(me) : Number(ply.x ?? 0);
-    const z = isMe ? visualZ(me) : Number(ply.z ?? 0);
+    const x = isMe ? visualX(me) : remoteVisualX(ply);
+    const z = isMe ? visualZ(me) : remoteVisualZ(ply);
     drawShadow(x, z, isMe ? 0.44 : 0.34, isMe ? 0.23 : 0.18, isMe ? 0.22 : 0.16);
-    const speed = isMe ? Math.min(1.4, Number(me.renderSpeed || 0)) : 0;
-    const bob = isMe && speed > 0.05 ? Math.sin(me.walkPhase) * (1.1 + speed * 2.0) * visualZoom() : 0;
+    const speed = isMe ? Math.min(1.4, Number(me.renderSpeed || 0)) : Math.min(1.15, Number(ply.__renderSpeed || 0));
+    const phase = isMe ? Number(me.walkPhase || 0) : Number(ply.__walkPhase || 0);
+    const bob = speed > 0.05 ? Math.sin(phase) * (1.1 + speed * 2.0) * visualZoom() : 0;
     const p = proj(x, 0, z);
     const sc = visualZoom() * (isMe ? 1.42 : 1.12);
     ctx.save(); ctx.translate(p.x, p.y - 24*sc + bob); ctx.scale(sc, sc);
     const body = numColorToHex(ply.body || ply.color || 0x14f195, "#14f195");
     const hat = numColorToHex(ply.hat || 0x7dcfe8, "#7dcfe8");
-    const sway = isMe && speed > 0.05 ? Math.sin(me.walkPhase * 1.25) * (0.8 + speed * 1.8) : 0;
+    const sway = speed > 0.05 ? Math.sin(phase * 1.25) * (0.8 + speed * 1.8) : 0;
     ctx.fillStyle = "#f4d7b5"; ctx.beginPath(); ctx.arc(0,-16,9,0,Math.PI*2); ctx.fill();
     ctx.fillStyle = hat; ctx.beginPath(); ctx.arc(0,-20,9,Math.PI,Math.PI*2); ctx.fill(); ctx.fillRect(-9,-20,18,4);
     ctx.fillStyle = tint(body, 1.04, [1,1,1]) as string; ctx.beginPath(); ctx.roundRect(-8,-8,16,22,5); ctx.fill();
@@ -720,7 +817,7 @@ export function createCanvasPrismWorld(opts: CanvasWorldOptions): CanvasWorldApi
     drawSkyBackdrop();
     const haze = ctx.createRadialGradient(width*0.45,height*0.35,0,width*0.50,height*0.56,Math.max(width,height)*0.78);
     haze.addColorStop(0,"rgba(80,124,92,0.18)"); haze.addColorStop(1,"rgba(5,12,18,0.24)"); ctx.fillStyle = haze; ctx.fillRect(0,0,width,height);
-    drawTerrain(); drawGroundWash(); drawCityGrid(); drawOverlayCells();
+    drawTerrain(); drawGroundWash(); drawCityRoads(); drawCityGrid(); drawOverlayCells();
 
     drawChannelHint();
 
@@ -733,7 +830,7 @@ export function createCanvasPrismWorld(opts: CanvasWorldOptions): CanvasWorldApi
     for (const l of lootPool.values()) ents.push({ kind:"loot", x:Number(l.x||0), z:Number(l.z||0), y:0, h:0.4, data:l });
     for (const t of tradePostPool.values()) ents.push({ kind:"trade", x:Number(t.x||0)-0.6, z:Number(t.z||0)-0.6, y:0, h:1.4, data:t });
     for (const n of npcPool.values()) ents.push({ kind:"npc", x:Number(n.x||0), z:Number(n.z||0), y:0, h:1.7, data:n });
-    for (const p of remotes) if (p && p.id !== me.id) ents.push({ kind:"remote", x:Number(p.x||0), z:Number(p.z||0), y:0, h:1.6, data:p });
+    for (const p of remotes) if (p && p.id !== me.id) ents.push({ kind:"remote", x:remoteVisualX(p), z:remoteVisualZ(p), y:0, h:1.6, data:p });
     ents.push({ kind:"me", x: visualX(me), z: visualZ(me), y:0, h:1.8, data:me });
     ents.sort((a,b) => ((a.x+a.z+a.h*0.18) - (b.x+b.z+b.h*0.18)));
     for (const e of ents) {
@@ -752,6 +849,27 @@ export function createCanvasPrismWorld(opts: CanvasWorldOptions): CanvasWorldApi
       const a = Math.max(0, d.life / Math.max(0.001, d.maxLife)) * 0.24;
       ctx.fillStyle = `rgba(226,205,170,${a})`;
       ctx.beginPath(); ctx.ellipse(p.x, p.y, d.r * tileW, d.r * tileH * 0.55, 0, 0, Math.PI * 2); ctx.fill();
+    }
+    for (let i = citySparkles.length - 1; i >= 0; i--) {
+      const f = citySparkles[i]; f.life -= Math.max(0.012, renderDtMs / 1000) * 0.72;
+      if (f.life <= 0) { citySparkles.splice(i, 1); continue; }
+      const p = proj(f.x + Math.sin(performance.now()/650 + f.phase)*0.06, f.y, f.z);
+      const a = Math.max(0, Math.min(1, f.life)) * (0.32 + lightForTime().night * 0.48);
+      ctx.fillStyle = `rgba(255,218,122,${a})`;
+      ctx.beginPath(); ctx.arc(p.x, p.y, Math.max(1.3, 2.0 * visualZoom()), 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = `rgba(255,231,160,${a * 0.25})`;
+      ctx.beginPath(); ctx.arc(p.x, p.y, Math.max(3.5, 5.0 * visualZoom()), 0, Math.PI * 2); ctx.fill();
+    }
+    for (const bird of ambientBirds) {
+      const L = lightForTime();
+      if (L.night > 0.54) continue;
+      const t = ((performance.now() / 1000) * bird.speed + bird.phase) % 1.25;
+      const bx = t * (width + 120) - 60;
+      const by = height * (0.18 + 0.05 * bird.lane) + Math.sin(performance.now()/650 + bird.phase) * 8;
+      const w = 7 * visualZoom() * bird.scale;
+      ctx.strokeStyle = "rgba(34,42,56,0.48)";
+      ctx.lineWidth = Math.max(1.2, 1.8 * visualZoom());
+      ctx.beginPath(); ctx.moveTo(bx - w, by + Math.sin(performance.now()/140 + bird.phase)*3); ctx.lineTo(bx, by - 3); ctx.lineTo(bx + w, by + Math.cos(performance.now()/150 + bird.phase)*3); ctx.stroke();
     }
     for (let i = floaters.length - 1; i >= 0; i--) {
       const f = floaters[i]; f.life -= 0.018; f.y += 0.018;
@@ -818,6 +936,8 @@ export function createCanvasPrismWorld(opts: CanvasWorldOptions): CanvasWorldApi
     if (disposed) return;
     const dt = Math.min(50, now - lastFrame); lastFrame = now; renderDtMs = dt || 16;
     updateVisualMotion(dt, now);
+    updateRemoteVisuals(dt);
+    maybeSpawnCitySparkle(now);
     if (me.walking || me.renderSpeed > 0.05) me.walkPhase += dt * (0.006 + Math.min(1.4, me.renderSpeed) * 0.010);
     if (pendingPath.length && now - lastStepAt >= 126 && canIssueMoveNow()) {
       const next = pendingPath[0];
@@ -947,8 +1067,24 @@ export function createCanvasPrismWorld(opts: CanvasWorldOptions): CanvasWorldApi
     rebuildCells();
   }
   function applyPlayers(players: any[] = []) {
+    const previous = new Map<any, any>();
+    for (const p of remotes || []) if (p && p.id != null) previous.set(p.id, p);
     remotes.length = 0; playersById.clear();
-    for (const p of players || []) { if (!p) continue; playersById.set(p.id,p); if (p.id !== me.id) remotes.push(p); }
+    for (const p of players || []) {
+      if (!p) continue;
+      const prev = previous.get(p.id);
+      const row = { ...p };
+      if (prev) {
+        row.__vx = Number.isFinite(Number(prev.__vx)) ? Number(prev.__vx) : Number(prev.x || row.x || 0);
+        row.__vz = Number.isFinite(Number(prev.__vz)) ? Number(prev.__vz) : Number(prev.z || row.z || 0);
+        row.__velX = Number(prev.__velX || 0); row.__velZ = Number(prev.__velZ || 0);
+        row.__renderSpeed = Number(prev.__renderSpeed || 0); row.__walkPhase = Number(prev.__walkPhase || 0);
+      } else {
+        row.__vx = Number(row.x || 0); row.__vz = Number(row.z || 0); row.__velX = 0; row.__velZ = 0; row.__renderSpeed = 0; row.__walkPhase = 0;
+      }
+      playersById.set(row.id,row);
+      if (row.id !== me.id) remotes.push(row);
+    }
   }
   function eventWorld(ev: PointerEvent | MouseEvent) {
     const rect = canvas.getBoundingClientRect();
@@ -1113,7 +1249,7 @@ export function createCanvasPrismWorld(opts: CanvasWorldOptions): CanvasWorldApi
   function worldToScreen(x:number, z:number, y = 0) { return proj(Number(x), Number(y), Number(z)); }
   function screenToWorldPoint(sx:number, sy:number) { return screenToWorld(Number(sx), Number(sy)); }
   function visibleCells() { return Array.from(cells.values()).map((c:any) => ({ x: c.cx ?? c.x, z: c.cz ?? c.z, owner: c.owner || 0 })); }
-  function movementState() { return { x: me.x, z: me.z, authoritativeX: lastAuthoritative.x, authoritativeZ: lastAuthoritative.z, inFlight, maxInFlight, pending: pendingPath.length, ackSeq, moveSeq, canIssueMove: canIssueMoveNow() }; }
+  function movementState() { return { x: me.x, z: me.z, visualX: me.vx, visualZ: me.vz, visualSpeed: me.renderSpeed, authoritativeX: lastAuthoritative.x, authoritativeZ: lastAuthoritative.z, inFlight, maxInFlight, pending: pendingPath.length, ackSeq, moveSeq, canIssueMove: canIssueMoveNow() }; }
   function capitalBearing() {
     const ax = Number(ST.ax || 0), az = Number(ST.az || 0);
     const dx = ax - Number(me.x || 0), dz = az - Number(me.z || 0);
