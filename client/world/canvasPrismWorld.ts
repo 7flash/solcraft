@@ -4,6 +4,18 @@ import { resourceRecipeFor, type ResourcePrismPart } from "./resourceRecipes";
 import { createPickDebugOverlay, type CanvasWorldApi } from "./canvasWorldApi";
 import { visualPerfFor } from "../game/clientSettings";
 
+/*
+  Canvas-first rendering decision
+  -------------------------------
+  The world remains Canvas 2D because it keeps the 2.5D prism renderer simple,
+  debuggable, and cheap to ship on mobile. We are deliberately not moving core
+  terrain/buildings/selection to WebGL in this phase; a second renderer would
+  introduce depth-order and input-mapping bugs. If WebGL is added later, keep it
+  as a narrow overlay above the canvas (for example additive Wonder bloom, rain
+  distortion, or post-process light cones) that never owns collision, picking,
+  authoritative coordinates, or the painter's algorithm.
+*/
+
 type Pt = { x: number; y: number };
 type CanvasWorldOptions = {
   host: HTMLElement;
@@ -71,6 +83,11 @@ export function createCanvasPrismWorld(opts: CanvasWorldOptions): CanvasWorldApi
   canvas.setAttribute("aria-label", "SolCraft canvas prism world");
   host.appendChild(canvas);
   const screenCtx = canvas.getContext("2d", { alpha: false })!;
+  // Static terrain/roads/grid are rendered into this offscreen canvas and then
+  // blitted with one drawImage per frame. Canvas path construction is the hot
+  // CPU cost, so caching static pixels matters more than micro-optimizing each
+  // ctx.fill() call. The cache key below uses coarse buckets to avoid thrashing
+  // while the camera eases sub-pixel between tiles.
   const staticCanvas = document.createElement("canvas");
   const staticCtx = staticCanvas.getContext("2d", { alpha: true })!;
   let ctx: CanvasRenderingContext2D = screenCtx;
@@ -673,6 +690,13 @@ export function createCanvasPrismWorld(opts: CanvasWorldOptions): CanvasWorldApi
     const a = proj(cx - half, lift, z), b = proj(cx, lift, z - half), c = proj(cx + half, lift, z), d = proj(cx, lift, z + half);
     poly([a,b,c,d], colorWithAlpha(color, alpha));
   }
+  function diamondPath(cx: number, z: number, half = 0.5, lift = 0.04) {
+    return [proj(cx - half, lift, z), proj(cx, lift, z - half), proj(cx + half, lift, z), proj(cx, lift, z + half)];
+  }
+  function strokeDiamond(cx: number, z: number, half = 0.5, lift = 0.04) {
+    const [a,b,c,d] = diamondPath(cx, z, half, lift);
+    ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.lineTo(c.x, c.y); ctx.lineTo(d.x, d.y); ctx.closePath(); ctx.stroke();
+  }
   function faceGradient(a: Pt, b: Pt, c: Pt, d: Pt, top: string, bottom: string) {
     const g = ctx.createLinearGradient((a.x+b.x)/2, (a.y+b.y)/2, (c.x+d.x)/2, (c.y+d.y)/2);
     g.addColorStop(0, top); g.addColorStop(1, bottom);
@@ -833,30 +857,32 @@ export function createCanvasPrismWorld(opts: CanvasWorldOptions): CanvasWorldApi
   function drawCityGrid() {
     const r = opts.currentTileLoadRadius?.() || 36;
     const cx = Math.round(me.vx || me.x), cz = Math.round(me.vz || me.z);
-    const gx = Math.floor(cx / cityGridStep) * cityGridStep;
-    const gz = Math.floor(cz / cityGridStep) * cityGridStep;
+    const step = cityGridStep;
+    const half = step / 2;
+    const baseX = Math.floor(cx / step) * step;
+    const baseZ = Math.floor(cz / step) * step;
     const L = lightForTime();
+    const lotAlpha = 0.040 + 0.038 * Math.max(0, L.elev);
+    const majorAlpha = 0.110 + 0.070 * Math.max(0, L.elev);
     ctx.save();
-    const minorAlpha = 0.045 + 0.035 * Math.max(0, L.elev);
-    const majorAlpha = 0.105 + 0.080 * Math.max(0, L.elev);
-    ctx.lineWidth = Math.max(0.55, 0.85 * visualZoom());
-    ctx.beginPath();
-    for (let x = gx - r - cityGridStep; x <= gx + r + cityGridStep; x += cityGridStep) {
-      const major = Math.abs(x % (cityGridStep * 4)) === 0;
-      const a = proj(x, 0.036, gz - r - cityGridStep);
-      const b = proj(x, 0.036, gz + r + cityGridStep);
-      ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y);
-      if (major) { ctx.strokeStyle = `rgba(255,244,207,${majorAlpha})`; ctx.stroke(); ctx.beginPath(); }
+    ctx.lineWidth = Math.max(0.65, 0.95 * visualZoom());
+    // City planning grid decision: draw isometric diamond lots, not screen-space
+    // rectangular lattice lines. Buildings and build ghosts reserve the same
+    // 4x4 diamond footprint, so the grid now shares their ground plane and no
+    // longer feels like a flat UI rectangle pasted under prism bases.
+    for (let x = baseX - r - step; x <= baseX + r + step; x += step) {
+      for (let z = baseZ - r - step; z <= baseZ + r + step; z += step) {
+        if (Math.max(Math.abs(x - cx), Math.abs(z - cz)) > r + step) continue;
+        const major = Math.abs(x % (step * 4)) === 0 && Math.abs(z % (step * 4)) === 0;
+        ctx.strokeStyle = major ? `rgba(255,244,207,${majorAlpha})` : `rgba(255,255,255,${lotAlpha})`;
+        strokeDiamond(x, z, half, 0.037);
+        if (major && qualityName() !== "fast") {
+          const p = proj(x, 0.041, z);
+          ctx.fillStyle = `rgba(255,231,165,${majorAlpha * 0.34})`;
+          ctx.beginPath(); ctx.ellipse(p.x, p.y, Math.max(1.2, tileW * 0.035), Math.max(0.8, tileH * 0.035), 0, 0, Math.PI * 2); ctx.fill();
+        }
+      }
     }
-    ctx.strokeStyle = `rgba(255,255,255,${minorAlpha})`; ctx.stroke(); ctx.beginPath();
-    for (let z = gz - r - cityGridStep; z <= gz + r + cityGridStep; z += cityGridStep) {
-      const major = Math.abs(z % (cityGridStep * 4)) === 0;
-      const a = proj(gx - r - cityGridStep, 0.036, z);
-      const b = proj(gx + r + cityGridStep, 0.036, z);
-      ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y);
-      if (major) { ctx.strokeStyle = `rgba(255,244,207,${majorAlpha})`; ctx.stroke(); ctx.beginPath(); }
-    }
-    ctx.strokeStyle = `rgba(255,255,255,${minorAlpha})`; ctx.stroke();
     ctx.restore();
   }
   function drawFaceWindows(f00: Pt, f10: Pt, f11: Pt, f01: Pt, cols: number, rows: number, seed: number, glow = true) {
@@ -1417,6 +1443,9 @@ export function createCanvasPrismWorld(opts: CanvasWorldOptions): CanvasWorldApi
   }
   function staticLayerKey() {
     const snap = staticCameraSnapPx();
+    // Coarse hour band is deliberate: lighting should change mood over time,
+    // but not dirty the cached terrain every animation frame. Dynamic entities
+    // still get current light each draw.
     const hourBand = Math.floor(currentHour() / 2);
     return [
       width, height, dpr.toFixed(2), qualityName(), hourBand,

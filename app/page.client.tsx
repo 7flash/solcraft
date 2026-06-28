@@ -931,17 +931,61 @@ export default function mount() {
     paint(true);
   }
 
-  /* ---------- NET: anchor/rev protocol ---------- */
+  /* ---------- NET: anchor/rev protocol ----------
+     We are intentionally keeping REST polling as the state transport for this
+     release. It is easier to inspect in DevTools, replay from logs/curl, cache at
+     the edge, and reason about during ECS debugging than a long-lived socket. The
+     performance rule is: poll only when a snapshot can teach the client something
+     new, send rev/mapRev/chat cursors so the server can return deltas, and force
+     a short poll only after actions that mutate authoritative state. If we later
+     add SSE/WebSocket, it should be an optional downstream push path that feeds
+     this same applySnap/materializeWorldPayload code, not a second state model.
+     ---------------------------------------------------------------------- */
+  const POLL_HEARTBEAT_MS = 250;       // cheap scheduler tick; most ticks skip
+  const POLL_ACTIVE_MS = 850;          // normal shared-world freshness
+  const POLL_RECENT_ACTION_MS = 360;   // brief catch-up after build/claim/pickup
+  const POLL_IDLE_MS = 1450;           // player is just watching
+  const POLL_HIDDEN_MS = 4200;         // tab hidden: preserve server/battery
+  const POLL_BACKOFF_MAX_MS = 5200;
   let pollT = null, pollBusy = false, pollSoonT = null;
+  let lastPollAt = 0, lastActionAt = 0, consecutivePollFailures = 0;
+
+  function desiredPollInterval(force = false) {
+    if (force) return 0;
+    if (!ST.auth || ST.screen !== "playing") return POLL_IDLE_MS;
+    if (document.hidden) return POLL_HIDDEN_MS;
+    const now = performance.now();
+    const recentAction = now - lastActionAt < 2200;
+    const localMotion = !!world?.hasPendingMove?.();
+    const sharedActivity = Array.isArray(ST.players) && ST.players.length > 0;
+    const base = recentAction || localMotion ? POLL_RECENT_ACTION_MS : POLL_ACTIVE_MS;
+    const idle = (!sharedActivity && !recentAction && !localMotion && !ST.chatOpen && !ST.modal) ? Math.max(base, POLL_IDLE_MS) : base;
+    const backoff = consecutivePollFailures ? Math.min(POLL_BACKOFF_MAX_MS, 600 * Math.pow(1.75, consecutivePollFailures - 1)) : 0;
+    return Math.max(idle, backoff);
+  }
+
   async function poll(force = false) {
+    const now = performance.now();
     if (!ST.auth || pollBusy || (!force && ST.screen !== "playing")) return false;
+    if (!force) {
+      const interval = desiredPollInterval(false);
+      if (now - lastPollAt < interval) return false;
+    }
+    lastPollAt = now;
     const a = { ...ST.auth };
     pollBusy = true;
     const pollStartedAt = performance.now();
-    const r = await perf.measureAsync("net.state", () => api("/api/state", { pid: a.pid, secret: a.secret, rev: ST.rev, ax: ST.ax, az: ST.az, chat: ST.chatId, mapRev: ST.mapRev ?? -1 }), { rev: ST.rev, mapRev: ST.mapRev ?? -1 });
-    perfMini.update({ ping: performance.now() - pollStartedAt });
-    pollBusy = false;
+    let r:any = null;
+    try {
+      r = await perf.measureAsync("net.state", () => api("/api/state", {
+        pid: a.pid, secret: a.secret, rev: ST.rev, ax: ST.ax, az: ST.az, chat: ST.chatId, mapRev: ST.mapRev ?? -1,
+      }), { rev: ST.rev, mapRev: ST.mapRev ?? -1, forced: !!force });
+    } finally {
+      perfMini.update({ ping: performance.now() - pollStartedAt });
+      pollBusy = false;
+    }
     if (!r || !r.ok) {
+      consecutivePollFailures = Math.min(8, consecutivePollFailures + 1);
       if (r && r.msg === "auth") {
         localStorage.removeItem(AUTH_KEY);
         ST.auth = null; ST.walletVerified = false; ST.spectator = false; ST.profile.wallet = ""; ST.screen = "menu"; ST.me = null;
@@ -950,11 +994,12 @@ export default function mount() {
       }
       return false;
     }
+    consecutivePollFailures = 0;
     if (!ST.auth || ST.auth.pid !== a.pid || ST.auth.secret !== a.secret) return false;
     perf.measure("snap.apply", () => applySnap(r.snap), { rev: r.snap?.rev, players: r.snap?.players?.length || 0, buildings: r.snap?.buildings?.length || 0 });
     return true;
   }
-  const pollSoon = () => { clearTimeout(pollSoonT); pollSoonT = setTimeout(() => poll(true), 120); };
+  const pollSoon = () => { clearTimeout(pollSoonT); pollSoonT = setTimeout(() => poll(true), 90); };
 
   const worldSnapshotCache = { tiles: [], buildings: [], doodads: [], loot: [], players: [] };
   function entityKeyForWorldList(name, item) {
@@ -1267,6 +1312,7 @@ export default function mount() {
   async function act(type, payload = {}) {
     if (ST.updateRequired) return { ok: false, msg: "refresh required" };
     if (!ST.auth) return { ok: false };
+    lastActionAt = performance.now();
     if (ST.spectator && !["move", "movePath", "adminMapTeleport", "adminDemolishAt", "adminSpawnKeep", "profileAppearance", "setupProfile", "homeStart", "homeFinish", "homeCancel", "home"].includes(type)) {
       say(t("toast.spectatorReadonly", "Spectator mode is read-only. Connect Phantom to claim, craft, build, trade, or collect. Spectators are visible as ghosts but cannot pick up coins."), 2200);
       return { ok: false, msg: "spectator" };
@@ -1467,7 +1513,7 @@ export default function mount() {
      The live world renderer is now Canvas 2D.  Three.js is no longer used for
      map terrain, buildings, resources, players, previews, or visibility.
      The canvas renderer consumes the same authoritative snapshots and builds
-     every static object from stacked rectangular prism recipes.
+     world objects from stacked prism recipes while keeping DOM HUD/UI separate.
      ============================================================ */
   const world = guardCanvasWorld(createCanvasPrismWorld({
     host: worldEl,
@@ -1771,7 +1817,8 @@ export default function mount() {
           if (r && r.ok) {
             world.markDoodadGone?.(x, z);
             world.burst(x, 0.4, z, kind === "tree" ? 0x52ad58 : kind === "food" ? 0xffd76e : 0xaaa69a, 12, 0.45);
-            const gainText = String(r.note || "").match(/(?:+d+[^.]*|d+s+(?:wood|stone|food)[^.]*)/i)?.[0] || (kind === "tree" ? "+wood dropped" : kind === "rock" ? "+stone dropped" : "+food");
+            const m = String(r.note || "").match(/\+?\s*(\d+)\s*(wood|stone|food|gold|coins?)\b/i);
+            const gainText = m ? `+${m[1]} ${String(m[2]).toLowerCase()}` : (kind === "tree" ? "+wood dropped" : kind === "rock" ? "+stone dropped" : "+food");
             world.floatText?.(x, z, gainText, kind === "tree" ? "#14f195" : kind === "food" ? "#ffd76e" : "#d7dde7");
             if (r.inv && ST.me) ST.me.inv = { ...(ST.me.inv || {}), ...r.inv };
             completeWalkthroughAction(kind === "tree" ? "chop" : kind === "food" ? "farm" : "mine");
@@ -4151,7 +4198,10 @@ export default function mount() {
   /* ============================================================
      BOOT
      ============================================================ */
-  pollT = scheduler.every("state.poll", 850, () => poll(), { immediate: false });
+  // Run a cheap heartbeat so desiredPollInterval() can adapt to recent
+  // actions, hidden tabs, failures, and local movement without rebuilding the
+  // scheduler. Most heartbeats intentionally do no network work.
+  pollT = scheduler.every("state.poll.heartbeat", POLL_HEARTBEAT_MS, () => poll(), { immediate: false });
   paint(true);
   if (ST.auth) setTimeout(() => startPlaying(), 0);
 
