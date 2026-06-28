@@ -580,10 +580,21 @@ export function createCanvasPrismWorld(opts: CanvasWorldOptions): CanvasWorldApi
     }
   }
 
+  function colorWithAlpha(color: string, alpha = 1) {
+    const a = clamp(Number(alpha), 0, 1);
+    const s = String(color || "").trim();
+    if (/^#[0-9a-f]{6}$/i.test(s)) {
+      const [r,g,b] = hexToRgb(s);
+      return `rgba(${r|0},${g|0},${b|0},${a})`;
+    }
+    if (/^rgba\(/i.test(s)) return s.replace(/,\s*[0-9.]+\)$/, `,${a})`);
+    if (/^rgb\(/i.test(s)) return s.replace(/^rgb\(/i, "rgba(").replace(/\)$/, `,${a})`);
+    return s || `rgba(255,215,110,${a})`;
+  }
   function drawDiamond(cx: number, z: number, color: string, alpha = 1, lift = 0.01, scale = 1) {
     const half = scale * 0.5;
     const a = proj(cx - half, lift, z), b = proj(cx, lift, z - half), c = proj(cx + half, lift, z), d = proj(cx, lift, z + half);
-    poly([a,b,c,d], color.replace(/)$/, `,${alpha})`).replace("rgb(", "rgba("));
+    poly([a,b,c,d], colorWithAlpha(color, alpha));
   }
   function faceGradient(a: Pt, b: Pt, c: Pt, d: Pt, top: string, bottom: string) {
     const g = ctx.createLinearGradient((a.x+b.x)/2, (a.y+b.y)/2, (c.x+d.x)/2, (c.y+d.y)/2);
@@ -1122,7 +1133,7 @@ export function createCanvasPrismWorld(opts: CanvasWorldOptions): CanvasWorldApi
     ctx.strokeStyle = `${color}66`;
     ctx.beginPath(); ctx.ellipse(p.x, p.y, rx, ry, 0, 0, Math.PI * 2); ctx.stroke();
     ctx.strokeStyle = `${color}dd`;
-    ctx.beginPath(); ctx.ellipse(p.x, p.y, rx, ry, -Math.PI/2, -Math.PI/2 + Math.PI * 2 * pct); ctx.stroke();
+    ctx.beginPath(); ctx.ellipse(p.x, p.y, rx, ry, 0, -Math.PI/2, -Math.PI/2 + Math.PI * 2 * pct); ctx.stroke();
     const barW = Math.max(34, 48 * visualZoom()), barH = Math.max(4, 5 * visualZoom());
     const by = p.y - 30 * visualZoom();
     ctx.fillStyle = "rgba(8,12,18,0.70)"; ctx.fillRect(p.x - barW/2, by, barW, barH);

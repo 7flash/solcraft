@@ -7,6 +7,7 @@ import { withImmediateTx } from "./dbTx";
 import { appendCoinLedger } from "./coinLedger";
 import { appendHardCurrencyLedger, hardCurrencyBalanceRaw } from "./hardCurrencyLedger";
 import { SOLCRAFT_ECONOMY } from "./economyConfig";
+import { assertBankDeltaBalanced, assertNonNegativeInventory } from "./economyInvariants";
 
 const bankMeasure = createMeasure("bank", { maxResultLength: 220 });
 const META_BANK_SETTINGS = "solcraft:bank:settings:v1";
@@ -353,6 +354,7 @@ export async function scanBankDeposits(p: any, limit = 50) {
           const row = getPlayer(p.id) as any || p;
           const before = Math.max(0, Math.floor(Number(row?.inv?.g || 0)));
           row.inv = { ...(row.inv || {}), g: before + creditedCoins };
+          assertNonNegativeInventory(row.inv);
           refreshPlayer(row);
           appendCoinLedger({
             player: p.id,
@@ -424,6 +426,8 @@ export async function requestBankWithdrawal(p: any, amountUi: string | number, t
       const rowPlayer = getPlayer(p.id) as any || p;
       const before = Math.max(0, Math.floor(Number(rowPlayer?.inv?.g || 0)));
       rowPlayer.inv = { ...(rowPlayer.inv || {}), g: Math.max(0, before - spendCoins) };
+      assertNonNegativeInventory(rowPlayer.inv);
+      assertBankDeltaBalanced({ before: BigInt(before), after: BigInt(rowPlayer.inv.g || 0), debited: BigInt(spendCoins) });
       refreshPlayer(rowPlayer);
       appendCoinLedger({ player: p.id, delta: -spendCoins, reason: "bankCoinWithdrawalDebit", refType: "bankWithdrawal", refId: id, idempotencyKey: `withdraw-debit:${idem}`, meta: { amountRaw: amountRaw.toString(), amountUi: row.amountUi, coinAmount: spendCoins, to, coinsPerSol: s.coinsPerSol, principalBeforeRaw: principal.withdrawableRaw } });
       rows = withdrawals();
@@ -450,6 +454,8 @@ export async function requestBankWithdrawal(p: any, amountUi: string | number, t
         const rowPlayer = getPlayer(p.id) as any || p;
         const before = Math.max(0, Math.floor(Number(rowPlayer?.inv?.g || 0)));
         rowPlayer.inv = { ...(rowPlayer.inv || {}), g: before + spendCoins };
+        assertNonNegativeInventory(rowPlayer.inv);
+        assertBankDeltaBalanced({ before: BigInt(before), after: BigInt(rowPlayer.inv.g || 0), credited: BigInt(spendCoins) });
         refreshPlayer(rowPlayer);
         appendCoinLedger({ player: p.id, delta: spendCoins, reason: "bankCoinWithdrawalRefund", refType: "bankWithdrawal", refId: id, idempotencyKey: `withdraw-refund:${idem}`, meta: { amountRaw: amountRaw.toString(), amountUi: row.amountUi, coinAmount: spendCoins, error: String(e?.message || e) } });
         row.status = "failed";
