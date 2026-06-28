@@ -143,6 +143,8 @@ export function createCanvasPrismWorld(opts: CanvasWorldOptions): CanvasWorldApi
   }));
   const citySparkles: any[] = [];
   let lastCitySparkleAt = 0;
+  const actionBursts: any[] = [];
+  const actionRings: any[] = [];
   const ambientCitizens = Array.from({ length: 18 }, (_, i) => ({
     id: `citizen:${i}`,
     lane: i % 6,
@@ -346,6 +348,102 @@ export function createCanvasPrismWorld(opts: CanvasWorldOptions): CanvasWorldApi
     const lamp = proj(x + (yaw ? 0.22 : 0.42), 0.36, z + (yaw ? 0.42 : 0.22));
     ctx.fillStyle = `rgba(255,210,110,${0.25 + L.night * 0.55})`;
     ctx.beginPath(); ctx.arc(lamp.x, lamp.y, Math.max(2, 3.2 * visualZoom()), 0, Math.PI * 2); ctx.fill();
+  }
+
+  function drawStreetLamp(x: number, z: number, seed = 0) {
+    const L = lightForTime();
+    const glow = clamp(0.12 + L.night * 0.78 + (L.dusk ? 0.18 : 0), 0, 0.92);
+    drawPrismMin(x - 0.035, z - 0.035, 0.04, 0.07, 0.07, 0.72, '#2c3645', '#1d2530', '#121820', 0.94);
+    drawPrismMin(x - 0.105, z - 0.105, 0.73, 0.21, 0.21, 0.12, '#ffd76e', '#a98728', '#755d1a', 0.98);
+    const p = proj(x, 0.90, z);
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    ctx.fillStyle = `rgba(255,212,110,${glow * 0.20})`;
+    ctx.beginPath(); ctx.arc(p.x, p.y, Math.max(8, 18 * visualZoom()), 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = `rgba(255,236,170,${glow * (0.55 + 0.18 * Math.sin(performance.now()/420 + seed))})`;
+    ctx.beginPath(); ctx.arc(p.x, p.y, Math.max(2, 3.8 * visualZoom()), 0, Math.PI * 2); ctx.fill();
+    ctx.restore();
+  }
+
+  function drawCrosswalk(cx: number, cz: number, horizontal: boolean) {
+    ctx.save();
+    ctx.globalAlpha = 0.20 + lightForTime().elev * 0.16;
+    for (let i = -2; i <= 2; i++) {
+      const off = i * 0.28;
+      const x = horizontal ? cx + off : cx;
+      const z = horizontal ? cz : cz + off;
+      const a = proj(x - (horizontal ? 0.035 : 0.46), 0.031, z - (horizontal ? 0.46 : 0.035));
+      const b = proj(x + (horizontal ? 0.035 : 0.46), 0.031, z - (horizontal ? 0.46 : 0.035));
+      const c = proj(x + (horizontal ? 0.035 : 0.46), 0.031, z + (horizontal ? 0.46 : 0.035));
+      const d = proj(x - (horizontal ? 0.035 : 0.46), 0.031, z + (horizontal ? 0.46 : 0.035));
+      poly([a,b,c,d], 'rgba(245,236,208,0.64)');
+    }
+    ctx.restore();
+  }
+
+  function drawCityFurniture() {
+    const step = roadStep();
+    const r = opts.currentTileLoadRadius?.() || 36;
+    const cx = Math.floor(Number(me.vx || me.x || 0) / step) * step;
+    const cz = Math.floor(Number(me.vz || me.z || 0) / step) * step;
+    const minX = cx - r - step, maxX = cx + r + step;
+    const minZ = cz - r - step, maxZ = cz + r + step;
+    for (let x = Math.floor(minX / step) * step; x <= maxX; x += step) {
+      for (let z = Math.floor(minZ / step) * step; z <= maxZ; z += step) {
+        const seed = Math.trunc(x * 17 + z * 31);
+        drawCrosswalk(x, z, true);
+        drawCrosswalk(x, z, false);
+        if (stableRand(x, z, 501) > 0.18) drawStreetLamp(x + 1.35, z - 1.35, seed);
+        if (stableRand(x, z, 502) > 0.34) drawStreetLamp(x - 1.35, z + 1.35, seed + 13);
+        if (stableRand(x, z, 503) > 0.78) {
+          drawPrismMin(x + 2.05, z + 0.36, 0.04, 0.16, 0.16, 0.44, '#c94a34', '#8f2d24', '#5e1d18', 0.92);
+          drawPrismMin(x + 2.05, z + 0.36, 0.48, 0.34, 0.08, 0.14, '#ffd76e', '#a98728', '#755d1a', 0.95);
+        }
+      }
+    }
+  }
+
+  function pushActionBurst(x: number, y: number, z: number, color = '#ffd76e', count = 10, power = 1) {
+    const base = cssHex(color, '#ffd76e');
+    for (let i = 0; i < count; i++) {
+      const a = stableRand(Math.floor(performance.now()), i, 811) * Math.PI * 2;
+      const sp = (0.55 + stableRand(i, Math.floor(x * 100), 812) * 1.55) * power;
+      actionBursts.push({
+        x, y, z,
+        vx: Math.cos(a) * sp,
+        vz: Math.sin(a) * sp,
+        vy: 0.90 + stableRand(i, Math.floor(z * 100), 813) * 1.85,
+        life: 0.52 + stableRand(i, 17, 814) * 0.36,
+        maxLife: 0.88,
+        color: base,
+        r: 0.018 + stableRand(i, 23, 815) * 0.035,
+      });
+    }
+    if (actionBursts.length > 140) actionBursts.splice(0, actionBursts.length - 140);
+  }
+
+  function drawActionEffects() {
+    const dt = Math.max(0.012, renderDtMs / 1000);
+    for (let i = actionRings.length - 1; i >= 0; i--) {
+      const r = actionRings[i];
+      r.life -= dt * 1.05; r.radius += dt * (1.7 + Number(r.power || 1) * 0.8);
+      if (r.life <= 0) { actionRings.splice(i, 1); continue; }
+      const p = proj(r.x, 0.082, r.z);
+      ctx.save();
+      ctx.strokeStyle = `${cssHex(r.color, '#ffd76e')}${Math.round(255 * clamp(r.life / r.maxLife, 0, 1) * 0.72).toString(16).padStart(2,'0')}`;
+      ctx.lineWidth = Math.max(1.2, 2.0 * visualZoom());
+      ctx.beginPath(); ctx.ellipse(p.x, p.y, r.radius * tileW * 0.44, r.radius * tileH * 0.26, 0, 0, Math.PI * 2); ctx.stroke();
+      ctx.restore();
+    }
+    for (let i = actionBursts.length - 1; i >= 0; i--) {
+      const b = actionBursts[i];
+      b.life -= dt; b.x += b.vx * dt; b.z += b.vz * dt; b.y += b.vy * dt; b.vy -= 4.4 * dt;
+      if (b.life <= 0) { actionBursts.splice(i, 1); continue; }
+      const p = proj(b.x, b.y, b.z);
+      const a = clamp(b.life / Math.max(0.001, b.maxLife), 0, 1);
+      ctx.save(); ctx.globalAlpha = a; ctx.fillStyle = cssHex(b.color, '#ffd76e');
+      ctx.beginPath(); ctx.arc(p.x, p.y, Math.max(1.1, b.r * tileW), 0, Math.PI * 2); ctx.fill(); ctx.restore();
+    }
   }
   function poly(pts: Pt[], fill: string, stroke = "") {
     ctx.beginPath(); ctx.moveTo(pts[0].x, pts[0].y);
@@ -731,6 +829,19 @@ export function createCanvasPrismWorld(opts: CanvasWorldOptions): CanvasWorldApi
     ctx.fillStyle = "#2b211d"; ctx.beginPath(); ctx.arc(-3,-16,1.2,0,Math.PI*2); ctx.arc(4,-16,1.2,0,Math.PI*2); ctx.fill();
     ctx.strokeStyle = "#7a4135"; ctx.lineWidth = 1; ctx.beginPath(); ctx.arc(1,-13,3,0.15,Math.PI-0.15); ctx.stroke();
     ctx.restore();
+    const label = String(ply.name || (isMe ? 'You' : '') || '').slice(0, 18);
+    if (label && (isMe || visualZoom() > 0.82)) {
+      const lp = proj(x, isMe ? 1.34 : 1.20, z);
+      ctx.save();
+      ctx.font = `900 ${Math.max(9, 10 * visualZoom())}px system-ui, sans-serif`;
+      ctx.textAlign = 'center';
+      ctx.lineWidth = Math.max(2, 3 * visualZoom());
+      ctx.strokeStyle = 'rgba(7,10,14,0.72)';
+      ctx.fillStyle = isMe ? '#fff0a8' : 'rgba(225,236,247,0.92)';
+      ctx.strokeText(label, lp.x, lp.y);
+      ctx.fillText(label, lp.x, lp.y);
+      ctx.restore();
+    }
   }
   function drawLoot(l: any) {
     const x = Number(l.x || 0), z = Number(l.z || 0);
@@ -784,6 +895,27 @@ export function createCanvasPrismWorld(opts: CanvasWorldOptions): CanvasWorldApi
     const radius = p.primary === "building" ? 1.22 : p.primary === "doodad" ? 0.86 : 0.62;
     drawTargetRing(p.cell.x, p.cell.z, color, radius, 0.09, 0.62);
   }
+  function drawInteractionTooltip() {
+    if (!lastPickTarget || performance.now() - lastPickAt > 1400 || !lastPickTarget.cell) return;
+    const p = lastPickTarget;
+    if (p.primary === 'terrain') return;
+    const label = p.primary === 'building' ? 'Inspect / use' : p.primary === 'doodad' ? 'E harvest' : p.primary === 'trade' ? 'Trade' : p.primary === 'npc' ? 'Talk' : p.primary === 'player' ? 'Player' : '';
+    if (!label) return;
+    const sp = proj(Number(p.cell.x || 0), p.primary === 'building' ? 2.25 : 1.25, Number(p.cell.z || 0));
+    const padX = 7 * visualZoom();
+    ctx.save();
+    ctx.font = `900 ${Math.max(10, 11 * visualZoom())}px system-ui, sans-serif`;
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    const w = ctx.measureText(label).width + padX * 2;
+    const h = 18 * visualZoom();
+    ctx.fillStyle = 'rgba(18,26,38,0.78)';
+    ctx.strokeStyle = 'rgba(255,255,255,0.16)';
+    ctx.lineWidth = Math.max(1, visualZoom());
+    ctx.beginPath(); ctx.roundRect(sp.x - w/2, sp.y - h/2, w, h, 8 * visualZoom()); ctx.fill(); ctx.stroke();
+    ctx.fillStyle = p.primary === 'doodad' ? '#9df38f' : p.primary === 'building' ? '#ffd76e' : '#d7dfcf';
+    ctx.fillText(label, sp.x, sp.y + 0.5);
+    ctx.restore();
+  }
   function drawGhostBuildingPreview() {
     if (!ghost) return false;
     const placing = String(ST?.placing || ST?.tool || "cottage").toLowerCase();
@@ -821,6 +953,7 @@ export function createCanvasPrismWorld(opts: CanvasWorldOptions): CanvasWorldApi
       poly([a,b,c,d], `${color}33`, `${color}cc`);
     }
     drawHoverTargetAffordance();
+    drawInteractionTooltip();
   }
   function drawChannelHint() {
     const ch = ST?.channel;
@@ -888,7 +1021,7 @@ export function createCanvasPrismWorld(opts: CanvasWorldOptions): CanvasWorldApi
     drawSkyBackdrop();
     const haze = ctx.createRadialGradient(width*0.45,height*0.35,0,width*0.50,height*0.56,Math.max(width,height)*0.78);
     haze.addColorStop(0,"rgba(80,124,92,0.18)"); haze.addColorStop(1,"rgba(5,12,18,0.24)"); ctx.fillStyle = haze; ctx.fillRect(0,0,width,height);
-    drawTerrain(); drawGroundWash(); drawCityRoads(); drawCityGrid(); drawOverlayCells();
+    drawTerrain(); drawGroundWash(); drawCityRoads(); drawCityGrid(); drawCityFurniture(); drawOverlayCells();
 
     drawChannelHint();
 
@@ -924,6 +1057,7 @@ export function createCanvasPrismWorld(opts: CanvasWorldOptions): CanvasWorldApi
       else if (e.kind === 'cart') drawTinyCart(e.data, e.x, e.z, !!e.data.horizontal);
       else if (e.kind === "me") drawPlayerSprite(me, true);
     }
+    drawActionEffects();
     for (let i = dustPuffs.length - 1; i >= 0; i--) {
       const d = dustPuffs[i]; d.life -= Math.max(0.012, renderDtMs / 1000); d.y += 0.008; d.r += 0.010;
       if (d.life <= 0) { dustPuffs.splice(i, 1); continue; }
@@ -1230,8 +1364,16 @@ export function createCanvasPrismWorld(opts: CanvasWorldOptions): CanvasWorldApi
   function showBuildGhost(x:number,z:number,valid=true) { ghost = { x,z,valid }; }
   function hideBuildGhost() { ghost = null; }
   function floatText(x:number,z:number,text:string,color="#ffd76e") { floaters.push({x,z,y:1.2,text,color,life:1}); }
-  function burst(x:number,y:number,z:number,color=0xffd76e,count=8) { floatText(x,z,"✦",numColorToHex(color,"#ffd76e")); }
-  function shockwave(x:number,z:number,color=0xffd76e) { floatText(x,z,"◎",numColorToHex(color,"#ffd76e")); }
+  function burst(x:number,y:number,z:number,color=0xffd76e,count=8) {
+    const c = numColorToHex(color,"#ffd76e");
+    pushActionBurst(Number(x), Number(y || 0.65), Number(z), c, Math.max(5, Math.min(28, Number(count || 8))), 1);
+    actionRings.push({ x:Number(x), z:Number(z), color:c, life:0.46, maxLife:0.46, radius:0.18, power:1 });
+    floatText(x,z,"✦",c);
+  }
+  function shockwave(x:number,z:number,color=0xffd76e) {
+    const c = numColorToHex(color,"#ffd76e");
+    actionRings.push({ x:Number(x), z:Number(z), color:c, life:0.62, maxLife:0.62, radius:0.28, power:1.35 });
+  }
   function markDoodadGone(x:number,z:number) { const kk=kfn(x,z); exceptions.set(kk,"gone"); doodads.delete(kk); }
   function removeBuild(uid:any) { const b=buildPool.get(uid); if (!b) return; buildPool.delete(uid); buildAt.delete(kfn(b.x,b.z)); }
   function removeLoot(id: any, x?: number, z?: number) {

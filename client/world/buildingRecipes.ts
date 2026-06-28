@@ -326,6 +326,38 @@ function arcadeMarket(color: string, plinth: string): PrismRecipePart[] {
   return parts;
 }
 
+
+function transitStation(_color: string, plinth: string): PrismRecipePart[] {
+  const parts: PrismRecipePart[] = [
+    ...baseParts(plinth, 1.38),
+    win(part("station-main-hall", 0, 0.02, 0.24, 1.14, 0.78, 0.72, "#b99a72", "#84654a", "#5a4431"), 5, 2),
+    part("station-platform-front", 0, 0.50, 0.28, 1.26, 0.15, 0.12, MAT.stoneTop, MAT.stoneLeft, MAT.stoneRight),
+    part("station-track-a", -0.36, 0.62, 0.38, 0.06, 0.40, 0.08, "#2b3138", "#1c2228", "#12171c"),
+    part("station-track-b", 0.36, 0.62, 0.38, 0.06, 0.40, 0.08, "#2b3138", "#1c2228", "#12171c"),
+    part("station-clock-tower", 0, -0.12, 0.88, 0.36, 0.34, 1.04, MAT.creamTop, MAT.creamLeft, MAT.creamRight),
+    part("station-clock-face", 0, 0.08, 1.38, 0.18, 0.035, 0.18, "#fff0a8", "#b99a31", "#80681d"),
+    part("station-roof-spine", 0, -0.04, 1.02, 1.18, 0.84, 0.16, MAT.redTop, MAT.redLeft, MAT.redRight),
+    ...roofStack("station", 1.82, MAT.slateTop, MAT.slateLeft, MAT.slateRight, 0.54, 0.44),
+    ...flag("station", 0.30, -0.26, 2.10, MAT.brassTop),
+  ];
+  [-0.48, -0.16, 0.16, 0.48].forEach((x, i) => parts.push(part(`station-lamp-${i}`, x, 0.55, 0.56, 0.07, 0.05, 0.20, "#ffd76e", "#a98728", "#755d1a")));
+  return parts;
+}
+
+function observatory(_color: string, plinth: string): PrismRecipePart[] {
+  return [
+    ...baseParts(plinth, 1.24),
+    win(part("observatory-core", 0, 0, 0.24, 0.82, 0.68, 1.10, "#8fa1ac", "#5f747e", "#43545d"), 3, 4),
+    part("observatory-ring", 0, 0, 1.24, 1.02, 0.86, 0.12, MAT.brassTop, MAT.brassLeft, MAT.brassRight),
+    part("observatory-dome-base", 0, -0.02, 1.36, 0.78, 0.64, 0.22, MAT.mintTop, MAT.mintLeft, MAT.mintRight),
+    part("observatory-dome-mid", 0, -0.04, 1.55, 0.58, 0.48, 0.20, shade(MAT.mintTop, 0.06), MAT.mintLeft, MAT.mintRight),
+    part("observatory-dome-cap", 0, -0.06, 1.72, 0.34, 0.30, 0.16, MAT.brassTop, MAT.brassLeft, MAT.brassRight),
+    part("observatory-telescope", 0.32, -0.30, 1.78, 0.46, 0.10, 0.12, "#d7dfcf", "#a3ada4", "#747f78"),
+    part("observatory-lens", 0.58, -0.30, 1.79, 0.10, 0.12, 0.14, "#7dcfe8", "#3e9fb5", "#2b7181"),
+    ...flag("observatory", -0.34, -0.24, 1.82, MAT.violetTop),
+  ];
+}
+
 function generic(color: string, plinth: string): PrismRecipePart[] {
   const accent = isTerrainGreenish(color) ? MAT.redTop : color;
   return [
@@ -345,6 +377,8 @@ export function buildingRecipeFor(kind: string, opts: BuildingRecipeOptions = {}
   if (k === "tower" || k === "skyscraper" || k === "highrise" || k === "citytower" || k === "apartment") return cityTower(accent, plinth);
   if (k === "market" || k === "tradepost") return market(accent, plinth);
   if (k === "mall" || k === "arcade" || k === "exchange") return arcadeMarket(accent, plinth);
+  if (k === "station" || k === "depot" || k === "terminal" || k === "harbor") return transitStation(accent, plinth);
+  if (k === "observatory" || k === "library" || k === "lab") return observatory(accent, plinth);
   if (k === "townhall" || k === "guidehall" || k === "academy") return civicBlock(accent, plinth);
   if (k === "vault" || k === "bank" || k === "goldmine") return bank(accent, plinth);
   if (k === "workshop" || k === "forge" || k === "alchemy") return workshop(accent, plinth);
