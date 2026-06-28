@@ -401,7 +401,7 @@ export default function mount() {
   function currentWonderSize() { return normalizeWonderFootprintClient(ST.wonderFootprint || ST.wonderRecipe?.footprint || 9); }
   function currentWonderMode() { return ["single", "district"].includes(String(ST.wonderMode || ST.wonderRecipe?.mode)) ? String(ST.wonderMode || ST.wonderRecipe?.mode) : "district"; }
   function currentWonderPalette() { return WONDER_PALETTES.find((p) => p.id === (ST.wonderPaletteId || ST.wonderRecipe?.paletteId)) || WONDER_PALETTES[0]; }
-  function currentWonderNameFallback() { return cleanWonderPromptClient(ST.wonderName || ST.wonderPrompt || "Landmark").replace(/[^\w\s'’-]/g, " ").replace(/\s+/g, " ").trim().slice(0, 42) || "Landmark"; }
+  function currentWonderNameFallback() { return cleanWonderPromptClient(ST.wonderName || ST.wonderPrompt || "Landmark").replace(/[^ws'’-]/g, " ").replace(/s+/g, " ").trim().slice(0, 42) || "Landmark"; }
   function wonderRecipeForWire(b: any) {
     if (!b || b.kind !== "worldwonder") return null;
     const existing = b.wonder || null;
@@ -420,7 +420,7 @@ export default function mount() {
     };
   }
   function setWonderName(value) {
-    ST.wonderName = String(value || "").replace(/[<>`{}]/g, " ").replace(/\s+/g, " ").slice(0, 42);
+    ST.wonderName = String(value || "").replace(/[<>`{}]/g, " ").replace(/s+/g, " ").slice(0, 42);
     invalidateWonderPlan(ST.wonderName ? `Wonder name set to ${ST.wonderName}. Click a valid map tile to generate and found it there.` : "Wonder name cleared. Type a prompt, then click a valid map tile to generate and found it.");
   }
   function setWonderFootprint(value) {
@@ -1300,7 +1300,7 @@ export default function mount() {
   }
 
   function cleanWonderPromptClient(value) {
-    return String(value || "").replace(/\s+/g, " ").trim().slice(0, 180);
+    return String(value || "").replace(/s+/g, " ").trim().slice(0, 180);
   }
   function wonderFactsLine() {
     const size = currentWonderSize();
@@ -1554,8 +1554,15 @@ export default function mount() {
   }
   const nearT = scheduler.every("ui.near", 250, () => { if (ST.screen !== "playing") return; perf.measure("ui.near", () => { refreshNear(); updateHints(); tryPickupAt(); maybeStartQueuedHarvest(); paint(); }); });
   const keyboardMoveT = scheduler.every("movement.keyboard", 0, (now) => {
-    if (!updateKeyboardMoveIntent()) return;
+    if (!updateKeyboardMoveIntent()) {
+      try { world.setInputVelocity?.(0, 0); } catch {}
+      return;
+    }
     keyboardMoveAccumulator.tick(now, () => ST.screen === "playing" && !ST.updateRequired && !!world?.tryMoveDelta && (world.canIssueMove?.() !== false), (intent) => world.tryMoveDelta(intent.x, intent.z));
+    try {
+      const v = keyboardMoveAccumulator.getVelocity?.();
+      world.setInputVelocity?.(v?.x || 0, v?.z || 0);
+    } catch {}
   });
 
   function useBuildingClient(uid) {
@@ -1758,7 +1765,7 @@ export default function mount() {
           if (r && r.ok) {
             world.markDoodadGone?.(x, z);
             world.burst(x, 0.4, z, kind === "tree" ? 0x52ad58 : kind === "food" ? 0xffd76e : 0xaaa69a, 12, 0.45);
-            const gainText = String(r.note || "").match(/(?:\+\d+[^.]*|\d+\s+(?:wood|stone|food)[^.]*)/i)?.[0] || (kind === "tree" ? "+wood dropped" : kind === "rock" ? "+stone dropped" : "+food");
+            const gainText = String(r.note || "").match(/(?:+d+[^.]*|d+s+(?:wood|stone|food)[^.]*)/i)?.[0] || (kind === "tree" ? "+wood dropped" : kind === "rock" ? "+stone dropped" : "+food");
             world.floatText?.(x, z, gainText, kind === "tree" ? "#14f195" : kind === "food" ? "#ffd76e" : "#d7dde7");
             if (r.inv && ST.me) ST.me.inv = { ...(ST.me.inv || {}), ...r.inv };
             completeWalkthroughAction(kind === "tree" ? "chop" : kind === "food" ? "farm" : "mine");
@@ -1894,7 +1901,7 @@ export default function mount() {
         if (r.lootGone || l?.id != null) {
           world.removeLoot?.(r.lootGone ?? l.id, l.x, l.z);
         }
-        const note = String(r.note || "Picked up.").replace(/^Picked up\s*/i, "").replace(/\.$/, "");
+        const note = String(r.note || "Picked up.").replace(/^Picked ups*/i, "").replace(/.$/, "");
         world.floatText?.(l.x, l.z, note || "+loot", String(l.kind || "") === "gold" ? "#ffd76e" : "#14f195");
         if (r.inv && ST.me) ST.me.inv = { ...(ST.me.inv || {}), ...r.inv };
         paint(true);
