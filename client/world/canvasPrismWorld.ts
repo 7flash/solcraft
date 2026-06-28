@@ -53,6 +53,13 @@ function shadeHex(hex: string, amount: number) {
   return `#${out.map(v=>Math.round(clamp(v,0,255)).toString(16).padStart(2,"0")).join("")}`;
 }
 function mixRgb(a: number[], b: number[], t: number) { return [a[0]+(b[0]-a[0])*t, a[1]+(b[1]-a[1])*t, a[2]+(b[2]-a[2])*t]; }
+function colorToRgb(value: any, fallback = "#1f3a2f") {
+  const s = String(value || "").trim();
+  if (/^#[0-9a-f]{6}$/i.test(s)) return hexToRgb(s);
+  const m = s.match(/rgba?\(\s*([0-9.]+)\s*,\s*([0-9.]+)\s*,\s*([0-9.]+)/i);
+  if (m) return [Number(m[1]) || 0, Number(m[2]) || 0, Number(m[3]) || 0];
+  return hexToRgb(fallback);
+}
 function tint(hex: string, f = 1, tintRgb: number[] | null = null) {
   const c = hexToRgb(hex).map(v => v * f);
   const t = tintRgb || [1,1,1];
@@ -210,12 +217,14 @@ export function createCanvasPrismWorld(opts: CanvasWorldOptions): CanvasWorldApi
     prismPartsDrawn: 0, shadowsDrawn: 0, labelsDrawn: 0, particlesDrawn: 0,
     influenceAuras: 0, constructionVisuals: 0, perfWarnings: 0,
     spriteCacheHits: 0, spriteCacheMisses: 0, spriteDraws: 0, spriteEvictions: 0, buildingSlicesDrawn: 0,
+    terrainBlendPatches: 0, blockFillersDrawn: 0, resourceOrganicDraws: 0,
     reset() {
       this.terrainTilesDrawn = 0; this.entitiesSorted = 0; this.entitiesDrawn = 0; this.weatherDrawn = 0; this.staticSkipped = 0;
       this.staticRebuildMs = 0; this.dynamicDrawMs = 0; this.staticCacheHits = 0; this.staticCacheMisses = 0;
       this.prismPartsDrawn = 0; this.shadowsDrawn = 0; this.labelsDrawn = 0; this.particlesDrawn = 0;
       this.influenceAuras = 0; this.constructionVisuals = 0; this.perfWarnings = 0;
       this.spriteCacheHits = 0; this.spriteCacheMisses = 0; this.spriteDraws = 0; this.spriteEvictions = 0; this.buildingSlicesDrawn = 0;
+      this.terrainBlendPatches = 0; this.blockFillersDrawn = 0; this.resourceOrganicDraws = 0;
     },
   };
   function qualityName() { return String(renderQuality?.quality || ST.visual?.quality || "fast").toLowerCase(); }
@@ -727,8 +736,20 @@ export function createCanvasPrismWorld(opts: CanvasWorldOptions): CanvasWorldApi
     const a = proj(cx - half, lift, z), b = proj(cx, lift, z - half), c = proj(cx + half, lift, z), d = proj(cx, lift, z + half);
     poly([a,b,c,d], colorWithAlpha(color, alpha));
   }
-  function diamondPath(cx: number, z: number, half = 0.5, lift = 0.04) {
-    return [proj(cx - half, lift, z), proj(cx, lift, z - half), proj(cx + half, lift, z), proj(cx, lift, z + half)];
+  function diamondPath(cx: number, cz: number, radius = 0.5, y = 0.04) {
+    // Shared isometric-ground primitive. Keep this helper local to the renderer
+    // because it depends on the current projection/zoom/DPR. Shadows, aprons,
+    // terrain tiles, lot outlines, and directional cast-shadows all call this
+    // so they share the same diamond footprint contract as prism buildings.
+    // Do not inline ad-hoc diamond math in those callers; mismatched origins are
+    // what made the grid look rectangular and made Balanced/Crisp shadow paths
+    // fragile when this helper was absent.
+    return [
+      proj(cx - radius, y, cz),
+      proj(cx, y, cz - radius),
+      proj(cx + radius, y, cz),
+      proj(cx, y, cz + radius),
+    ];
   }
   function strokeDiamond(cx: number, z: number, half = 0.5, lift = 0.04) {
     const [a,b,c,d] = diamondPath(cx, z, half, lift);
@@ -752,12 +773,30 @@ export function createCanvasPrismWorld(opts: CanvasWorldOptions): CanvasWorldApi
     }
   }
   function drawLotDiamond(cx: number, z: number, fill: string, stroke = "", lift = 0.012, pad = 0.055) {
-    // Ground contract: city lots, building ghosts, construction aprons, and
-    // background terrain all share this same centered isometric diamond. The
-    // earlier renderer mixed 1x1 terrain cells, screen-space road strips, and
-    // footprint diamonds with different origins, which made the ground feel
-    // rectangular and detached from buildings.
+    // Ground contract: building ghosts and aprons are footprint diamonds.
+    // The *background* terrain below no longer paints a visible 4x4 lot grid,
+    // because that read as a rectangular board under centered prism buildings.
+    // Use this helper only for explicit footprint/placement affordances.
     poly(diamondPath(cx, z, lotHalf() + pad, lift), fill, stroke);
+  }
+  function terrainTilePath(x: number, z: number, lift = 0.010, pad = 0.515) {
+    return diamondPath(x, z, pad, lift);
+  }
+  function terrainBlendColor(x: number, z: number) {
+    const c = colorToRgb(terrainColor(x, z), "#1f3a2f");
+    const east = colorToRgb(terrainColor(x + 1, z), "#1f3a2f");
+    const south = colorToRgb(terrainColor(x, z + 1), "#1f3a2f");
+    const r = stableRand(x, z, 2027);
+    // Authoring choice: blend against neighbors to avoid visible rectangular
+    // biome blocks, but use stable low-frequency variation so the terrain stays
+    // quiet behind gameplay silhouettes.
+    return rgbToCss(mixRgb(mixRgb(c, east, 0.18), south, 0.14 + r * 0.06));
+  }
+  function terrainFeatureAlpha(x: number, z: number, base = 0.06) {
+    const L = frameLightForTime();
+    const dist = Math.max(Math.abs(x - (me.vx || me.x || 0)), Math.abs(z - (me.vz || me.z || 0)));
+    const r = opts.currentTileLoadRadius?.() || 36;
+    return base * clamp(1 - dist / Math.max(1, r) * 0.46, 0.38, 1) * clamp(0.66 + L.elev * 0.34, 0.55, 1);
   }
   function faceGradient(a: Pt, b: Pt, c: Pt, d: Pt, top: string, bottom: string) {
     const g = ctx.createLinearGradient((a.x+b.x)/2, (a.y+b.y)/2, (c.x+d.x)/2, (c.y+d.y)/2);
@@ -961,39 +1000,41 @@ export function createCanvasPrismWorld(opts: CanvasWorldOptions): CanvasWorldApi
     ctx.restore();
   }
   function drawCityGrid() {
-    const L = frameLightForTime();
     const q = qualityName();
     if (q === "fast") return;
-    const lotAlpha = q === "balanced" ? 0.035 : 0.055;
-    const strokeBase = lotAlpha + 0.030 * Math.max(0, L.elev);
+    // Grid decision: do not paint an infinite planning lattice. It makes the
+    // terrain read rectangular even when the projection is isometric. Show lot
+    // outlines only where they explain a built/near-built block or an active
+    // placement ghost; the rest of the world remains terrain.
+    const showPlanning = !!ghost || ST?.mode === "place" || ST?.tool === "build";
+    const L = frameLightForTime();
+    const lotAlpha = q === "balanced" ? 0.040 : 0.065;
+    const strokeBase = lotAlpha + 0.024 * Math.max(0, L.elev);
     ctx.save();
     ctx.lineWidth = Math.max(0.55, 0.78 * visualZoom());
-    const occupiedLots = new Set<string>();
-    for (const b of buildPool.values()) occupiedLots.add(`${lotCenter(Number(b?.x || 0))},${lotCenter(Number(b?.z || 0))}`);
-
-    // Draw a low-contrast lot grid only on the same 4x4 diamonds that terrain and
-    // buildings use. No long horizontal/vertical screen lines are emitted here.
-    // This keeps the planning affordance while removing the rectangular-feeling
-    // lattice that made buildings look off-ground.
-    eachVisibleLot((x, z) => {
-      const nearBuilding = occupiedLots.has(`${x},${z}`) || occupiedLots.has(`${x + lotStep()},${z}`) || occupiedLots.has(`${x - lotStep()},${z}`) || occupiedLots.has(`${x},${z + lotStep()}`) || occupiedLots.has(`${x},${z - lotStep()}`);
-      const a = nearBuilding ? strokeBase * 1.45 : strokeBase * 0.46;
-      ctx.strokeStyle = `rgba(255,244,207,${a})`;
-      strokeDiamond(x, z, lotHalf(), 0.036);
-      if (nearBuilding && q === "crisp") {
-        ctx.strokeStyle = `rgba(42,34,24,${a * 0.52})`;
-        ctx.lineWidth = Math.max(0.45, 0.58 * visualZoom());
-        for (let i = 1; i < lotStep(); i++) {
-          const o = -lotHalf() + i;
-          const a0 = proj(x - lotHalf(), 0.038, z + o), a1 = proj(x + o, 0.038, z - lotHalf());
-          const b0 = proj(x + o, 0.038, z + lotHalf()), b1 = proj(x + lotHalf(), 0.038, z + o);
-          ctx.beginPath(); ctx.moveTo(a0.x, a0.y); ctx.lineTo(a1.x, a1.y); ctx.stroke();
-          ctx.beginPath(); ctx.moveTo(b0.x, b0.y); ctx.lineTo(b1.x, b1.y); ctx.stroke();
-        }
+    const lots = new Set<string>();
+    for (const b of buildPool.values()) {
+      const lx = lotCenter(Number(b?.x || 0)), lz = lotCenter(Number(b?.z || 0));
+      lots.add(`${lx},${lz}`);
+      for (const [dx, dz] of [[lotStep(),0],[-lotStep(),0],[0,lotStep()],[0,-lotStep()]]) {
+        if (showPlanning) lots.add(`${lx + dx},${lz + dz}`);
       }
-    });
+    }
+    if (ghost) lots.add(`${lotCenter(Number(ghost.x || 0))},${lotCenter(Number(ghost.z || 0))}`);
+    for (const key of lots) {
+      const [x,z] = key.split(',').map(Number);
+      const occupied = buildPoolHasLot(x, z);
+      const a = occupied ? strokeBase * 1.25 : strokeBase * 0.58;
+      ctx.strokeStyle = `rgba(255,244,207,${a})`;
+      strokeDiamond(x, z, lotHalf(), 0.038);
+    }
     ctx.restore();
   }
+  function buildPoolHasLot(x: number, z: number) {
+    for (const b of buildPool.values()) if (lotCenter(Number(b?.x || 0)) === x && lotCenter(Number(b?.z || 0)) === z) return true;
+    return false;
+  }
+
 
   function drawTerrainFeatures() {
     // Ground-detail decision: terrain should read as broad authored patches, not
@@ -1022,6 +1063,38 @@ export function createCanvasPrismWorld(opts: CanvasWorldOptions): CanvasWorldApi
       } else {
         ctx.fillStyle = `rgba(36,42,40,${a})`;
         ctx.beginPath(); ctx.ellipse(p.x, p.y, tileW * 0.08, tileH * 0.055, 0.15, 0, Math.PI * 2); ctx.fill();
+      }
+    }
+    ctx.restore();
+  }
+
+  function drawBlockFillers() {
+    // Density decision: real settlements read as blocks and clusters, not
+    // isolated monopoly houses. These small non-interactive fillers occupy the
+    // visual gaps around completed buildings only; they do not affect picking,
+    // collision, storage, or ECS state.
+    if (qualityName() === "fast") return;
+    const lots = new Set<string>();
+    for (const b of buildPool.values()) lots.add(`${lotCenter(Number(b?.x || 0))},${lotCenter(Number(b?.z || 0))}`);
+    ctx.save();
+    for (const b of buildPool.values()) {
+      const kind = String(b?.kind || b?.type || "building").toLowerCase();
+      if (kind === "worldwonder" || kind === "garden" || kind === "bench" || kind === "flowerbed") continue;
+      const cx = lotCenter(Number(b?.x || 0)), cz = lotCenter(Number(b?.z || 0));
+      const seed = Math.trunc(cx * 17 + cz * 31);
+      const choices = [
+        { dx: 1.55, dz: -1.55, w: 0.44, d: 0.30, h: 0.32, c: '#7a5632' },
+        { dx: -1.62, dz: 1.38, w: 0.36, d: 0.42, h: 0.26, c: '#5d6a55' },
+        { dx: 1.40, dz: 1.48, w: 0.30, d: 0.30, h: 0.42, c: '#8f7b53' },
+      ];
+      for (let i = 0; i < choices.length; i++) {
+        if (stableRand(cx, cz, 1800 + i) < (i === 0 ? 0.36 : 0.58)) continue;
+        const ch = choices[i];
+        const fx = cx + ch.dx + (stableRand(seed, i, 1810) - 0.5) * 0.18;
+        const fz = cz + ch.dz + (stableRand(seed, i, 1811) - 0.5) * 0.18;
+        drawContactAO(fx, fz, 0.52, 0.055);
+        drawPrismMin(fx - ch.w/2, fz - ch.d/2, 0.035, ch.w, ch.d, ch.h, ch.c, shadeHex(ch.c, -0.26), shadeHex(ch.c, -0.42), 0.82);
+        renderCounters.blockFillersDrawn++;
       }
     }
     ctx.restore();
@@ -1189,29 +1262,57 @@ export function createCanvasPrismWorld(opts: CanvasWorldOptions): CanvasWorldApi
     return `rgba(${rgb[0]},${rgb[1]},${rgb[2]},${alpha})`;
   }
   function drawTerrain() {
-    // Terrain visual contract: render broad 4x4 isometric lot diamonds, not a
-    // visible 1x1 checkerboard. This matches the building/ghost footprint and is
-    // the direct fix for the rectangular-looking ground mismatch.
+    // Terrain visual contract v2: the ground is a continuous isometric surface,
+    // not a 4x4 lot board. We still draw cached 1x1 diamonds so the projection
+    // mathematically matches movement/building cells, but edges are overlap-padded,
+    // unstroked, and color-blended. Explicit 4x4 diamonds are reserved for build
+    // ghosts/aprons only, which fixes the “rectangular ground under buildings” read.
     const L = frameLightForTime();
     ctx.save();
-    eachVisibleLot((x, z) => {
-      const fill = terrainColor(x, z);
-      drawLotDiamond(x, z, fill, "", 0.006, 0.085);
-      const tint = lotOwnerTint(x, z);
-      if (tint) drawLotDiamond(x, z, tint, "", 0.011, 0.075);
-      renderCounters.terrainTilesDrawn += lotStep() * lotStep();
-    });
+    const cx = Math.round(me.vx || me.x), cz = Math.round(me.vz || me.z);
+    const r = opts.currentTileLoadRadius?.() || 36;
+    const stride = qualityName() === "fast" ? 2 : 1;
+    for (let x = cx - r - 2; x <= cx + r + 2; x += stride) for (let z = cz - r - 2; z <= cz + r + 2; z += stride) {
+      if (Math.max(Math.abs(x - cx), Math.abs(z - cz)) > r + 2) continue;
+      const fill = terrainBlendColor(x, z);
+      poly(terrainTilePath(x, z, 0.010, stride === 1 ? 0.535 : 1.035), fill, "");
+      const owner = tileOwner.get(kfn(Math.trunc(x), Math.trunc(z)));
+      if (owner) {
+        const rgb = hexToRgb(numColorToHex(owner.body || owner.ownerBody || "#14f195", "#14f195"));
+        poly(terrainTilePath(x, z, 0.014, stride === 1 ? 0.515 : 1.000), `rgba(${rgb[0]},${rgb[1]},${rgb[2]},0.035)`, "");
+      }
+      renderCounters.terrainTilesDrawn += stride * stride;
+    }
+
+    // Soft biome/terrain patches. These are big, sparse, and diamond-aligned,
+    // giving the floor authored variation without noisy per-tile speckle.
+    const patchStride = qualityName() === "crisp" ? 7 : 10;
+    for (let x = cx - r; x <= cx + r; x += patchStride) for (let z = cz - r; z <= cz + r; z += patchStride) {
+      if (Math.max(Math.abs(x - cx), Math.abs(z - cz)) > r) continue;
+      const roll = stableRand(x, z, 1771);
+      if (roll < 0.36) continue;
+      const px = x + Math.floor(stableRand(x, z, 1772) * patchStride);
+      const pz = z + Math.floor(stableRand(x, z, 1773) * patchStride);
+      const p = proj(px, 0.017, pz);
+      const size = (2.8 + stableRand(px, pz, 1774) * 4.2) * visualZoom();
+      const a = terrainFeatureAlpha(px, pz, 0.050);
+      ctx.save();
+      ctx.translate(p.x, p.y);
+      ctx.rotate((stableRand(px, pz, 1775) - 0.5) * 1.6);
+      ctx.fillStyle = roll > 0.74 ? `rgba(185,163,103,${a})` : `rgba(104,136,98,${a})`;
+      ctx.beginPath(); ctx.ellipse(0, 0, tileW * size * 0.18, tileH * size * 0.10, 0, 0, Math.PI * 2); ctx.fill();
+      ctx.restore();
+      renderCounters.terrainBlendPatches++;
+    }
 
     // Low-frequency broad scuffs only. Fine per-cell speckles were removed
     // because they fought the clean prism silhouettes and read as color mud.
-    const cx = Math.round(me.x), cz = Math.round(me.z);
-    const r = opts.currentTileLoadRadius?.() || 36;
     const markStride = qualityStride("terrainDetailStride", 1);
     for (let i = 0; i < staticGroundMarks.length; i += markStride) {
       const m = staticGroundMarks[i];
       if (Math.max(Math.abs(m.x-cx), Math.abs(m.z-cz)) > r + 4) continue;
       const p = proj(m.x, 0.020, m.z);
-      const a = clamp(0.55 + Math.max(0, L.elev) * 0.25, 0.45, 0.86);
+      const a = clamp(0.42 + Math.max(0, L.elev) * 0.22, 0.34, 0.70);
       ctx.save(); ctx.globalAlpha = a; ctx.translate(p.x,p.y); ctx.rotate(m.a); ctx.fillStyle = m.c; ctx.fillRect(-m.w*tileW/2, -m.h*tileH/2, m.w*tileW, m.h*tileH); ctx.restore();
     }
     ctx.restore();
@@ -1247,19 +1348,21 @@ export function createCanvasPrismWorld(opts: CanvasWorldOptions): CanvasWorldApi
   }
   function visualFootprintForKind(kind: any) {
     const k = String(kind || "building").toLowerCase();
-    if (k === "worldwonder") return 7.5;
-    if (k === "keep" || k.includes("gate") || k === "watchtower" || k === "tower") return 5.8;
-    if (k === "townhall" || k === "academy" || k === "bank" || k === "vault" || k === "warehouse") return 4.8;
+    if (k === "worldwonder") return 9.2;
+    if (k === "townhall") return 6.4;
+    if (k === "keep" || k.includes("gate") || k === "watchtower" || k === "tower") return 6.0;
+    if (k === "academy" || k === "bank" || k === "vault" || k === "warehouse") return 5.2;
     return 4.1;
   }
   function visualScaleForKind(kind: any) {
     const k = String(kind || "building").toLowerCase();
-    if (k === "worldwonder") return 4.90;
-    if (k === "keep" || k.includes("gate") || k === "watchtower") return 4.25;
-    if (k === "tower" || k === "skyscraper" || k === "highrise") return 4.15;
-    if (k === "townhall" || k === "academy" || k === "bank" || k === "vault" || k === "warehouse") return 3.75;
-    if (k === "garden" || k === "flowerbed" || k === "bench" || k === "campfire") return 2.75;
-    return 3.28;
+    if (k === "worldwonder") return 6.20;
+    if (k === "townhall") return 4.85;
+    if (k === "keep" || k.includes("gate") || k === "watchtower") return 4.55;
+    if (k === "tower" || k === "skyscraper" || k === "highrise") return 4.70;
+    if (k === "academy" || k === "bank" || k === "vault" || k === "warehouse") return 4.05;
+    if (k === "garden" || k === "flowerbed" || k === "bench" || k === "campfire") return 2.55;
+    return 3.18;
   }
   function constructionStateFor(b: any) {
     const end = Number(b?.constructUntil || b?.cdUntil || b?.buildUntil || b?.finishAt || 0);
@@ -1439,6 +1542,52 @@ export function createCanvasPrismWorld(opts: CanvasWorldOptions): CanvasWorldApi
     spr.lastUsed = performance.now();
     renderCounters.spriteDraws++;
   }
+  function drawOrganicResourceBody(kind: string, x: number, z: number, scale: number, phase = 0) {
+    // Resource art decision: harvestables should not use the same hard prism
+    // language as buildings. Softer silhouettes make forests/rocks/food read as
+    // nature, not low industrial blocks, while cached offscreen drawing keeps it
+    // cheap.
+    const p = proj(x, 0, z);
+    drawShadow(x, z, kind === "rock" ? 0.50 * scale : 0.46 * scale, kind === "rock" ? 0.18 * scale : 0.22 * scale, 0.13);
+    ctx.save();
+    ctx.translate(p.x, p.y);
+    const vz = visualZoom();
+    const sway = Math.sin(phase + x * 1.7 + z * 2.3) * 0.08;
+    if (kind === "rock") {
+      ctx.fillStyle = tint("#6f7c78", 0.82, frameLightForTime().tint) as string;
+      ctx.strokeStyle = "rgba(11,16,15,0.30)"; ctx.lineWidth = Math.max(0.8, 1.0 * vz);
+      for (let i = 0; i < 4; i++) {
+        const ox = (stableRand(i, x, 1910) - 0.5) * tileW * 0.42 * scale;
+        const oy = -tileH * (0.10 + stableRand(i, z, 1911) * 0.35) * scale;
+        const rw = tileW * (0.12 + stableRand(i, x, 1912) * 0.12) * scale;
+        const rh = tileH * (0.14 + stableRand(i, z, 1913) * 0.16) * scale;
+        ctx.beginPath(); ctx.ellipse(ox, oy, rw, rh, -0.18 + i * 0.28, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+      }
+    } else if (kind === "food") {
+      ctx.strokeStyle = "rgba(54,78,43,0.72)"; ctx.lineWidth = Math.max(1, 1.2 * vz);
+      for (let i = -2; i <= 2; i++) {
+        ctx.beginPath(); ctx.moveTo(i * tileW * 0.055 * scale, 0); ctx.lineTo((i * 0.045 + sway) * tileW * scale, -tileH * (0.52 + Math.abs(i)*0.04) * scale); ctx.stroke();
+      }
+      ctx.fillStyle = "rgba(218,184,79,0.92)";
+      for (let i = -2; i <= 2; i++) { ctx.beginPath(); ctx.ellipse((i * 0.045 + sway) * tileW * scale, -tileH * 0.58 * scale, tileW * 0.035 * scale, tileH * 0.070 * scale, 0.18, 0, Math.PI * 2); ctx.fill(); }
+    } else {
+      ctx.strokeStyle = "rgba(67,50,32,0.92)"; ctx.lineWidth = Math.max(1.2, 1.5 * vz);
+      ctx.beginPath(); ctx.moveTo(0, -tileH * 0.06 * scale); ctx.lineTo(sway * tileW * 0.35 * scale, -tileH * 1.05 * scale); ctx.stroke();
+      const layers = [
+        ["#2f6c45", -0.85, 0.28, 0.22],
+        ["#3a8150", -1.18, 0.34, 0.25],
+        ["#24573b", -1.48, 0.28, 0.20],
+      ];
+      for (const [color, yy, rx, ry] of layers as any[]) {
+        ctx.fillStyle = tint(color, 0.86 + frameLightForTime().elev * 0.18, frameLightForTime().tint) as string;
+        ctx.strokeStyle = "rgba(10,22,14,0.18)";
+        ctx.beginPath(); ctx.ellipse(sway * tileW * 0.55 * scale, tileH * yy * scale, tileW * rx * scale, tileH * ry * scale, -0.08, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+      }
+    }
+    renderCounters.resourceOrganicDraws++;
+    ctx.restore();
+  }
+
   function getResourceSprite(kind: string, scale: number) {
     const key = resourceSpriteKey(kind, scale);
     const hit = resourceSpriteCache.get(key);
@@ -1451,8 +1600,7 @@ export function createCanvasPrismWorld(opts: CanvasWorldOptions): CanvasWorldApi
     const spr = cachedSpriteCanvas(cssW, cssH);
     withSpriteProjection(spr.ctx, anchorX, anchorY, () => {
       spr.ctx.clearRect(0, 0, cssW, cssH);
-      drawShadow(0, 0, 0.52 * scale, 0.24 * scale, 0.16);
-      for (const part of resourceRecipeFor(kind, 0)) drawResourcePart(0, 0, part, scale);
+      drawOrganicResourceBody(kind, 0, 0, scale, 0);
     });
     const out = { ...spr, anchorX, anchorY, lastUsed: performance.now() };
     resourceSpriteCache.set(key, out);
@@ -1879,7 +2027,7 @@ export function createCanvasPrismWorld(opts: CanvasWorldOptions): CanvasWorldApi
       width, height, dpr.toFixed(2), qualityName(), hourBand,
       Math.round(cameraX / snap), Math.round(cameraY / snap),
       opts.currentTileLoadRadius?.() || 36,
-      tileOwner.size, cells.size,
+      tileOwner.size, cells.size, lastStaticWorldSignature,
     ].join("|");
   }
   function renderStaticLayerToCache(nextKey: string) {
@@ -1894,6 +2042,7 @@ export function createCanvasPrismWorld(opts: CanvasWorldOptions): CanvasWorldApi
     drawCityRoads();
     drawCityGrid();
     drawBuildingAprons();
+    drawBlockFillers();
     drawCityFurniture();
     ctx = prev;
     staticCacheKey = nextKey;

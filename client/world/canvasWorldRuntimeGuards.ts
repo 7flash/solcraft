@@ -2,11 +2,15 @@
 /**
  * Runtime safety layer for the Canvas 2D world migration.
  *
- * The renderer swap removed Three.js objects from the live world. During the
- * migration, page.client.tsx still exercises many old interaction paths.  This
- * guard makes renderer failures visible without taking down the whole tradjs
- * mount: pick failures become terrain picks, minimap failures become empty
- * snapshots, and one-off visual helpers become no-ops.
+ * Product decision: Canvas remains the owner of world rendering, picking, and
+ * depth ordering. We deliberately do not add a parallel WebGL world renderer
+ * because duplicate depth/picking systems are a common source of split-brain
+ * bugs. A future WebGL layer is acceptable only for narrow, non-authoritative
+ * overlays such as bloom, screen-space particles, or water shimmer.
+ *
+ * This guard prevents one renderer failure from unmounting the whole game, but
+ * it must not hide graphics regressions. The first few failures are logged, and
+ * draw/tick/applyWorld failures show a small badge even without canvasDebug=1.
  */
 
 export type CanvasGuardReporter = (event: { method: string; error: any; count: number }) => void;
@@ -50,28 +54,32 @@ export function formatCanvasGuardError(method: string, error: any) {
 
 export function createCanvasGuardOverlay(host: HTMLElement | null) {
   let el: HTMLDivElement | null = null;
-  function enabled() {
+  let sticky = false;
+  function enabled(force = false) {
+    if (force || sticky) return true;
     try {
       return /(?:\?|&)canvasDebug=1(?:&|$)/.test(location.search) || localStorage.getItem("solcraft.debug.canvas") === "1";
     } catch { return false; }
   }
-  function ensure() {
-    if (!enabled() || !host) return null;
+  function ensure(force = false) {
+    if (!enabled(force) || !host) return null;
+    sticky = sticky || force;
     if (!el) {
       el = document.createElement("div");
       el.className = "sc-canvas-guard-debug";
-      el.style.cssText = "position:absolute;left:10px;bottom:10px;z-index:45;pointer-events:none;background:rgba(42,14,20,.86);color:#ffe3c2;border:1px solid rgba(255,210,130,.25);border-radius:10px;padding:7px 9px;font:11px/1.35 ui-monospace,SFMono-Regular,Menlo,monospace;max-width:360px;white-space:pre-wrap";
+      el.style.cssText = "position:absolute;left:10px;bottom:10px;z-index:45;pointer-events:none;background:rgba(42,14,20,.88);color:#ffe3c2;border:1px solid rgba(255,210,130,.35);border-radius:10px;padding:7px 9px;font:11px/1.35 ui-monospace,SFMono-Regular,Menlo,monospace;max-width:420px;white-space:pre-wrap";
       host.appendChild(el);
     }
     return el;
   }
   return {
     report(method: string, error: any, count: number) {
-      const node = ensure();
+      const visualFailure = /^(tick|draw|applyWorld|applyMe|applyPlayers|refreshWindow|refreshCameraZoom|refreshEnvironment)$/i.test(String(method));
+      const node = ensure(visualFailure);
       if (!node) return;
-      node.textContent = `${formatCanvasGuardError(method, error)}\ncount: ${count}`;
+      node.textContent = `${formatCanvasGuardError(method, error)}\ncount: ${count}\nSet ?canvasDebug=1 or localStorage solcraft.debug.canvas=1 for persistent canvas diagnostics.`;
     },
-    remove() { try { el?.remove(); } catch {} el = null; },
+    remove() { try { el?.remove(); } catch {} el = null; sticky = false; },
   };
 }
 
@@ -84,7 +92,7 @@ export function guardCanvasWorld<T extends Record<string, any>>(world: T, host?:
     try { overlay.report(method, error, n); } catch {}
     try { reporter?.({ method, error, count: n }); } catch {}
     if (n <= 3) {
-      try { console.warn(formatCanvasGuardError(method, error), error); } catch {}
+      try { console.error(formatCanvasGuardError(method, error), error); } catch {}
     }
   };
 
