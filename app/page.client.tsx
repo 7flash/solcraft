@@ -306,7 +306,7 @@ export default function mount() {
     el.setAttribute("aria-label", "Performance diagnostics");
     el.textContent = "perf starting…";
     root.appendChild(el);
-    const data = { ping: 0, paint: 0, frame: 0, cells: 0, draws: 0, terrain: 0, entities: 0, weather: 0, quality: "", staticMs: 0, dynamicMs: 0, prisms: 0, particles: 0, sprites: 0, slices: 0, cache: "", skipped: 0, last: 0 };
+    const data = { ping: 0, paint: 0, frame: 0, cells: 0, draws: 0, terrain: 0, entities: 0, weather: 0, quality: "", staticMs: 0, dynamicMs: 0, prisms: 0, particles: 0, sprites: 0, slices: 0, patches: 0, fillers: 0, organic: 0, snapped: 0, selftest: 0, cache: "", skipped: 0, last: 0 };
     function update(partial: any = {}) {
       if (!perfOverlayEnabled) return;
       Object.assign(data, partial || {});
@@ -316,7 +316,7 @@ export default function mount() {
       const ping = data.ping ? `${Math.round(data.ping)}ms` : "—";
       const q = data.quality ? ` · q ${data.quality}` : "";
       const cache = data.cache ? ` · cache ${data.cache}` : "";
-      el.textContent = `ping ${ping} · frame ${Math.round(data.frame || 0)}ms · ui ${Math.round(data.paint || 0)}ms · static ${Math.round(data.staticMs || 0)}ms · dyn ${Math.round(data.dynamicMs || 0)}ms · prism ${Math.round(data.prisms || 0)} · sprite ${Math.round(data.sprites || 0)} · slice ${Math.round(data.slices || 0)} · part ${Math.round(data.particles || 0)} · cells ${Math.round(data.cells || 0)}${q}${cache}`;
+      el.textContent = `ping ${ping} · frame ${Math.round(data.frame || 0)}ms · ui ${Math.round(data.paint || 0)}ms · static ${Math.round(data.staticMs || 0)}ms · dyn ${Math.round(data.dynamicMs || 0)}ms · prism ${Math.round(data.prisms || 0)} · sprite ${Math.round(data.sprites || 0)} · slice ${Math.round(data.slices || 0)} · patch ${Math.round(data.patches || 0)} · fill ${Math.round(data.fillers || 0)} · org ${Math.round(data.organic || 0)} · snap ${Math.round(data.snapped || 0)} · self ${Math.round(data.selftest || 0)} · part ${Math.round(data.particles || 0)} · cells ${Math.round(data.cells || 0)}${q}${cache}`;
     }
     return { update };
   })();
@@ -4236,6 +4236,11 @@ export default function mount() {
           particles: rc.particlesDrawn || 0,
           sprites: rc.spriteDraws || 0,
           slices: rc.buildingSlicesDrawn || 0,
+          patches: rc.terrainBlendPatches || 0,
+          fillers: rc.blockFillersDrawn || 0,
+          organic: rc.resourceOrganicDraws || 0,
+          snapped: rc.snappedDrawImages || 0,
+          selftest: rc.featureSelfTestFailures || 0,
           cache: `${rc.staticCacheHits || 0}/${rc.staticCacheMisses || 0} · spr ${rc.spriteCacheHits || 0}/${rc.spriteCacheMisses || 0}`,
           skipped: rc.staticSkipped || 0,
         });

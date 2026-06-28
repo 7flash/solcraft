@@ -207,6 +207,8 @@ export function createCanvasPrismWorld(opts: CanvasWorldOptions): CanvasWorldApi
   let lastVisibleCenter = { x: 1e9, z: 1e9, r: 0 };
   let renderQuality = visualPerfFor(ST.visual || {}, false);
   let frameLight: any = null;
+  let qualitySelfTestKey = "";
+  let qualitySelfTestError = "";
   let staticDirty = true;
   let staticCacheKey = "";
   let lastStaticRebuildReason = "boot";
@@ -218,6 +220,7 @@ export function createCanvasPrismWorld(opts: CanvasWorldOptions): CanvasWorldApi
     influenceAuras: 0, constructionVisuals: 0, perfWarnings: 0,
     spriteCacheHits: 0, spriteCacheMisses: 0, spriteDraws: 0, spriteEvictions: 0, buildingSlicesDrawn: 0,
     terrainBlendPatches: 0, blockFillersDrawn: 0, resourceOrganicDraws: 0,
+    snappedDrawImages: 0, featureSelfTestFailures: 0, qualityDowngrades: 0,
     reset() {
       this.terrainTilesDrawn = 0; this.entitiesSorted = 0; this.entitiesDrawn = 0; this.weatherDrawn = 0; this.staticSkipped = 0;
       this.staticRebuildMs = 0; this.dynamicDrawMs = 0; this.staticCacheHits = 0; this.staticCacheMisses = 0;
@@ -225,6 +228,7 @@ export function createCanvasPrismWorld(opts: CanvasWorldOptions): CanvasWorldApi
       this.influenceAuras = 0; this.constructionVisuals = 0; this.perfWarnings = 0;
       this.spriteCacheHits = 0; this.spriteCacheMisses = 0; this.spriteDraws = 0; this.spriteEvictions = 0; this.buildingSlicesDrawn = 0;
       this.terrainBlendPatches = 0; this.blockFillersDrawn = 0; this.resourceOrganicDraws = 0;
+      this.snappedDrawImages = 0; this.featureSelfTestFailures = 0; this.qualityDowngrades = 0;
     },
   };
   function qualityName() { return String(renderQuality?.quality || ST.visual?.quality || "fast").toLowerCase(); }
@@ -302,6 +306,13 @@ export function createCanvasPrismWorld(opts: CanvasWorldOptions): CanvasWorldApi
     canvas.style.width = `${w}px`; canvas.style.height = `${h}px`;
     screenCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
     staticCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    // Crispness decision: simulation and camera remain sub-tile smooth, but
+    // pixel interpolation is controlled at the draw boundary. Fast/Balanced keep
+    // sprite edges stable on high-DPR phones; Crisp can smooth cached sprites.
+    const smoothing = qualityName() === "crisp";
+    screenCtx.imageSmoothingEnabled = smoothing;
+    staticCtx.imageSmoothingEnabled = smoothing;
+    try { screenCtx.imageSmoothingQuality = smoothing ? "high" : "low"; staticCtx.imageSmoothingQuality = smoothing ? "high" : "low"; } catch {}
     ctx = screenCtx;
     clearSpriteCaches("resize");
     invalidateStatic("resize");
@@ -316,6 +327,21 @@ export function createCanvasPrismWorld(opts: CanvasWorldOptions): CanvasWorldApi
   }
   function proj(wx: number, wy = 0, wz: number): Pt {
     return { x: cameraX + (wx - wz) * tileW, y: cameraY + (wx + wz) * tileH - wy * heightScale };
+  }
+  function snapPx(v: number) {
+    // Temporal-stability decision: never quantize ECS/world coordinates. Only
+    // snap final screen pixels for cached sprites/textures so camera easing does
+    // not create blurry half-pixel drawImage samples.
+    return Math.round(Number(v || 0) * dpr) / Math.max(1, dpr);
+  }
+  function snapPt(p: Pt): Pt { return { x: snapPx(p.x), y: snapPx(p.y) }; }
+  function drawSpriteImage(image: CanvasImageSource, x: number, y: number, w: number, h: number) {
+    ctx.drawImage(image, snapPx(x), snapPx(y), w, h);
+    renderCounters.snappedDrawImages++;
+  }
+  function drawSpriteSlice(image: CanvasImageSource, sx: number, sy: number, sw: number, sh: number, dx: number, dy: number, dw: number, dh: number) {
+    ctx.drawImage(image, sx, sy, sw, sh, snapPx(dx), snapPx(dy), dw, dh);
+    renderCounters.snappedDrawImages++;
   }
   function screenToWorld(sx: number, sy: number) {
     const dx = (sx - cameraX) / tileW, dy = (sy - cameraY) / tileH;
@@ -1538,7 +1564,7 @@ export function createCanvasPrismWorld(opts: CanvasWorldOptions): CanvasWorldApi
   function drawBuildingSprite(kind: string, b: any, color: string, recipe: any[], scale: number, fp: number, maxParts: number) {
     const spr = getBuildingSprite(kind, color, recipe, scale, fp, maxParts);
     const p = proj(Number(b.x || 0), 0, Number(b.z || 0));
-    ctx.drawImage(spr.canvas, p.x - spr.anchorX, p.y - spr.anchorY, spr.cssW, spr.cssH);
+    drawSpriteImage(spr.canvas, p.x - spr.anchorX, p.y - spr.anchorY, spr.cssW, spr.cssH);
     spr.lastUsed = performance.now();
     renderCounters.spriteDraws++;
   }
@@ -1610,7 +1636,7 @@ export function createCanvasPrismWorld(opts: CanvasWorldOptions): CanvasWorldApi
   function drawResourceSprite(kind: string, x: number, z: number, scale: number) {
     const spr = getResourceSprite(kind, scale);
     const p = proj(x, 0, z);
-    ctx.drawImage(spr.canvas, p.x - spr.anchorX, p.y - spr.anchorY, spr.cssW, spr.cssH);
+    drawSpriteImage(spr.canvas, p.x - spr.anchorX, p.y - spr.anchorY, spr.cssW, spr.cssH);
     spr.lastUsed = performance.now();
     renderCounters.spriteDraws++;
   }
@@ -1692,7 +1718,7 @@ export function createCanvasPrismWorld(opts: CanvasWorldOptions): CanvasWorldApi
     // painter order. We split cached sprites into vertical screen bands and sort
     // those bands with increasing depth. It is an approximation, but it restores
     // the old tile-column mental model without rebuilding prism geometry/frame.
-    ctx.drawImage(spr.canvas, srcX, 0, srcW, spr.canvas.height, p.x - spr.anchorX + cssX, p.y - spr.anchorY, cssW, spr.cssH);
+    drawSpriteSlice(spr.canvas, srcX, 0, srcW, spr.canvas.height, p.x - spr.anchorX + cssX, p.y - spr.anchorY, cssW, spr.cssH);
     spr.lastUsed = performance.now();
     renderCounters.spriteDraws++;
     renderCounters.buildingSlicesDrawn++;
@@ -2054,7 +2080,7 @@ export function createCanvasPrismWorld(opts: CanvasWorldOptions): CanvasWorldApi
     const key = staticLayerKey();
     if (staticDirty || key !== staticCacheKey) renderStaticLayerToCache(key);
     else renderCounters.staticCacheHits++;
-    ctx.drawImage(staticCanvas, 0, 0, width, height);
+    drawSpriteImage(staticCanvas, 0, 0, width, height);
   }
 
 
@@ -2087,12 +2113,50 @@ export function createCanvasPrismWorld(opts: CanvasWorldOptions): CanvasWorldApi
     return clamp((dist - r * 0.58) / Math.max(1, r * 0.42), 0, 1);
   }
 
+  function verifyQualityFeatures() {
+    const key = [qualityName(), dpr.toFixed(2), Math.round(visualZoom() * 100)].join("|");
+    if (key === qualitySelfTestKey) return !qualitySelfTestError;
+    qualitySelfTestKey = key;
+    qualitySelfTestError = "";
+    if (qualityName() === "fast") return true;
+    try {
+      // Balanced/Crisp self-test: run the geometry helpers that are only used by
+      // higher-quality grounding before we enter the real frame. A missing helper
+      // should produce a visible diagnostic, not silently force users to think
+      // Fast mode is the only working renderer.
+      const d = diamondPath(Number(me.vx || me.x || 0), Number(me.vz || me.z || 0), 0.5, 0.02);
+      if (!Array.isArray(d) || d.length !== 4 || d.some((p:any) => !Number.isFinite(p.x) || !Number.isFinite(p.y))) throw new Error("diamondPath produced invalid points");
+      const p0 = proj(0,0,0), p1 = proj(1,0,0), p2 = proj(1,1,0), p3 = proj(0,1,0);
+      void faceGradient(p0,p1,p2,p3,"rgba(255,255,255,0.02)","rgba(0,0,0,0.02)");
+      return true;
+    } catch (e:any) {
+      qualitySelfTestError = String(e?.message || e || "quality self-test failed");
+      renderCounters.featureSelfTestFailures++;
+      return false;
+    }
+  }
+  function drawQualityDiagnosticBadge() {
+    if (!qualitySelfTestError) return;
+    ctx.save();
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.fillStyle = "rgba(58,18,20,0.90)";
+    ctx.strokeStyle = "rgba(255,215,110,0.38)";
+    ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.roundRect(12, 12, Math.min(620, width - 24), 54, 10); ctx.fill(); ctx.stroke();
+    ctx.fillStyle = "#ffe3c2"; ctx.font = "700 12px ui-monospace, SFMono-Regular, Menlo, monospace"; ctx.textAlign = "left";
+    ctx.fillText(`[canvas quality] ${qualityName()} self-test failed`, 24, 34);
+    ctx.fillStyle = "rgba(255,240,200,0.86)";
+    ctx.fillText(String(qualitySelfTestError).slice(0, 92), 24, 52);
+    ctx.restore();
+  }
+
   function draw() {
     renderCounters.reset();
     const dynamicStarted = performance.now();
     resize(); updateProjection(); ensureGroundMarks();
     frameLight = lightForTime();
     ctx = screenCtx;
+    const qualityOk = verifyQualityFeatures();
     const cx = Number(me.vx || me.x || 0), cz = Number(me.vz || me.z || 0);
     targetCameraX = width / 2 - (cx - cz) * tileW;
     targetCameraY = height * 0.55 - (cx + cz) * tileH;
@@ -2212,6 +2276,7 @@ export function createCanvasPrismWorld(opts: CanvasWorldOptions): CanvasWorldApi
       ctx.fillStyle = v;
       ctx.fillRect(0,0,width,height);
     }
+    if (!qualityOk) drawQualityDiagnosticBadge();
     renderCounters.dynamicDrawMs = performance.now() - dynamicStarted;
     if (renderCounters.dynamicDrawMs > Number(qualityBudget("perfBudgetWarnMs", 24))) renderCounters.perfWarnings++;
   }
@@ -2670,7 +2735,7 @@ export function createCanvasPrismWorld(opts: CanvasWorldOptions): CanvasWorldApi
   function worldToScreen(x:number, z:number, y = 0) { return proj(Number(x), Number(y), Number(z)); }
   function screenToWorldPoint(sx:number, sy:number) { return screenToWorld(Number(sx), Number(sy)); }
   function visibleCells() { return Array.from(cells.values()).map((c:any) => ({ x: c.cx ?? c.x, z: c.cz ?? c.z, owner: c.owner || 0 })); }
-  function movementState() { return { x: me.x, z: me.z, visualX: me.vx, visualZ: me.vz, visualSpeed: me.renderSpeed, authoritativeX: lastAuthoritative.x, authoritativeZ: lastAuthoritative.z, inFlight, maxInFlight, pending: pendingPath.length, ackSeq, moveSeq, canIssueMove: canIssueMoveNow(), renderDtMs, renderQuality: qualityName(), renderCounters: { ...renderCounters, staticReason: lastStaticRebuildReason } }; }
+  function movementState() { return { x: me.x, z: me.z, visualX: me.vx, visualZ: me.vz, visualSpeed: me.renderSpeed, authoritativeX: lastAuthoritative.x, authoritativeZ: lastAuthoritative.z, inFlight, maxInFlight, pending: pendingPath.length, ackSeq, moveSeq, canIssueMove: canIssueMoveNow(), renderDtMs, renderQuality: qualityName(), renderCounters: { ...renderCounters, staticReason: lastStaticRebuildReason, qualitySelfTestError } }; }
   function capitalBearing() {
     const ax = Number(ST.ax || 0), az = Number(ST.az || 0);
     const dx = ax - Number(me.x || 0), dz = az - Number(me.z || 0);
