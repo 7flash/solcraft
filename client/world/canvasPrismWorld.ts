@@ -145,6 +145,10 @@ export function createCanvasPrismWorld(opts: CanvasWorldOptions): CanvasWorldApi
   let lastCitySparkleAt = 0;
   const actionBursts: any[] = [];
   const actionRings: any[] = [];
+  const rainStreaks: any[] = [];
+  const groundRipples: any[] = [];
+  const windLeaves: any[] = [];
+  let lastWeatherSpawnAt = 0;
   const ambientCitizens = Array.from({ length: 18 }, (_, i) => ({
     id: `citizen:${i}`,
     lane: i % 6,
@@ -451,6 +455,131 @@ export function createCanvasPrismWorld(opts: CanvasWorldOptions): CanvasWorldApi
     ctx.closePath(); ctx.fillStyle = fill; ctx.fill();
     if (stroke) { ctx.strokeStyle = stroke; ctx.lineWidth = Math.max(0.5, visualZoom() * 0.62); ctx.stroke(); }
   }
+
+  function updateAmbientWeather(dtMs: number, nowMs: number) {
+    const dt = Math.max(0.012, dtMs / 1000);
+    const W = weatherForTime(nowMs);
+    if (nowMs - lastWeatherSpawnAt > 42) {
+      lastWeatherSpawnAt = nowMs;
+      const r = opts.currentTileLoadRadius?.() || 36;
+      const baseX = Number(me.vx || me.x || 0);
+      const baseZ = Number(me.vz || me.z || 0);
+      if (W.rain > 0.02) {
+        const count = Math.min(18, Math.max(2, Math.round(3 + W.rain * 13)));
+        for (let i = 0; i < count; i++) {
+          const seed = Math.floor(nowMs / 43) + i * 31;
+          rainStreaks.push({
+            x: baseX + (stableRand(seed, 1, 930) - 0.5) * r * 1.8,
+            z: baseZ + (stableRand(seed, 2, 931) - 0.5) * r * 1.8,
+            y: 3.4 + stableRand(seed, 3, 932) * 2.8,
+            life: 0.42 + stableRand(seed, 4, 933) * 0.18,
+            maxLife: 0.58,
+            windX: W.windX,
+            windZ: W.windZ,
+            rain: W.rain,
+          });
+          if (stableRand(seed, 5, 934) < W.rain * 0.32) {
+            groundRipples.push({
+              x: baseX + (stableRand(seed, 6, 935) - 0.5) * r * 1.5,
+              z: baseZ + (stableRand(seed, 7, 936) - 0.5) * r * 1.5,
+              life: 0.52,
+              maxLife: 0.52,
+              radius: 0.06,
+            });
+          }
+        }
+      }
+      if (stableRand(Math.floor(nowMs / 500), Math.trunc(baseX), 940) < W.leafRate * 0.42) {
+        const seed = Math.floor(nowMs / 67);
+        windLeaves.push({
+          x: baseX + (stableRand(seed, 8, 941) - 0.5) * r * 1.5,
+          z: baseZ + (stableRand(seed, 9, 942) - 0.5) * r * 1.5,
+          y: 0.55 + stableRand(seed, 10, 943) * 1.8,
+          life: 2.2 + stableRand(seed, 11, 944) * 1.7,
+          maxLife: 3.9,
+          windX: W.windX,
+          windZ: W.windZ,
+          phase: stableRand(seed, 12, 945) * Math.PI * 2,
+          color: stableRand(seed, 13, 946) > 0.55 ? 'rgba(223,168,78,0.78)' : 'rgba(151,205,112,0.64)',
+        });
+      }
+    }
+    for (let i = rainStreaks.length - 1; i >= 0; i--) {
+      const p = rainStreaks[i];
+      p.life -= dt; p.y -= dt * (6.8 + p.rain * 4.2); p.x += p.windX * dt * 1.2; p.z += p.windZ * dt * 1.2;
+      if (p.life <= 0 || p.y <= 0.03) { rainStreaks.splice(i, 1); continue; }
+    }
+    for (let i = groundRipples.length - 1; i >= 0; i--) {
+      const p = groundRipples[i]; p.life -= dt; p.radius += dt * 0.46;
+      if (p.life <= 0) groundRipples.splice(i, 1);
+    }
+    for (let i = windLeaves.length - 1; i >= 0; i--) {
+      const p = windLeaves[i];
+      p.life -= dt; p.x += p.windX * dt * 1.6; p.z += p.windZ * dt * 1.6; p.y += Math.sin(nowMs / 380 + p.phase) * dt * 0.09;
+      if (p.life <= 0) windLeaves.splice(i, 1);
+    }
+    if (rainStreaks.length > 260) rainStreaks.splice(0, rainStreaks.length - 260);
+    if (groundRipples.length > 110) groundRipples.splice(0, groundRipples.length - 110);
+    if (windLeaves.length > 70) windLeaves.splice(0, windLeaves.length - 70);
+  }
+  function drawAmbientWeatherGround() {
+    const W = weatherForTime();
+    if (W.puddle > 0.04) {
+      const step = roadStep();
+      const r = opts.currentTileLoadRadius?.() || 36;
+      const cx = Math.floor(Number(me.vx || me.x || 0) / step) * step;
+      const cz = Math.floor(Number(me.vz || me.z || 0) / step) * step;
+      ctx.save();
+      ctx.globalCompositeOperation = 'screen';
+      for (let x = cx - r; x <= cx + r; x += step) for (let z = cz - r; z <= cz + r; z += step) {
+        if (stableRand(x, z, 955) < 0.46) continue;
+        const p = proj(x + (stableRand(x,z,956)-0.5) * 3.4, 0.045, z + (stableRand(x,z,957)-0.5) * 3.4);
+        const a = W.puddle * (0.045 + stableRand(x,z,958) * 0.055);
+        ctx.fillStyle = `rgba(147,196,214,${a})`;
+        ctx.beginPath(); ctx.ellipse(p.x, p.y, tileW * (0.26 + stableRand(x,z,959)*0.24), tileH * (0.10 + stableRand(x,z,960)*0.12), 0, 0, Math.PI * 2); ctx.fill();
+      }
+      ctx.restore();
+    }
+    for (let i = groundRipples.length - 1; i >= 0; i--) {
+      const p = groundRipples[i];
+      const a = clamp(p.life / p.maxLife, 0, 1) * 0.30;
+      const c = proj(p.x, 0.072, p.z);
+      ctx.strokeStyle = `rgba(188,222,236,${a})`;
+      ctx.lineWidth = Math.max(0.8, visualZoom());
+      ctx.beginPath(); ctx.ellipse(c.x, c.y, p.radius * tileW, p.radius * tileH * 0.52, 0, 0, Math.PI * 2); ctx.stroke();
+    }
+  }
+  function drawWeatherOverlay() {
+    const W = weatherForTime();
+    if (W.mist > 0.04) {
+      const g = ctx.createLinearGradient(0, height * 0.18, 0, height);
+      g.addColorStop(0, `rgba(188,209,218,${W.mist * 0.05})`);
+      g.addColorStop(1, `rgba(188,209,218,${W.mist * 0.18})`);
+      ctx.fillStyle = g; ctx.fillRect(0, 0, width, height);
+    }
+    if (windLeaves.length) {
+      ctx.save();
+      for (const leaf of windLeaves) {
+        const p = proj(leaf.x, leaf.y, leaf.z);
+        const a = clamp(leaf.life / leaf.maxLife, 0, 1);
+        ctx.translate(p.x, p.y); ctx.rotate(Math.sin(performance.now()/260 + leaf.phase) * 0.9);
+        ctx.fillStyle = leaf.color.replace(/,0\.[0-9]+\)$/, `,${0.50 * a})`);
+        ctx.fillRect(-2.8 * visualZoom(), -1.1 * visualZoom(), 5.6 * visualZoom(), 2.2 * visualZoom());
+        ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      }
+      ctx.restore();
+    }
+    if (rainStreaks.length) {
+      ctx.save(); ctx.lineWidth = Math.max(0.8, 1.1 * visualZoom()); ctx.strokeStyle = `rgba(188,220,236,${0.22 + W.rain * 0.36})`;
+      for (const drop of rainStreaks) {
+        const a = proj(drop.x, drop.y, drop.z);
+        const b = proj(drop.x - drop.windX * 0.10, drop.y - 0.52, drop.z - drop.windZ * 0.10);
+        ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke();
+      }
+      ctx.restore();
+    }
+  }
+
   function drawDiamond(cx: number, z: number, color: string, alpha = 1, lift = 0.01, scale = 1) {
     const half = scale * 0.5;
     const a = proj(cx - half, lift, z), b = proj(cx, lift, z - half), c = proj(cx + half, lift, z), d = proj(cx, lift, z + half);
@@ -492,6 +621,27 @@ export function createCanvasPrismWorld(opts: CanvasWorldOptions): CanvasWorldApi
       const dayMs = 20 * 60 * 1000;
       return Math.floor((((Date.now() % dayMs) + dayMs) % dayMs) / dayMs * 24);
     } catch { return 12; }
+  }
+  function weatherForTime(nowMs = performance.now()) {
+    // Deterministic local weather cells: every area gets its own rolling
+    // atmosphere, but it is render-only and never affects ECS movement/collision.
+    const cx = Math.floor(Number(me.vx || me.x || 0) / 24);
+    const cz = Math.floor(Number(me.vz || me.z || 0) / 24);
+    const cell = Math.floor(nowMs / 90_000);
+    const roll = stableRand(cx + cell * 7, cz - cell * 5, 911);
+    const hour = currentHour();
+    const night = hour < 5 || hour > 20;
+    const rain = roll > 0.74 ? clamp((roll - 0.74) / 0.26, 0, 1) : 0;
+    const breeze = 0.28 + stableRand(cx, cz, cell + 913) * 0.62;
+    const windA = stableRand(cx, cz, cell + 914) * Math.PI * 2;
+    return {
+      rain,
+      mist: clamp(rain * 0.55 + (night ? 0.10 : 0), 0, 0.72),
+      windX: Math.cos(windA) * breeze,
+      windZ: Math.sin(windA) * breeze,
+      leafRate: rain > 0.45 ? 0.15 : 0.55 + breeze * 0.35,
+      puddle: clamp(rain * 0.70 + (roll > 0.68 ? 0.16 : 0), 0, 0.80),
+    };
   }
   function skyGradientStops() {
     const L = lightForTime();
@@ -1021,7 +1171,7 @@ export function createCanvasPrismWorld(opts: CanvasWorldOptions): CanvasWorldApi
     drawSkyBackdrop();
     const haze = ctx.createRadialGradient(width*0.45,height*0.35,0,width*0.50,height*0.56,Math.max(width,height)*0.78);
     haze.addColorStop(0,"rgba(80,124,92,0.18)"); haze.addColorStop(1,"rgba(5,12,18,0.24)"); ctx.fillStyle = haze; ctx.fillRect(0,0,width,height);
-    drawTerrain(); drawGroundWash(); drawCityRoads(); drawCityGrid(); drawCityFurniture(); drawOverlayCells();
+    drawTerrain(); drawGroundWash(); drawCityRoads(); drawCityGrid(); drawCityFurniture(); drawAmbientWeatherGround(); drawOverlayCells();
 
     drawChannelHint();
 
@@ -1092,6 +1242,7 @@ export function createCanvasPrismWorld(opts: CanvasWorldOptions): CanvasWorldApi
       if (f.life <= 0) { floaters.splice(i,1); continue; }
       const p = proj(f.x, f.y, f.z); ctx.textAlign = "center"; ctx.font = `800 ${Math.max(12, 14*visualZoom())}px system-ui, sans-serif`; ctx.strokeStyle = `rgba(7,10,12,${f.life*0.6})`; ctx.lineWidth = 3; ctx.strokeText(f.text,p.x,p.y); ctx.fillStyle = f.color || "#ffd76e"; ctx.globalAlpha = Math.max(0, f.life); ctx.fillText(f.text,p.x,p.y); ctx.globalAlpha = 1;
     }
+    drawWeatherOverlay();
     const L = lightForTime();
     if (L.night > 0.06) {
       const v = ctx.createRadialGradient(width/2, height/2, height*0.24, width/2, height/2, height*0.92);
@@ -1153,6 +1304,7 @@ export function createCanvasPrismWorld(opts: CanvasWorldOptions): CanvasWorldApi
     const dt = Math.min(50, now - lastFrame); lastFrame = now; renderDtMs = dt || 16;
     updateVisualMotion(dt, now);
     updateRemoteVisuals(dt);
+    updateAmbientWeather(dt, now);
     maybeSpawnCitySparkle(now);
     if (me.walking || me.renderSpeed > 0.05) me.walkPhase += dt * (0.006 + Math.min(1.4, me.renderSpeed) * 0.010);
     if (pendingPath.length && now - lastStepAt >= 126 && canIssueMoveNow()) {

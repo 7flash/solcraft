@@ -358,6 +358,36 @@ function observatory(_color: string, plinth: string): PrismRecipePart[] {
   ];
 }
 
+
+function greenhouse(color: string, plinth: string): PrismRecipePart[] {
+  const accent = isTerrainGreenish(color) ? MAT.mintTop : color;
+  return [
+    ...baseParts(plinth, 1.22),
+    part("greenhouse-garden-bed-l", -0.34, 0.06, 0.22, 0.30, 0.52, 0.16, "#54c96d", "#2d8742", "#1d5a2b"),
+    part("greenhouse-garden-bed-r", 0.34, 0.06, 0.22, 0.30, 0.52, 0.16, "#7ccf7e", "#3d9348", "#286330"),
+    win(part("greenhouse-glass-core", 0, -0.02, 0.38, 0.88, 0.64, 0.58, "#b7e9d3", "#78b99a", "#4f846c"), 4, 2, false),
+    part("greenhouse-glass-left-roof", -0.20, -0.06, 0.92, 0.48, 0.62, 0.18, "#d7fff0", "#90c9ad", "#5d9277"),
+    part("greenhouse-glass-right-roof", 0.20, -0.06, 0.92, 0.48, 0.62, 0.18, "#c7f5e4", "#83bfa3", "#54886f"),
+    part("greenhouse-brass-ridge", 0, -0.08, 1.12, 0.18, 0.70, 0.10, MAT.brassTop, MAT.brassLeft, MAT.brassRight),
+    part("greenhouse-water-tank", 0.46, -0.28, 0.64, 0.22, 0.22, 0.34, "#7dcfe8", "#3e9fb5", "#2b7181"),
+    part("greenhouse-sign", -0.42, 0.42, 0.46, 0.28, 0.05, 0.13, accent, shade(accent, -0.24), shade(accent, -0.36)),
+  ];
+}
+
+function clockPlaza(_color: string, plinth: string): PrismRecipePart[] {
+  return [
+    ...baseParts(plinth, 1.30),
+    part("plaza-paving", 0, 0, 0.22, 1.06, 0.78, 0.10, MAT.stoneTop, MAT.stoneLeft, MAT.stoneRight),
+    part("plaza-fountain-water", 0, 0.02, 0.34, 0.42, 0.30, 0.10, "#7dcfe8", "#3e9fb5", "#2b7181"),
+    part("plaza-fountain-rim", 0, 0.02, 0.44, 0.56, 0.42, 0.08, MAT.creamTop, MAT.creamLeft, MAT.creamRight),
+    part("plaza-clock-base", 0, -0.23, 0.50, 0.24, 0.20, 0.52, MAT.brassTop, MAT.brassLeft, MAT.brassRight),
+    part("plaza-clock-face", 0, -0.23, 0.98, 0.20, 0.04, 0.20, "#fff0a8", "#b99a31", "#80681d"),
+    part("plaza-bench-a", -0.40, 0.24, 0.34, 0.32, 0.08, 0.10, MAT.umberTop, MAT.umberLeft, MAT.umberRight),
+    part("plaza-bench-b", 0.40, 0.24, 0.34, 0.32, 0.08, 0.10, MAT.umberTop, MAT.umberLeft, MAT.umberRight),
+    ...flag("plaza", 0.36, -0.30, 0.84, MAT.blueTop),
+  ];
+}
+
 function generic(color: string, plinth: string): PrismRecipePart[] {
   const accent = isTerrainGreenish(color) ? MAT.redTop : color;
   return [
@@ -379,6 +409,8 @@ export function buildingRecipeFor(kind: string, opts: BuildingRecipeOptions = {}
   if (k === "mall" || k === "arcade" || k === "exchange") return arcadeMarket(accent, plinth);
   if (k === "station" || k === "depot" || k === "terminal" || k === "harbor") return transitStation(accent, plinth);
   if (k === "observatory" || k === "library" || k === "lab") return observatory(accent, plinth);
+  if (k === "greenhouse" || k === "botanical" || k === "arboretum" || k === "glasshouse") return greenhouse(accent, plinth);
+  if (k === "plaza" || k === "square" || k === "courtyard" || k === "clocktower") return clockPlaza(accent, plinth);
   if (k === "townhall" || k === "guidehall" || k === "academy") return civicBlock(accent, plinth);
   if (k === "vault" || k === "bank" || k === "goldmine") return bank(accent, plinth);
   if (k === "workshop" || k === "forge" || k === "alchemy") return workshop(accent, plinth);
