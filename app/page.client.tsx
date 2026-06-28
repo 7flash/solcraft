@@ -28,7 +28,6 @@ import { FOUNDATION_KIND, FOUNDATION_BUILD_KINDS, foundationChoiceLabel } from "
 import { loadCharacterProfile, saveCharacterProfile, type CharacterProfile } from "../client/dollProfile";
 import { isMoveKey, movementVectorFromKeys, normalizeMoveKey } from "../client/game/directionalInput";
 import { DEFAULT_KEYBOARD_STEP_MS } from "../client/game/keyboardStepper";
-import { MovementPredictor } from "../client/game/movementPredictor";
 import { createMovementAccumulator } from "../client/game/movementAccumulator";
 import { shouldEnterPerfMode } from "../client/game/renderBudget";
 import { hopDurationForProjectedDistance, movementFeelBucket } from "../client/game/movementFeel";
@@ -4127,6 +4126,8 @@ export default function mount() {
   // signature gates here; changes are marked by code paths or by the conservative
   // fallback in paint(). Live HP/energy stay on MicroStore direct DOM bindings.
   const uiDirtyRegions = new Set(regions.map((r) => r.name));
+  let lastMinimapPaintAt = 0;
+  let lastMinimapPaintKey = "";
   const uiRegionLastPaint = new Map();
   const uiRegionMinMs = { hud: 60, top: 90, utility: 120, bottom: 120, guide: 160, modal: 90, menu: 180 };
   function markUiDirty(...names) {
@@ -4175,8 +4176,17 @@ export default function mount() {
     minimapEl.style.display = (ST.screen === "playing" && !ST.modal) ? "block" : "none";
     try {
       const miniCanvas = minimapEl?.tagName === "CANVAS" ? minimapEl : minimapEl?.querySelector?.("canvas");
-      if (ST.screen === "playing" && !ST.modal && miniCanvas) drawKnownWorldMap(miniCanvas, false);
-      world?.updateMinimapInfo?.();
+      const miniKey = [ST.screen, ST.modal || "", ST.mapRev ?? "", Math.trunc(Number(ST.me?.x || 0) / 3), Math.trunc(Number(ST.me?.z || 0) / 3)].join("|");
+      const nowMini = performance.now();
+      // Minimap decision: keep it derived from the drawable world snapshot, but do
+      // not repaint it during every unrelated HUD paint. The map changes on coarse
+      // position/rev boundaries, so throttle its canvas work independently from
+      // live HP/energy and action-ribbon updates.
+      if (ST.screen === "playing" && !ST.modal && miniCanvas && (force || miniKey !== lastMinimapPaintKey || nowMini - lastMinimapPaintAt > 700)) {
+        lastMinimapPaintKey = miniKey; lastMinimapPaintAt = nowMini;
+        drawKnownWorldMap(miniCanvas, false);
+        world?.updateMinimapInfo?.();
+      }
     } catch {}
     vignetteEl.style.display = ST.screen === "playing" ? "block" : "none";
     if (ST.screen !== "playing" || ST.modal) hideCtx();

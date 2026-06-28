@@ -734,6 +734,31 @@ export function createCanvasPrismWorld(opts: CanvasWorldOptions): CanvasWorldApi
     const [a,b,c,d] = diamondPath(cx, z, half, lift);
     ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.lineTo(c.x, c.y); ctx.lineTo(d.x, d.y); ctx.closePath(); ctx.stroke();
   }
+  function lotStep() { return visualCityFootprint; }
+  function lotHalf() { return visualCityFootprint / 2; }
+  function lotCenter(v: number) {
+    const step = lotStep();
+    return Math.round(Number(v || 0) / step) * step;
+  }
+  function lotOriginMin(center: number) { return center - lotHalf(); }
+  function eachVisibleLot(cb: (x: number, z: number) => void) {
+    const r = opts.currentTileLoadRadius?.() || 36;
+    const cx = Number(me.vx || me.x || 0), cz = Number(me.vz || me.z || 0);
+    const step = lotStep();
+    const minX = lotCenter(cx - r - step), maxX = lotCenter(cx + r + step);
+    const minZ = lotCenter(cz - r - step), maxZ = lotCenter(cz + r + step);
+    for (let x = minX; x <= maxX; x += step) for (let z = minZ; z <= maxZ; z += step) {
+      if (Math.max(Math.abs(x - cx), Math.abs(z - cz)) <= r + step) cb(x, z);
+    }
+  }
+  function drawLotDiamond(cx: number, z: number, fill: string, stroke = "", lift = 0.012, pad = 0.055) {
+    // Ground contract: city lots, building ghosts, construction aprons, and
+    // background terrain all share this same centered isometric diamond. The
+    // earlier renderer mixed 1x1 terrain cells, screen-space road strips, and
+    // footprint diamonds with different origins, which made the ground feel
+    // rectangular and detached from buildings.
+    poly(diamondPath(cx, z, lotHalf() + pad, lift), fill, stroke);
+  }
   function faceGradient(a: Pt, b: Pt, c: Pt, d: Pt, top: string, bottom: string) {
     const g = ctx.createLinearGradient((a.x+b.x)/2, (a.y+b.y)/2, (c.x+d.x)/2, (c.y+d.y)/2);
     g.addColorStop(0, top); g.addColorStop(1, bottom);
@@ -900,53 +925,73 @@ export function createCanvasPrismWorld(opts: CanvasWorldOptions): CanvasWorldApi
     ctx.setLineDash([Math.max(5, 7 * visualZoom()), Math.max(7, 9 * visualZoom())]);
     ctx.beginPath(); ctx.moveTo(mid0.x, mid0.y); ctx.lineTo(mid1.x, mid1.y); ctx.stroke(); ctx.setLineDash([]);
   }
+  function drawLotConnector(aX: number, aZ: number, bX: number, bZ: number, alpha = 0.10) {
+    const dx = bX - aX, dz = bZ - aZ;
+    const len = Math.max(0.001, Math.hypot(dx, dz));
+    const nx = -dz / len * 0.22, nz = dx / len * 0.22;
+    const p0 = proj(aX + nx, 0.030, aZ + nz), p1 = proj(bX + nx, 0.030, bZ + nz);
+    const p2 = proj(bX - nx, 0.030, bZ - nz), p3 = proj(aX - nx, 0.030, aZ - nz);
+    poly([p0, p1, p2, p3], `rgba(64,56,40,${alpha})`, "");
+  }
   function drawCityRoads() {
-    const r = opts.currentTileLoadRadius?.() || 36;
-    const cx = Math.round(me.vx || me.x), cz = Math.round(me.vz || me.z);
-    const step = roadStep();
-    const minX = Math.floor((cx - r - step) / step) * step;
-    const maxX = Math.ceil((cx + r + step) / step) * step;
-    const minZ = Math.floor((cz - r - step) / step) * step;
-    const maxZ = Math.ceil((cz + r + step) / step) * step;
+    // Roads are now lot connectors, not infinite screen-space strips. They use
+    // the same centered isometric footprint as buildings, so the ground reads as
+    // a city-builder plane rather than a rectangular UI grid under the sprites.
+    if (qualityName() === "fast") return;
+    const L = frameLightForTime();
+    const alpha = (0.055 + 0.035 * Math.max(0, L.elev)) * clamp(qualityBudget("cityRoadAlpha", 1), 0.35, 1.1);
     ctx.save();
-    for (let x = minX; x <= maxX; x += step) drawRoadStripX(x, minZ, maxZ, 1.35);
-    for (let z = minZ; z <= maxZ; z += step) drawRoadStripZ(z, minX, maxX, 1.35);
-    // Plaza diamonds at intersections give the grid an intentional city-plan feel.
-    for (let x = minX; x <= maxX; x += step) for (let z = minZ; z <= maxZ; z += step) {
-      const a = proj(x - 0.82, 0.033, z), b = proj(x, 0.033, z - 0.82), c = proj(x + 0.82, 0.033, z), d = proj(x, 0.033, z + 0.82);
-      poly([a,b,c,d], frameLightForTime().night > 0.45 ? 'rgba(50,58,72,0.50)' : 'rgba(118,108,82,0.25)', 'rgba(255,255,255,0.035)');
+    const lots = new Set<string>();
+    const centers: Array<[number, number]> = [];
+    for (const b of buildPool.values()) {
+      const lx = lotCenter(Number(b?.x || 0)), lz = lotCenter(Number(b?.z || 0));
+      const k = `${lx},${lz}`;
+      if (lots.has(k)) continue;
+      lots.add(k); centers.push([lx, lz]);
+    }
+    for (const [lx, lz] of centers) {
+      if (lots.has(`${lx + lotStep()},${lz}`)) drawLotConnector(lx, lz, lx + lotStep(), lz, alpha);
+      if (lots.has(`${lx},${lz + lotStep()}`)) drawLotConnector(lx, lz, lx, lz + lotStep(), alpha);
+      if (stableRand(lx, lz, 712) > 0.52) {
+        const p = proj(lx, 0.033, lz);
+        ctx.fillStyle = `rgba(255,231,165,${alpha * 0.42})`;
+        ctx.beginPath(); ctx.ellipse(p.x, p.y, Math.max(1.2, tileW * 0.040), Math.max(0.8, tileH * 0.040), 0, 0, Math.PI * 2); ctx.fill();
+      }
     }
     ctx.restore();
   }
   function drawCityGrid() {
-    const r = opts.currentTileLoadRadius?.() || 36;
-    const cx = Math.round(me.vx || me.x), cz = Math.round(me.vz || me.z);
-    const step = cityGridStep;
-    const half = step / 2;
-    const baseX = Math.floor(cx / step) * step;
-    const baseZ = Math.floor(cz / step) * step;
     const L = frameLightForTime();
-    const lotAlpha = 0.040 + 0.038 * Math.max(0, L.elev);
-    const majorAlpha = 0.110 + 0.070 * Math.max(0, L.elev);
+    const q = qualityName();
+    if (q === "fast") return;
+    const lotAlpha = q === "balanced" ? 0.035 : 0.055;
+    const strokeBase = lotAlpha + 0.030 * Math.max(0, L.elev);
     ctx.save();
-    ctx.lineWidth = Math.max(0.65, 0.95 * visualZoom());
-    // City planning grid decision: draw isometric diamond lots, not screen-space
-    // rectangular lattice lines. Buildings and build ghosts reserve the same
-    // 4x4 diamond footprint, so the grid now shares their ground plane and no
-    // longer feels like a flat UI rectangle pasted under prism bases.
-    for (let x = baseX - r - step; x <= baseX + r + step; x += step) {
-      for (let z = baseZ - r - step; z <= baseZ + r + step; z += step) {
-        if (Math.max(Math.abs(x - cx), Math.abs(z - cz)) > r + step) continue;
-        const major = Math.abs(x % (step * 4)) === 0 && Math.abs(z % (step * 4)) === 0;
-        ctx.strokeStyle = major ? `rgba(255,244,207,${majorAlpha})` : `rgba(255,255,255,${lotAlpha})`;
-        strokeDiamond(x, z, half, 0.037);
-        if (major && qualityName() !== "fast") {
-          const p = proj(x, 0.041, z);
-          ctx.fillStyle = `rgba(255,231,165,${majorAlpha * 0.34})`;
-          ctx.beginPath(); ctx.ellipse(p.x, p.y, Math.max(1.2, tileW * 0.035), Math.max(0.8, tileH * 0.035), 0, 0, Math.PI * 2); ctx.fill();
+    ctx.lineWidth = Math.max(0.55, 0.78 * visualZoom());
+    const occupiedLots = new Set<string>();
+    for (const b of buildPool.values()) occupiedLots.add(`${lotCenter(Number(b?.x || 0))},${lotCenter(Number(b?.z || 0))}`);
+
+    // Draw a low-contrast lot grid only on the same 4x4 diamonds that terrain and
+    // buildings use. No long horizontal/vertical screen lines are emitted here.
+    // This keeps the planning affordance while removing the rectangular-feeling
+    // lattice that made buildings look off-ground.
+    eachVisibleLot((x, z) => {
+      const nearBuilding = occupiedLots.has(`${x},${z}`) || occupiedLots.has(`${x + lotStep()},${z}`) || occupiedLots.has(`${x - lotStep()},${z}`) || occupiedLots.has(`${x},${z + lotStep()}`) || occupiedLots.has(`${x},${z - lotStep()}`);
+      const a = nearBuilding ? strokeBase * 1.45 : strokeBase * 0.46;
+      ctx.strokeStyle = `rgba(255,244,207,${a})`;
+      strokeDiamond(x, z, lotHalf(), 0.036);
+      if (nearBuilding && q === "crisp") {
+        ctx.strokeStyle = `rgba(42,34,24,${a * 0.52})`;
+        ctx.lineWidth = Math.max(0.45, 0.58 * visualZoom());
+        for (let i = 1; i < lotStep(); i++) {
+          const o = -lotHalf() + i;
+          const a0 = proj(x - lotHalf(), 0.038, z + o), a1 = proj(x + o, 0.038, z - lotHalf());
+          const b0 = proj(x + o, 0.038, z + lotHalf()), b1 = proj(x + lotHalf(), 0.038, z + o);
+          ctx.beginPath(); ctx.moveTo(a0.x, a0.y); ctx.lineTo(a1.x, a1.y); ctx.stroke();
+          ctx.beginPath(); ctx.moveTo(b0.x, b0.y); ctx.lineTo(b1.x, b1.y); ctx.stroke();
         }
       }
-    }
+    });
     ctx.restore();
   }
 
@@ -997,10 +1042,13 @@ export function createCanvasPrismWorld(opts: CanvasWorldOptions): CanvasWorldApi
       const pad = kind === "house" ? 0.22 : 0.34;
       const y = 0.043;
       const a = 0.10 + 0.08 * Math.max(0, L.elev);
-      const p0 = proj(ox - pad, y, oz + fp / 2), p1 = proj(ox + fp / 2, y, oz - pad), p2 = proj(ox + fp + pad, y, oz + fp / 2), p3 = proj(ox + fp / 2, y, oz + fp + pad);
-      poly([p0,p1,p2,p3], `rgba(78,66,45,${a})`, `rgba(255,232,164,${a * 0.16})`);
+      // Building origin contract: recipe origin, sprite anchor, shadow, apron,
+      // and build ghost are all centered on b.x/b.z. Previous iterations treated
+      // aprons and sort keys as if x/z were the top-left footprint corner, which
+      // was the main source of ground/building mismatch.
+      poly(diamondPath(ox, oz, fp / 2 + pad, y), `rgba(78,66,45,${a})`, `rgba(255,232,164,${a * 0.16})`);
       if (stableRand(ox, oz, 661) > 0.45) {
-        const q0 = proj(ox + fp / 2 - 0.16, y + 0.006, oz + fp / 2), q1 = proj(ox + fp / 2 + 0.16, y + 0.006, oz + fp / 2);
+        const q0 = proj(ox - 0.22, y + 0.006, oz), q1 = proj(ox + 0.22, y + 0.006, oz);
         ctx.strokeStyle = `rgba(230,206,151,${a * 0.35})`;
         ctx.lineWidth = Math.max(0.65, visualZoom() * 0.8);
         ctx.beginPath(); ctx.moveTo(q0.x, q0.y); ctx.lineTo(q1.x, q1.y); ctx.stroke();
@@ -1104,50 +1152,69 @@ export function createCanvasPrismWorld(opts: CanvasWorldOptions): CanvasWorldApi
     ctx.restore();
   }
   function terrainColor(x: number, z: number) {
-    const owner = tileOwner.get(kfn(x,z));
-    const biome = opts.biomeTerrainAt?.(x,z) || "grass";
+    const owner = tileOwner.get(kfn(Math.round(x), Math.round(z)));
+    const biome = opts.biomeTerrainAt?.(Math.round(x), Math.round(z)) || "grass";
     // Art direction decision: terrain must be a quiet stage, not high-frequency
-    // TV static. Use a tiny authored ramp per biome instead of continuous
-    // random noise; buildings/resources then carry the sharper contrast.
+    // TV static. Use a tiny authored ramp per biome instead of continuous random
+    // noise; buildings/resources carry the sharper contrast and saturation.
     const ramps:any = {
-      grass: [[31,62,49], [35,70,54], [40,76,58]],
-      sand: [[92,76,47], [104,84,52], [114,94,60]],
-      water: [[30,66,74], [35,78,86], [42,88,94]],
-      stone: [[58,63,64], [66,70,70], [74,78,76]],
+      grass: [[27,52,43], [31,58,47], [35,64,50]],
+      sand: [[78,64,43], [88,72,47], [98,80,53]],
+      water: [[24,54,64], [29,64,73], [35,74,82]],
+      stone: [[48,52,54], [56,60,61], [64,67,66]],
     };
     const ramp = ramps[String(biome)] || ramps.grass;
-    let base = ramp[Math.floor(stableRand(x, z, 17) * ramp.length) % ramp.length].slice();
-    if (owner) base = mixRgb(base, hexToRgb(numColorToHex(owner.body || owner.ownerBody || "#14f195", "#14f195")), 0.14);
+    let base = ramp[Math.floor(stableRand(Math.round(x / lotStep()), Math.round(z / lotStep()), 17) * ramp.length) % ramp.length].slice();
+    if (owner) base = mixRgb(base, hexToRgb(numColorToHex(owner.body || owner.ownerBody || "#14f195", "#14f195")), 0.10);
     return rgbToCss(base);
   }
-  function drawTerrain() {
-    const r = opts.currentTileLoadRadius?.() || 36;
-    const cx = Math.round(me.x), cz = Math.round(me.z);
-    const minX = cx - r, maxX = cx + r, minZ = cz - r, maxZ = cz + r;
-    const detailStride = qualityStride("terrainDetailStride", 1);
-    for (let x = minX; x <= maxX; x++) for (let z = minZ; z <= maxZ; z++) {
-      if (Math.max(Math.abs(x-cx), Math.abs(z-cz)) > r) continue;
-      const skipFineDetail = detailStride > 1 && Math.abs(x * 31 + z * 17) % detailStride !== 0;
-      const edge = 0.515;
-      const a = proj(x - edge, 0, z), b = proj(x, 0, z - edge), c = proj(x + edge, 0, z), d = proj(x, 0, z + edge);
-      poly([a,b,c,d], terrainColor(x,z), "");
-      if (qualityName() !== "fast" && !skipFineDetail && stableRand(x,z,101) > 0.965) {
-        const p = proj(x + (stableRand(x,z,4)-0.5)*0.36, 0.016, z + (stableRand(x,z,5)-0.5)*0.36);
-        const w = (0.16 + stableRand(x,z,6)*0.18) * tileW;
-        const h = (0.014 + stableRand(x,z,7)*0.020) * tileW;
-        ctx.save(); ctx.translate(p.x,p.y); ctx.rotate((stableRand(x,z,8)-0.5)*1.3); ctx.fillStyle = stableRand(x,z,9)>0.55 ? "rgba(177,156,104,0.050)" : "rgba(189,218,187,0.040)"; ctx.fillRect(-w/2,-h/2,w,h); ctx.restore();
-      }
-      renderCounters.terrainTilesDrawn++;
+  function lotOwnerTint(cx: number, z: number) {
+    // Ownership is still tile-authoritative on the server, but visually it should
+    // not turn the ground into a noisy rectangular checkerboard. Sample the 4x4
+    // lot and tint only when ownership is common enough to matter at a glance.
+    const counts = new Map<string, { n: number, color: string }>();
+    const minX = Math.floor(lotOriginMin(cx)), minZ = Math.floor(lotOriginMin(z));
+    for (let ix = 0; ix < lotStep(); ix++) for (let iz = 0; iz < lotStep(); iz++) {
+      const owner = tileOwner.get(kfn(minX + ix, minZ + iz));
+      if (!owner) continue;
+      const color = numColorToHex(owner.body || owner.ownerBody || "#14f195", "#14f195");
+      const row = counts.get(color) || { n: 0, color };
+      row.n++; counts.set(color, row);
     }
-    // Larger authored scuff sheets, deterministic around the player. These are
-    // visible enough to kill the green void but quiet enough to avoid the old debug grid.
+    let best:any = null;
+    for (const row of counts.values()) if (!best || row.n > best.n) best = row;
+    if (!best || best.n < 3) return "";
+    const alpha = clamp(0.026 + best.n / 16 * 0.052, 0.026, 0.085);
+    const rgb = hexToRgb(best.color);
+    return `rgba(${rgb[0]},${rgb[1]},${rgb[2]},${alpha})`;
+  }
+  function drawTerrain() {
+    // Terrain visual contract: render broad 4x4 isometric lot diamonds, not a
+    // visible 1x1 checkerboard. This matches the building/ghost footprint and is
+    // the direct fix for the rectangular-looking ground mismatch.
+    const L = frameLightForTime();
+    ctx.save();
+    eachVisibleLot((x, z) => {
+      const fill = terrainColor(x, z);
+      drawLotDiamond(x, z, fill, "", 0.006, 0.085);
+      const tint = lotOwnerTint(x, z);
+      if (tint) drawLotDiamond(x, z, tint, "", 0.011, 0.075);
+      renderCounters.terrainTilesDrawn += lotStep() * lotStep();
+    });
+
+    // Low-frequency broad scuffs only. Fine per-cell speckles were removed
+    // because they fought the clean prism silhouettes and read as color mud.
+    const cx = Math.round(me.x), cz = Math.round(me.z);
+    const r = opts.currentTileLoadRadius?.() || 36;
     const markStride = qualityStride("terrainDetailStride", 1);
     for (let i = 0; i < staticGroundMarks.length; i += markStride) {
       const m = staticGroundMarks[i];
       if (Math.max(Math.abs(m.x-cx), Math.abs(m.z-cz)) > r + 4) continue;
-      const p = proj(m.x, 0.02, m.z);
-      ctx.save(); ctx.translate(p.x,p.y); ctx.rotate(m.a); ctx.fillStyle = m.c; ctx.fillRect(-m.w*tileW/2, -m.h*tileH/2, m.w*tileW, m.h*tileH); ctx.restore();
+      const p = proj(m.x, 0.020, m.z);
+      const a = clamp(0.55 + Math.max(0, L.elev) * 0.25, 0.45, 0.86);
+      ctx.save(); ctx.globalAlpha = a; ctx.translate(p.x,p.y); ctx.rotate(m.a); ctx.fillStyle = m.c; ctx.fillRect(-m.w*tileW/2, -m.h*tileH/2, m.w*tileW, m.h*tileH); ctx.restore();
     }
+    ctx.restore();
   }
   function ensureGroundMarks() {
     if (staticGroundMarks.length >= minGroundMarks) return;
@@ -1897,14 +1964,18 @@ export function createCanvasPrismWorld(opts: CanvasWorldOptions): CanvasWorldApi
     const ents: any[] = [];
     for (const b of buildPool.values()) {
       const fp = visualFootprintForKind(b.kind);
+      const ox = Number(b.x || 0), oz = Number(b.z || 0);
       if (canSliceBuildingEntity(b)) {
         const total = buildingSliceCountFor(fp);
         for (let i = 0; i < total; i++) {
-          const t = (i + 0.5) / total;
-          ents.push({ kind:"buildingSlice", x:Number(b.x||0)+fp*t, z:Number(b.z||0)+fp*t, y:0, h:visualScaleForKind(b.kind), data:{ b, sliceIndex:i, totalSlices:total } });
+          const t = total <= 1 ? 0 : (i / (total - 1) - 0.5);
+          // Slice depth is offset around the centered footprint. The sprite still
+          // draws at b.x/b.z; only the sort representative moves from back to
+          // front so large structures interleave with nearby resources/players.
+          ents.push({ kind:"buildingSlice", x:ox + t * fp * 0.82, z:oz + t * fp * 0.82, y:0, h:visualScaleForKind(b.kind), data:{ b, sliceIndex:i, totalSlices:total } });
         }
       } else {
-        ents.push({ kind:"building", x:Number(b.x||0)+fp/2, z:Number(b.z||0)+fp/2, y:0, h:visualScaleForKind(b.kind), data:b });
+        ents.push({ kind:"building", x:ox, z:oz, y:0, h:visualScaleForKind(b.kind), data:b });
       }
     }
     for (const d of doodads.values()) if (d && d.type !== "gone") ents.push({ kind:"doodad", x:Number(d.x||0)-0.8, z:Number(d.z||0)-0.8, y:0, h:1.6, data:d });
