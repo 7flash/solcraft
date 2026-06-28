@@ -199,6 +199,7 @@ export function createCanvasPrismWorld(opts: CanvasWorldOptions): CanvasWorldApi
   }));
   let lastVisibleCenter = { x: 1e9, z: 1e9, r: 0 };
   let renderQuality = visualPerfFor(ST.visual || {}, false);
+  let frameLight: any = null;
   let staticDirty = true;
   let staticCacheKey = "";
   let lastStaticRebuildReason = "boot";
@@ -415,7 +416,7 @@ export function createCanvasPrismWorld(opts: CanvasWorldOptions): CanvasWorldApi
   function maybeSpawnCitySparkle(nowMs: number) {
     const density = sparkleDensity();
     if (density <= 0.02) return;
-    const L = lightForTime();
+    const L = frameLightForTime();
     if (L.night < 0.32 && !L.dusk) return;
     const maxSparkles = Math.max(8, Math.round(54 * density));
     const interval = Math.round(95 / Math.max(0.18, density));
@@ -442,7 +443,7 @@ export function createCanvasPrismWorld(opts: CanvasWorldOptions): CanvasWorldApi
   }
   function drawTinyCitizen(citizen: any, x: number, z: number, phase: number) {
     const p = proj(x, 0.04, z);
-    const L = lightForTime();
+    const L = frameLightForTime();
     const sc = visualZoom() * 0.72;
     const bob = Math.abs(Math.sin(phase)) * 1.6 * sc;
     ctx.save();
@@ -460,7 +461,7 @@ export function createCanvasPrismWorld(opts: CanvasWorldOptions): CanvasWorldApi
     ctx.restore();
   }
   function drawTinyCart(cart: any, x: number, z: number, horizontal: boolean) {
-    const L = lightForTime();
+    const L = frameLightForTime();
     const yaw = horizontal ? 0 : 1;
     const w = horizontal ? 0.92 : 0.48;
     const d = horizontal ? 0.48 : 0.92;
@@ -472,7 +473,7 @@ export function createCanvasPrismWorld(opts: CanvasWorldOptions): CanvasWorldApi
   }
 
   function drawStreetLamp(x: number, z: number, seed = 0) {
-    const L = lightForTime();
+    const L = frameLightForTime();
     const glow = clamp(0.12 + L.night * 0.78 + (L.dusk ? 0.18 : 0), 0, 0.92);
     drawPrismMin(x - 0.035, z - 0.035, 0.04, 0.07, 0.07, 0.72, '#2c3645', '#1d2530', '#121820', 0.94);
     drawPrismMin(x - 0.105, z - 0.105, 0.73, 0.21, 0.21, 0.12, '#ffd76e', '#a98728', '#755d1a', 0.98);
@@ -691,7 +692,7 @@ export function createCanvasPrismWorld(opts: CanvasWorldOptions): CanvasWorldApi
         const p = proj(leaf.x, leaf.y, leaf.z);
         const a = clamp(leaf.life / leaf.maxLife, 0, 1);
         ctx.translate(p.x, p.y); ctx.rotate(Math.sin(performance.now()/260 + leaf.phase) * 0.9);
-        ctx.fillStyle = leaf.color.replace(/,0.[0-9]+)$/, `,${0.50 * a})`);
+        ctx.fillStyle = colorWithAlpha(leaf.color, 0.50 * a);
         ctx.fillRect(-2.8 * visualZoom(), -1.1 * visualZoom(), 5.6 * visualZoom(), 2.2 * visualZoom());
         ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
       }
@@ -716,8 +717,8 @@ export function createCanvasPrismWorld(opts: CanvasWorldOptions): CanvasWorldApi
       const [r,g,b] = hexToRgb(s);
       return `rgba(${r|0},${g|0},${b|0},${a})`;
     }
-    if (/^rgba(/i.test(s)) return s.replace(/,\s*[0-9.]+\)$/, `,${a})`);
-    if (/^rgb(/i.test(s)) return s.replace(/^rgb(/i, "rgba(").replace(/)$/, `,${a})`);
+    if (/^rgba\(/i.test(s)) return s.replace(/,\s*[0-9.]+\)$/, `,${a})`);
+    if (/^rgb\(/i.test(s)) return s.replace(/^rgb\(/i, "rgba(").replace(/\)$/, `,${a})`);
     return s || `rgba(255,215,110,${a})`;
   }
   function drawDiamond(cx: number, z: number, color: string, alpha = 1, lift = 0.01, scale = 1) {
@@ -749,17 +750,44 @@ export function createCanvasPrismWorld(opts: CanvasWorldOptions): CanvasWorldApi
     const warmEdge = Math.max(0, 1 - elev / 0.42);
     const night = 1 - Math.min(1, elev * 1.7 + (sunUp ? 0.18 : 0));
     const tintRgb = sunUp ? mixRgb([1.02, 0.98, 0.90], [1.12, 0.78, 0.54], warmEdge) : [0.55, 0.64, 0.96];
+
+    // Graphics decision: Canvas cannot run a real shader, but it can still have
+    // a directional key light. The sun disc now drives the two visible isometric
+    // wall faces through a dot product instead of fixed "left/right" constants.
+    // This widens value contrast and makes buildings read as volumes instead of
+    // stickers on a mat, while keeping the renderer pure Canvas 2D.
+    const azimuth = -Math.PI * 0.95 + dayT * Math.PI * 1.90;
+    const dirX = Math.cos(azimuth);
+    const dirZ = Math.sin(azimuth);
+    const face = (nx: number, nz: number) => {
+      const dot = clamp(nx * dirX + nz * dirZ, -1, 1);
+      const lit = Math.max(0, dot);
+      const away = Math.max(0, -dot);
+      return clamp(0.46 + elev * 0.35 + lit * elev * 0.70 - away * (0.18 + elev * 0.10), 0.42, 1.36);
+    };
+    const left = face(0, 1);
+    const right = face(1, 0);
+    const top = clamp(0.76 + elev * 0.62 + warmEdge * 0.08, 0.64, 1.42);
+    const shadowLength = clamp(0.28 + (1 - elev) * 1.05, 0.32, 1.25);
     return {
       tint: tintRgb,
-      top: 0.70 + 0.58 * elev,
-      left: 0.50 + 0.34 * elev,
-      right: 0.42 + 0.28 * elev,
+      top,
+      left,
+      right,
       shadow: 0.10 + 0.22 * Math.max(0.35, elev),
       night,
       elev,
       dusk: warmEdge > 0.42 || night > 0.28,
       t,
+      dirX,
+      dirZ,
+      shadowDx: -dirX * shadowLength,
+      shadowDz: -dirZ * shadowLength,
+      shadowLength,
     };
+  }
+  function frameLightForTime() {
+    return frameLight || lightForTime();
   }
   function currentHour() {
     try {
@@ -791,7 +819,7 @@ export function createCanvasPrismWorld(opts: CanvasWorldOptions): CanvasWorldApi
     };
   }
   function skyGradientStops() {
-    const L = lightForTime();
+    const L = frameLightForTime();
     const t = L.t;
     if (L.night > 0.65) return { top: [8, 12, 28], mid: [18, 25, 52], bot: [24, 34, 56] };
     if (t < 0.30) return { top: [86, 108, 162], mid: [216, 142, 104], bot: [222, 192, 142] };
@@ -799,7 +827,7 @@ export function createCanvasPrismWorld(opts: CanvasWorldOptions): CanvasWorldApi
     return { top: [108, 175, 228], mid: [166, 214, 220], bot: [207, 226, 184] };
   }
   function drawSkyBackdrop() {
-    const L = lightForTime();
+    const L = frameLightForTime();
     const s = skyGradientStops();
     const g = ctx.createLinearGradient(0, 0, 0, height);
     g.addColorStop(0, rgbToCss(s.top));
@@ -848,7 +876,7 @@ export function createCanvasPrismWorld(opts: CanvasWorldOptions): CanvasWorldApi
     }
   }
   function roadFillForTime() {
-    const L = lightForTime();
+    const L = frameLightForTime();
     return L.night > 0.45 ? "rgba(31,39,52,0.58)" : "rgba(70,82,70,0.34)";
   }
   function drawRoadStripX(x: number, z0: number, z1: number, widthCells: number) {
@@ -885,7 +913,7 @@ export function createCanvasPrismWorld(opts: CanvasWorldOptions): CanvasWorldApi
     // Plaza diamonds at intersections give the grid an intentional city-plan feel.
     for (let x = minX; x <= maxX; x += step) for (let z = minZ; z <= maxZ; z += step) {
       const a = proj(x - 0.82, 0.033, z), b = proj(x, 0.033, z - 0.82), c = proj(x + 0.82, 0.033, z), d = proj(x, 0.033, z + 0.82);
-      poly([a,b,c,d], lightForTime().night > 0.45 ? 'rgba(50,58,72,0.50)' : 'rgba(118,108,82,0.25)', 'rgba(255,255,255,0.035)');
+      poly([a,b,c,d], frameLightForTime().night > 0.45 ? 'rgba(50,58,72,0.50)' : 'rgba(118,108,82,0.25)', 'rgba(255,255,255,0.035)');
     }
     ctx.restore();
   }
@@ -896,7 +924,7 @@ export function createCanvasPrismWorld(opts: CanvasWorldOptions): CanvasWorldApi
     const half = step / 2;
     const baseX = Math.floor(cx / step) * step;
     const baseZ = Math.floor(cz / step) * step;
-    const L = lightForTime();
+    const L = frameLightForTime();
     const lotAlpha = 0.040 + 0.038 * Math.max(0, L.elev);
     const majorAlpha = 0.110 + 0.070 * Math.max(0, L.elev);
     ctx.save();
@@ -926,7 +954,7 @@ export function createCanvasPrismWorld(opts: CanvasWorldOptions): CanvasWorldApi
       const bx = f01.x + (f11.x - f01.x) * u, by = f01.y + (f11.y - f01.y) * u;
       return { x: ax + (bx - ax) * v, y: ay + (by - ay) * v };
     };
-    const L = lightForTime();
+    const L = frameLightForTime();
     const mu = 0.18, mv = 0.13;
     for (let r = 0; r < rows; r++) for (let c = 0; c < cols; c++) {
       const u0 = mu + (c + 0.22) * (1 - 2 * mu) / cols, u1 = mu + (c + 0.76) * (1 - 2 * mu) / cols;
@@ -938,18 +966,23 @@ export function createCanvasPrismWorld(opts: CanvasWorldOptions): CanvasWorldApi
   }
   function drawPrismMin(x: number, z: number, y: number, w: number, d: number, h: number, top: string, left?: string, right?: string, alpha = 1, windows: any = null, seed = 0) {
     renderCounters.prismPartsDrawn++;
-    const L = lightForTime();
+    const L = frameLightForTime();
     const x0 = x, z0 = z, y0 = y, x1 = x + w, z1 = z + d, y1 = y + h;
     const at = proj(x0,y1,z0), bt = proj(x1,y1,z0), ct = proj(x1,y1,z1), dt = proj(x0,y1,z1);
     const b0 = proj(x1,y0,z0), c0 = proj(x1,y0,z1), d0 = proj(x0,y0,z1);
     const topHex = cssHex(top, "#c79a45");
     const leftHex = cssHex(left || shadeHex(topHex, -0.22), shadeHex(topHex, -0.22));
     const rightHex = cssHex(right || shadeHex(topHex, -0.34), shadeHex(topHex, -0.34));
-    const l1 = tint(leftHex, L.left * 1.10, L.tint), l2 = tint(leftHex, L.left * 0.72, L.tint);
-    const r1 = tint(rightHex, L.right * 1.10, L.tint), r2 = tint(rightHex, L.right * 0.72, L.tint);
-    poly([d0,c0,ct,dt], faceGradient(d0,c0,ct,dt,l1,l2) as any, `rgba(16,22,18,${0.20 * alpha})`);
-    poly([c0,b0,bt,ct], faceGradient(c0,b0,bt,ct,r1,r2) as any, `rgba(10,15,13,${0.22 * alpha})`);
-    poly([at,bt,ct,dt], tint(topHex, L.top, L.tint), `rgba(20,18,12,${0.18 * alpha})`);
+    const l1 = tint(leftHex, L.left * 1.12, L.tint), l2 = tint(leftHex, L.left * 0.68, L.tint);
+    const r1 = tint(rightHex, L.right * 1.12, L.tint), r2 = tint(rightHex, L.right * 0.68, L.tint);
+    // Allocation decision: gradients sell material depth, but createLinearGradient
+    // is expensive. Cached sprites pay that cost once; live low-quality prisms use
+    // solid face colors to protect frame time.
+    const useGradientFaces = qualityName() === "crisp" || (windows && h > 0.9);
+    const outlineA = 0.26 * alpha;
+    poly([d0,c0,ct,dt], (useGradientFaces ? faceGradient(d0,c0,ct,dt,l1,l2) : tint(leftHex, L.left * 0.88, L.tint)) as any, `rgba(7,12,10,${outlineA})`);
+    poly([c0,b0,bt,ct], (useGradientFaces ? faceGradient(c0,b0,bt,ct,r1,r2) : tint(rightHex, L.right * 0.88, L.tint)) as any, `rgba(6,10,9,${outlineA + 0.02})`);
+    poly([at,bt,ct,dt], tint(topHex, L.top, L.tint), `rgba(20,18,12,${0.23 * alpha})`);
     if (windows && h > 0.42) {
       const cols = Math.max(1, Math.min(8, Math.floor(Number(windows.cols || 2))));
       const rows = Math.max(1, Math.min(10, Math.floor(Number(windows.rows || Math.max(1, h * 2)))));
@@ -972,18 +1005,59 @@ export function createCanvasPrismWorld(opts: CanvasWorldOptions): CanvasWorldApi
   }
   function drawShadow(cx: number, z: number, rx = 0.8, ry = 0.42, alpha = 0.18) {
     renderCounters.shadowsDrawn++;
-    const p = proj(cx + 0.13, 0.02, z + 0.10);
+    const L = frameLightForTime();
+    const p = proj(cx + 0.10 + L.shadowDx * 0.08, 0.018, z + 0.08 + L.shadowDz * 0.08);
     const a = alpha * clamp(qualityBudget("shadowAlphaMul", 1), 0.35, 1.15);
-    ctx.fillStyle = `rgba(6,12,10,${a})`;
-    ctx.beginPath(); ctx.ellipse(p.x, p.y, rx * tileW, ry * tileH, 0, 0, Math.PI * 2); ctx.fill();
+    // Contact decision: every object gets a soft radial contact shadow instead
+    // of a hard sticker ellipse. This is much cheaper than real cast shadows but
+    // gives the brain the missing "object touches the ground" cue.
+    ctx.save();
+    ctx.translate(p.x, p.y);
+    ctx.scale(Math.max(1, rx * tileW), Math.max(1, ry * tileH));
+    const g = ctx.createRadialGradient(0, 0, 0, 0, 0, 1);
+    g.addColorStop(0, `rgba(4,8,7,${a})`);
+    g.addColorStop(0.58, `rgba(4,8,7,${a * 0.42})`);
+    g.addColorStop(1, "rgba(4,8,7,0)");
+    ctx.fillStyle = g;
+    ctx.beginPath(); ctx.arc(0, 0, 1, 0, Math.PI * 2); ctx.fill();
+    ctx.restore();
+  }
+  function drawContactAO(cx: number, z: number, fp = 1, alpha = 0.13) {
+    if (qualityName() === "fast") return;
+    const half = Math.max(0.45, fp * 0.50);
+    const [a,b,c,d] = diamondPath(cx, z, half, 0.034);
+    poly([a,b,c,d], `rgba(5,9,7,${alpha})`, "");
+  }
+  function drawDirectionalGroundShadow(cx: number, z: number, fp = 1, h = 1, alpha = 0.10) {
+    if (qualityName() === "fast") return;
+    const L = frameLightForTime();
+    const len = clamp(L.shadowLength * (0.24 + h * 0.10), 0.18, 1.05);
+    const dx = L.shadowDx * len, dz = L.shadowDz * len;
+    const half = Math.max(0.50, fp * 0.44);
+    const base = diamondPath(cx, z, half, 0.028);
+    const tip = diamondPath(cx + dx, z + dz, half * 0.72, 0.026);
+    ctx.save();
+    ctx.globalAlpha = alpha * clamp(1 - L.elev * 0.36, 0.35, 1);
+    poly([base[0], base[1], tip[1], tip[0]], "rgba(5,8,7,0.22)", "");
+    poly([base[1], base[2], tip[2], tip[1]], "rgba(5,8,7,0.15)", "");
+    ctx.restore();
   }
   function terrainColor(x: number, z: number) {
     const owner = tileOwner.get(kfn(x,z));
     const biome = opts.biomeTerrainAt?.(x,z) || "grass";
-    let base = biome === "sand" ? [116,96,54] : biome === "water" ? [38,80,82] : [43,82,62];
-    if (owner) base = mixRgb(base, hexToRgb(numColorToHex(owner.body || owner.ownerBody || "#14f195", "#14f195")), 0.20);
-    const r = stableRand(x,z,17) - 0.5;
-    return rgbToCss([base[0] + r*5, base[1] + r*5, base[2] + r*5]);
+    // Art direction decision: terrain must be a quiet stage, not high-frequency
+    // TV static. Use a tiny authored ramp per biome instead of continuous
+    // random noise; buildings/resources then carry the sharper contrast.
+    const ramps:any = {
+      grass: [[31,62,49], [35,70,54], [40,76,58]],
+      sand: [[92,76,47], [104,84,52], [114,94,60]],
+      water: [[30,66,74], [35,78,86], [42,88,94]],
+      stone: [[58,63,64], [66,70,70], [74,78,76]],
+    };
+    const ramp = ramps[String(biome)] || ramps.grass;
+    let base = ramp[Math.floor(stableRand(x, z, 17) * ramp.length) % ramp.length].slice();
+    if (owner) base = mixRgb(base, hexToRgb(numColorToHex(owner.body || owner.ownerBody || "#14f195", "#14f195")), 0.14);
+    return rgbToCss(base);
   }
   function drawTerrain() {
     const r = opts.currentTileLoadRadius?.() || 36;
@@ -996,11 +1070,11 @@ export function createCanvasPrismWorld(opts: CanvasWorldOptions): CanvasWorldApi
       const edge = 0.515;
       const a = proj(x - edge, 0, z), b = proj(x, 0, z - edge), c = proj(x + edge, 0, z), d = proj(x, 0, z + edge);
       poly([a,b,c,d], terrainColor(x,z), "");
-      if (!skipFineDetail && stableRand(x,z,101) > 0.86) {
-        const p = proj(x + (stableRand(x,z,4)-0.5)*0.42, 0.016, z + (stableRand(x,z,5)-0.5)*0.42);
-        const w = (0.12 + stableRand(x,z,6)*0.22) * tileW;
-        const h = (0.018 + stableRand(x,z,7)*0.030) * tileW;
-        ctx.save(); ctx.translate(p.x,p.y); ctx.rotate((stableRand(x,z,8)-0.5)*1.3); ctx.fillStyle = stableRand(x,z,9)>0.55 ? "rgba(177,156,104,0.10)" : "rgba(189,218,187,0.08)"; ctx.fillRect(-w/2,-h/2,w,h); ctx.restore();
+      if (qualityName() !== "fast" && !skipFineDetail && stableRand(x,z,101) > 0.965) {
+        const p = proj(x + (stableRand(x,z,4)-0.5)*0.36, 0.016, z + (stableRand(x,z,5)-0.5)*0.36);
+        const w = (0.16 + stableRand(x,z,6)*0.18) * tileW;
+        const h = (0.014 + stableRand(x,z,7)*0.020) * tileW;
+        ctx.save(); ctx.translate(p.x,p.y); ctx.rotate((stableRand(x,z,8)-0.5)*1.3); ctx.fillStyle = stableRand(x,z,9)>0.55 ? "rgba(177,156,104,0.050)" : "rgba(189,218,187,0.040)"; ctx.fillRect(-w/2,-h/2,w,h); ctx.restore();
       }
       renderCounters.terrainTilesDrawn++;
     }
@@ -1221,7 +1295,8 @@ export function createCanvasPrismWorld(opts: CanvasWorldOptions): CanvasWorldApi
     const spr = cachedSpriteCanvas(cssW, cssH);
     withSpriteProjection(spr.ctx, anchorX, anchorY, () => {
       spr.ctx.clearRect(0, 0, cssW, cssH);
-      drawShadow(0, 0, 0.36 * fp, 0.17 * fp, lightForTime().shadow * 0.95);
+      // Body only. Contact AO/shadows are drawn live at world position so they
+      // can respond to time-of-day without exploding the sprite cache.
       for (const part of recipe) drawRecipePart(0, 0, part, scale);
     });
     const out = { ...spr, anchorX, anchorY, lastUsed: performance.now() };
@@ -1264,11 +1339,46 @@ export function createCanvasPrismWorld(opts: CanvasWorldOptions): CanvasWorldApi
     renderCounters.spriteDraws++;
   }
 
+
+  function semanticWonderRecipeFor(b: any, fallbackColor: string): PrismRecipePart[] | null {
+    const wonder = b?.wonder || b?.recipe || b?.wonderRecipe || null;
+    const raw = Array.isArray(wonder?.parts) ? wonder.parts : [];
+    if (!raw.length) return null;
+    const palette = Array.isArray(wonder?.palette) ? wonder.palette : [];
+    const accent = cssHex(palette[0] || fallbackColor, fallbackColor);
+    const out: PrismRecipePart[] = [
+      { id: "ai-plinth", x: 0, z: 0, y: 0.18, w: 1.34, d: 1.02, h: 0.18, top: "#8f7b53", left: "#6d5a38", right: "#4f3f28" },
+    ];
+    // Product decision: keep Canvas as the world renderer but honor the AI plan.
+    // AI Wonder parts are translated into the existing PrismRecipePart format so
+    // prompts produce visibly different landmarks without reintroducing Three.js
+    // as a second, unreachable rendering stack.
+    raw.slice(0, qualityName() === "fast" ? 18 : 42).forEach((part: any, i: number) => {
+      const pos = Array.isArray(part?.pos) ? part.pos : [part?.x || 0, part?.y || 0.7, part?.z || 0];
+      const scale = Array.isArray(part?.scale) ? part.scale : [part?.w || 0.5, part?.h || 0.7, part?.d || 0.5];
+      const px = clamp(Number(pos[0] || 0), -1.2, 1.2);
+      const py = clamp(Number(pos[1] || 0.8), 0.12, 4.8);
+      const pz = clamp(Number(pos[2] || 0), -1.2, 1.2);
+      const w = clamp(Math.abs(Number(scale[0] || 0.45)), 0.08, 1.7);
+      const h = clamp(Math.abs(Number(scale[1] || 0.65)), 0.08, 4.6);
+      const d = clamp(Math.abs(Number(scale[2] || 0.45)), 0.08, 1.7);
+      const top = cssHex(part?.color || palette[i % Math.max(1, palette.length)] || accent, accent);
+      const prim = String(part?.primitive || part?.kind || "box").toLowerCase();
+      out.push({ id: `ai-${i}-${prim}`, x: px, z: pz, y: Math.max(0.22, py - h / 2), w, d, h, top, left: shadeHex(top, -0.26), right: shadeHex(top, -0.40), windows: prim.includes("tower") || h > 1.1 ? { cols: 2, rows: Math.min(8, Math.max(2, Math.floor(h * 2))), glow: true, face: "both" } : undefined });
+      if (prim.includes("cone") || prim.includes("spire") || prim.includes("pyramid")) {
+        out.push({ id: `ai-${i}-cap`, x: px, z: pz, y: Math.max(0.26, py + h / 2), w: w * 0.68, d: d * 0.68, h: Math.max(0.10, h * 0.16), top: shadeHex(top, 0.18), left: shadeHex(top, -0.18), right: shadeHex(top, -0.34) });
+      }
+    });
+    return out;
+  }
+
   function drawBuilding(b: any) {
     const kind = String(b.kind || b.type || "building").toLowerCase();
     const progress = visualProgressForBuilding(b);
     const construction = constructionStateFor(b);
-    let recipe = recipeVisibleParts(buildingRecipeFor(kind, { color: cssHex(b.cl || b.color || "#d6604f"), plinth: "#8f7b53", name: b.nm || b.name, buildProgress: progress }), progress);
+    const baseColor = cssHex(b.cl || b.color || "#d6604f");
+    const plannedWonderRecipe = kind === "worldwonder" ? semanticWonderRecipeFor(b, baseColor) : null;
+    let recipe = recipeVisibleParts(plannedWonderRecipe || buildingRecipeFor(kind, { color: baseColor, plinth: "#8f7b53", name: b.nm || b.name, buildProgress: progress }), progress);
     const scale = visualScaleForKind(kind);
     const ox = Number(b.x || 0), oz = Number(b.z || 0);
     const fp = visualFootprintForKind(kind);
@@ -1276,7 +1386,9 @@ export function createCanvasPrismWorld(opts: CanvasWorldOptions): CanvasWorldApi
     const maxParts = maxRecipePartsForBuilding(kind, dist, recipe.length);
     if (recipe.length > maxParts) recipe = recipe.slice(0, maxParts);
     drawWonderAura(b, construction);
-    drawShadow(ox, oz, 0.36 * fp, 0.17 * fp, lightForTime().shadow * 0.95);
+    drawDirectionalGroundShadow(ox, oz, fp, scale, 0.10);
+    drawContactAO(ox, oz, fp, 0.11);
+    drawShadow(ox, oz, 0.36 * fp, 0.17 * fp, frameLightForTime().shadow * 0.95);
     if (construction) {
       ctx.save();
       ctx.globalAlpha = 0.38 + 0.52 * progress;
@@ -1285,7 +1397,7 @@ export function createCanvasPrismWorld(opts: CanvasWorldOptions): CanvasWorldApi
       ctx.restore();
       drawConstructionOverlay(b, construction, fp, scale);
     } else {
-      if (canSpriteBuilding(kind, b, construction)) drawBuildingSprite(kind, b, cssHex(b.cl || b.color || "#d6604f"), recipe, scale, fp, maxParts);
+      if (canSpriteBuilding(kind, b, construction)) drawBuildingSprite(kind, b, baseColor, recipe, scale, fp, maxParts);
       else for (const part of recipe) drawRecipePart(ox, oz, part, scale);
       if (kind === "worldwonder") {
         const p = proj(ox, 3.65, oz);
@@ -1308,6 +1420,21 @@ export function createCanvasPrismWorld(opts: CanvasWorldOptions): CanvasWorldApi
     // them as sprites but keep harvest pulses, loot, and target rings live.
     drawResourceSprite(kind, Number(d.x||0), Number(d.z||0), scale);
   }
+
+  function profilePaletteForPlayer(ply: any, isMe = false) {
+    const profile = (isMe ? ST.characterProfile : null) || ply?.appearance || ply?.profile || {};
+    const pal = profile?.palette || {};
+    return {
+      skin: cssHex(pal.skin, "#f4d7b5"),
+      hair: cssHex(pal.hair, "#4a3426"),
+      body: cssHex(pal.primaryCloth || numColorToHex(ply.body || ply.color || 0x14f195, "#14f195"), numColorToHex(ply.body || ply.color || 0x14f195, "#14f195")),
+      trim: cssHex(pal.secondaryCloth || numColorToHex(ply.hat || 0x7dcfe8, "#7dcfe8"), numColorToHex(ply.hat || 0x7dcfe8, "#7dcfe8")),
+      leather: cssHex(pal.leather, "#6e4b27"),
+      metal: cssHex(pal.metal, "#9aa6ad"),
+      parts: profile?.parts || {},
+    };
+  }
+
   function drawPlayerSprite(ply: any, isMe = false) {
     const x = isMe ? visualX(me) : remoteVisualX(ply);
     const z = isMe ? visualZ(me) : remoteVisualZ(ply);
@@ -1318,14 +1445,17 @@ export function createCanvasPrismWorld(opts: CanvasWorldOptions): CanvasWorldApi
     const p = proj(x, 0, z);
     const sc = visualZoom() * (isMe ? 1.42 : 1.12);
     ctx.save(); ctx.translate(p.x, p.y - 24*sc + bob); ctx.scale(sc, sc);
-    const body = numColorToHex(ply.body || ply.color || 0x14f195, "#14f195");
-    const hat = numColorToHex(ply.hat || 0x7dcfe8, "#7dcfe8");
+    const pal = profilePaletteForPlayer(ply, isMe);
+    const body = pal.body;
+    const hat = pal.trim;
     const sway = speed > 0.05 ? Math.sin(phase * 1.25) * (0.8 + speed * 1.8) : 0;
-    ctx.fillStyle = "#f4d7b5"; ctx.beginPath(); ctx.arc(0,-16,9,0,Math.PI*2); ctx.fill();
-    ctx.fillStyle = hat; ctx.beginPath(); ctx.arc(0,-20,9,Math.PI,Math.PI*2); ctx.fill(); ctx.fillRect(-9,-20,18,4);
-    ctx.fillStyle = tint(body, 1.04, [1,1,1]) as string; ctx.beginPath(); ctx.roundRect(-8,-8,16,22,5); ctx.fill();
-    ctx.fillStyle = "#f4d7b5"; ctx.fillRect(-13 - sway,-5,5,16); ctx.fillRect(8 + sway,-5,5,16);
-    ctx.fillStyle = "#38251b";
+    ctx.fillStyle = pal.skin; ctx.beginPath(); ctx.arc(0,-16,9,0,Math.PI*2); ctx.fill();
+    ctx.fillStyle = pal.hair; ctx.beginPath(); ctx.arc(0,-20,8.5,Math.PI,Math.PI*2); ctx.fill();
+    ctx.fillStyle = hat; ctx.fillRect(-9,-21,18,4);
+    if (Number(pal.parts?.back || 0) > 0 || pal.parts?.showBack) { ctx.fillStyle = pal.leather; ctx.beginPath(); ctx.roundRect(-11,-8,22,19,6); ctx.fill(); }
+    ctx.fillStyle = tint(body, 1.12, frameLightForTime().tint) as string; ctx.beginPath(); ctx.roundRect(-8,-8,16,22,5); ctx.fill();
+    ctx.fillStyle = pal.skin; ctx.fillRect(-13 - sway,-5,5,16); ctx.fillRect(8 + sway,-5,5,16);
+    ctx.fillStyle = pal.leather;
     const leg = isMe && speed > 0.05 ? Math.sin(me.walkPhase * 1.4) * (1.2 + speed * 2.2) : 0;
     ctx.fillRect(-6 + leg,14,5,6); ctx.fillRect(2 - leg,14,5,6);
     ctx.fillStyle = "#2b211d"; ctx.beginPath(); ctx.arc(-3,-16,1.2,0,Math.PI*2); ctx.arc(4,-16,1.2,0,Math.PI*2); ctx.fill();
@@ -1598,10 +1728,41 @@ export function createCanvasPrismWorld(opts: CanvasWorldOptions): CanvasWorldApi
     ctx.drawImage(staticCanvas, 0, 0, width, height);
   }
 
+
+  function quantizeDepth(v: any, step = 1 / 64) {
+    const n = Number(v || 0);
+    return Number.isFinite(n) ? Math.round(n / step) * step : 0;
+  }
+  function stableEntityTie(e: any) {
+    const id = String(e?.data?.uid ?? e?.data?.id ?? e?.kind ?? "");
+    let h = 0;
+    for (let i = 0; i < id.length; i++) h = (h * 31 + id.charCodeAt(i)) | 0;
+    return h / 1_000_000_000;
+  }
+  function depthKeyForEntity(e: any) {
+    // Sorting decision: keep simulation positions smooth, but quantize the *sort*
+    // key so painter ordering does not flip every frame due to sub-pixel easing.
+    // Large buildings use their near/front footprint edge, not only their origin;
+    // this is not full per-tile slicing, but it removes the worst occlusion
+    // regression until sprite-column slicing is worth the complexity.
+    const x = quantizeDepth(e.x);
+    const z = quantizeDepth(e.z);
+    const y = quantizeDepth(e.y || 0);
+    const h = quantizeDepth(e.h || 0);
+    const bias = e.kind === "building" ? 0.24 : e.kind === "me" ? 0.08 : e.kind === "remote" ? 0.07 : 0;
+    return x + z + y * 0.45 + h * 0.18 + bias + stableEntityTie(e);
+  }
+  function depthFadeForEntity(e: any) {
+    const r = opts.currentTileLoadRadius?.() || 36;
+    const dist = Math.max(Math.abs(Number(e.x || 0) - Number(me.vx || me.x || 0)), Math.abs(Number(e.z || 0) - Number(me.vz || me.z || 0)));
+    return clamp((dist - r * 0.58) / Math.max(1, r * 0.42), 0, 1);
+  }
+
   function draw() {
     renderCounters.reset();
     const dynamicStarted = performance.now();
     resize(); updateProjection(); ensureGroundMarks();
+    frameLight = lightForTime();
     ctx = screenCtx;
     const cx = Number(me.vx || me.x || 0), cz = Number(me.vz || me.z || 0);
     targetCameraX = width / 2 - (cx - cz) * tileW;
@@ -1623,7 +1784,7 @@ export function createCanvasPrismWorld(opts: CanvasWorldOptions): CanvasWorldApi
     const ents: any[] = [];
     for (const b of buildPool.values()) {
       const fp = visualFootprintForKind(b.kind);
-      ents.push({ kind:"building", x:Number(b.x||0)-fp/2, z:Number(b.z||0)-fp/2, y:0, h:visualScaleForKind(b.kind), data:b });
+      ents.push({ kind:"building", x:Number(b.x||0)+fp/2, z:Number(b.z||0)+fp/2, y:0, h:visualScaleForKind(b.kind), data:b });
     }
     for (const d of doodads.values()) if (d && d.type !== "gone") ents.push({ kind:"doodad", x:Number(d.x||0)-0.8, z:Number(d.z||0)-0.8, y:0, h:1.6, data:d });
     for (const l of lootPool.values()) ents.push({ kind:"loot", x:Number(l.x||0), z:Number(l.z||0), y:0, h:0.4, data:l });
@@ -1645,9 +1806,12 @@ export function createCanvasPrismWorld(opts: CanvasWorldOptions): CanvasWorldApi
     }
     ents.push({ kind:"me", x: visualX(me), z: visualZ(me), y:0, h:1.8, data:me });
     renderCounters.entitiesSorted = ents.length;
-    ents.sort((a,b) => ((a.x + a.z + (a.y || 0) * 0.45 + a.h * 0.18) - (b.x + b.z + (b.y || 0) * 0.45 + b.h * 0.18)));
+    ents.sort((a,b) => depthKeyForEntity(a) - depthKeyForEntity(b));
     for (const e of ents) {
       renderCounters.entitiesDrawn++;
+      const fade = e.kind === "me" ? 0 : depthFadeForEntity(e);
+      ctx.save();
+      if (fade > 0) ctx.globalAlpha = 1 - fade * 0.22;
       if (e.kind === "building") drawBuilding(e.data);
       else if (e.kind === "doodad") drawDoodad(e.data);
       else if (e.kind === "loot") drawLoot(e.data);
@@ -1657,6 +1821,7 @@ export function createCanvasPrismWorld(opts: CanvasWorldOptions): CanvasWorldApi
       else if (e.kind === 'citizen') drawTinyCitizen(e.data, e.x, e.z, e.data.phase || 0);
       else if (e.kind === 'cart') drawTinyCart(e.data, e.x, e.z, !!e.data.horizontal);
       else if (e.kind === "me") drawPlayerSprite(me, true);
+      ctx.restore();
     }
     drawActionEffects();
     renderCounters.particlesDrawn += dustPuffs.length + citySparkles.length + floaters.length;
@@ -1672,7 +1837,7 @@ export function createCanvasPrismWorld(opts: CanvasWorldOptions): CanvasWorldApi
       const f = citySparkles[i]; f.life -= Math.max(0.012, renderDtMs / 1000) * 0.72;
       if (f.life <= 0) { citySparkles.splice(i, 1); continue; }
       const p = proj(f.x + Math.sin(performance.now()/650 + f.phase)*0.06, f.y, f.z);
-      const a = Math.max(0, Math.min(1, f.life)) * (0.32 + lightForTime().night * 0.48);
+      const a = Math.max(0, Math.min(1, f.life)) * (0.32 + frameLightForTime().night * 0.48);
       ctx.fillStyle = `rgba(255,218,122,${a})`;
       ctx.beginPath(); ctx.arc(p.x, p.y, Math.max(1.3, 2.0 * visualZoom()), 0, Math.PI * 2); ctx.fill();
       ctx.fillStyle = `rgba(255,231,160,${a * 0.25})`;
@@ -1681,7 +1846,7 @@ export function createCanvasPrismWorld(opts: CanvasWorldOptions): CanvasWorldApi
     const birdBudget = Math.max(0, Math.min(ambientBirds.length, Math.trunc(qualityBudget("birdCount", ambientBirds.length))));
     for (let bi = 0; bi < birdBudget; bi++) {
       const bird = ambientBirds[bi];
-      const L = lightForTime();
+      const L = frameLightForTime();
       if (L.night > 0.54) continue;
       const t = ((performance.now() / 1000) * bird.speed + bird.phase) % 1.25;
       const bx = t * (width + 120) - 60;
@@ -1697,7 +1862,7 @@ export function createCanvasPrismWorld(opts: CanvasWorldOptions): CanvasWorldApi
       const p = proj(f.x, f.y, f.z); ctx.textAlign = "center"; ctx.font = `800 ${Math.max(12, 14*visualZoom())}px system-ui, sans-serif`; ctx.strokeStyle = `rgba(7,10,12,${f.life*0.6})`; ctx.lineWidth = 3; ctx.strokeText(f.text,p.x,p.y); ctx.fillStyle = f.color || "#ffd76e"; ctx.globalAlpha = Math.max(0, f.life); ctx.fillText(f.text,p.x,p.y); ctx.globalAlpha = 1;
     }
     drawWeatherOverlay();
-    const L = lightForTime();
+    const L = frameLightForTime();
     if (L.night > 0.06) {
       const v = ctx.createRadialGradient(width/2, height/2, height*0.24, width/2, height/2, height*0.92);
       v.addColorStop(0, "rgba(8,12,28,0)");
@@ -1873,7 +2038,7 @@ export function createCanvasPrismWorld(opts: CanvasWorldOptions): CanvasWorldApi
   }
   function applyMe(p: any) {
     const src = p || ST.me || {};
-    me.id = src.id ?? me.id; me.name = src.name || me.name; me.body = src.body ?? me.body; me.hat = src.hat ?? me.hat;
+    me.id = src.id ?? me.id; me.name = src.name || me.name; me.body = src.body ?? me.body; me.hat = src.hat ?? me.hat; me.appearance = src.appearance || ST.characterProfile || me.appearance;
     const sx = Number(src.x), sz = Number(src.z);
     if (Number.isFinite(sx) && Number.isFinite(sz)) {
       const tx = Math.trunc(sx), tz = Math.trunc(sz);
@@ -2106,7 +2271,7 @@ export function createCanvasPrismWorld(opts: CanvasWorldOptions): CanvasWorldApi
     applyWorld, applyPlayers, applyMe, me, cellFromEvent, buildingFromEvent, tradePostFromEvent, npcFromEvent, playerFromEvent, pickFromEvent, worldToScreen, screenToWorldPoint, visibleCells, movementState, capitalBearing, pathTo, pathToNear, tryMoveDelta,
     blocked, buildPoolAt, doodadVisible, doodadAt, doodadAtCell, resolveDoodadCell, doodadFromEvent, burst, floatText, shockwave, hoverMarker, hardSnapMe, markDoodadGone, removeBuild, removeLoot,
     setHintCells, hideBuildGhost, showBuildGhost, refreshWindow, rebuildBuilding: (uid:any) => {}, animateBuildingUse: (uid:any) => { const b=buildPool.get(uid); if (b) floatText(b.x,b.z,"used","#ffd76e"); }, refreshConstructionProgress: () => {},
-    refreshOwnRig: () => {}, applyVisualQuality, hasPendingMove, canIssueMove, minimapSnapshot,
+    refreshOwnRig: () => { me.appearance = ST.characterProfile || me.appearance; }, applyVisualQuality, hasPendingMove, canIssueMove, minimapSnapshot,
     tileOwner, buildPool, buildAt, lootPool, rigPool, tradePostPool, npcPool, cells, updateMinimapInfo,
     rotateCam: () => {}, refreshCameraRotation: () => {}, refreshCameraZoom: () => { updateProjection(); invalidateStatic("camera"); rebuildCells(true); }, refreshEnvironment: () => { rainStreaks.splice(0); groundRipples.splice(0); windLeaves.splice(0); citySparkles.splice(0); invalidateStatic("environment"); },
     zoom: (delta = 0) => { zoomValue = clamp(zoomValue + Number(delta || 0), 0.72, 1.55); updateProjection(); invalidateStatic("zoom"); },

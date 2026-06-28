@@ -407,7 +407,7 @@ export default function mount() {
   function currentWonderSize() { return normalizeWonderFootprintClient(ST.wonderFootprint || ST.wonderRecipe?.footprint || 9); }
   function currentWonderMode() { return ["single", "district"].includes(String(ST.wonderMode || ST.wonderRecipe?.mode)) ? String(ST.wonderMode || ST.wonderRecipe?.mode) : "district"; }
   function currentWonderPalette() { return WONDER_PALETTES.find((p) => p.id === (ST.wonderPaletteId || ST.wonderRecipe?.paletteId)) || WONDER_PALETTES[0]; }
-  function currentWonderNameFallback() { return cleanWonderPromptClient(ST.wonderName || ST.wonderPrompt || "Landmark").replace(/[^ws'’-]/g, " ").replace(/s+/g, " ").trim().slice(0, 42) || "Landmark"; }
+  function currentWonderNameFallback() { return cleanWonderPromptClient(ST.wonderName || ST.wonderPrompt || "Landmark").replace(/[^\w\s'’-]/g, " ").replace(/\s+/g, " ").trim().slice(0, 42) || "Landmark"; }
   function wonderRecipeForWire(b: any) {
     if (!b || b.kind !== "worldwonder") return null;
     const existing = b.wonder || null;
@@ -426,7 +426,7 @@ export default function mount() {
     };
   }
   function setWonderName(value) {
-    ST.wonderName = String(value || "").replace(/[<>`{}]/g, " ").replace(/s+/g, " ").slice(0, 42);
+    ST.wonderName = String(value || "").replace(/[<>`{}]/g, " ").replace(/\s+/g, " ").slice(0, 42);
     invalidateWonderPlan(ST.wonderName ? `Wonder name set to ${ST.wonderName}. Click a valid map tile to generate and found it there.` : "Wonder name cleared. Type a prompt, then click a valid map tile to generate and found it.");
   }
   function setWonderFootprint(value) {
@@ -1353,7 +1353,7 @@ export default function mount() {
   }
 
   function cleanWonderPromptClient(value) {
-    return String(value || "").replace(/s+/g, " ").trim().slice(0, 180);
+    return String(value || "").replace(/\s+/g, " ").trim().slice(0, 180);
   }
   function wonderFactsLine() {
     const size = currentWonderSize();
@@ -1955,7 +1955,7 @@ export default function mount() {
         if (r.lootGone || l?.id != null) {
           world.removeLoot?.(r.lootGone ?? l.id, l.x, l.z);
         }
-        const note = String(r.note || "Picked up.").replace(/^Picked ups*/i, "").replace(/.$/, "");
+        const note = String(r.note || "Picked up.").replace(/^Picked up\s*/i, "").replace(/[.!]$/, "").trim();
         world.floatText?.(l.x, l.z, note || "+loot", String(l.kind || "") === "gold" ? "#ffd76e" : "#14f195");
         if (r.inv && ST.me) ST.me.inv = { ...(ST.me.inv || {}), ...r.inv };
         paint(true);

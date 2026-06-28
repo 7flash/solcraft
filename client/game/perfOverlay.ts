@@ -64,8 +64,8 @@ export function isLikelyUiStall(samples: { uiMs: number; renderMs: number; frame
 
 export function perfOverlayEnabledFromUrl(search = "", storage: Storage | null = null) {
   const q = String(search || "");
-  if (/[?&]perf=(1|true|yes|on)\b/i.test(q)) return true;
-  if (/[?&]perf=(0|false|no|off)\b/i.test(q)) return false;
+  if (/[?&]perf=(1|true|yes|on)/i.test(q)) return true;
+  if (/[?&]perf=(0|false|no|off)/i.test(q)) return false;
   try { return storage?.getItem("solcraft:perfOverlay:v1") === "1"; } catch { return false; }
 }
 
