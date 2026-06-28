@@ -90,6 +90,18 @@ export function createCanvasPrismWorld(opts: CanvasWorldOptions): CanvasWorldApi
   // while the camera eases sub-pixel between tiles.
   const staticCanvas = document.createElement("canvas");
   const staticCtx = staticCanvas.getContext("2d", { alpha: true })!;
+  // Completed buildings and common resources are also static *shapes* even
+  // though they live on the dynamic depth-sorted pass. Cache their prism body
+  // into tiny offscreen sprites keyed by quality/zoom/time band. The main
+  // frame can then depth-sort the object normally but draw one image instead
+  // of reconstructing many prism paths. Construction, Wonder auras, hover
+  // affordances, damage, particles, and labels stay live so gameplay feedback
+  // never gets baked into a stale sprite.
+  const buildingSpriteCache = new Map<string, any>();
+  const resourceSpriteCache = new Map<string, any>();
+  const MAX_BUILDING_SPRITES = 96;
+  const MAX_RESOURCE_SPRITES = 24;
+  let spriteCacheSerial = 0;
   let ctx: CanvasRenderingContext2D = screenCtx;
 
   let dpr = 1, width = 1, height = 1;
@@ -195,11 +207,13 @@ export function createCanvasPrismWorld(opts: CanvasWorldOptions): CanvasWorldApi
     staticRebuildMs: 0, dynamicDrawMs: 0, staticCacheHits: 0, staticCacheMisses: 0,
     prismPartsDrawn: 0, shadowsDrawn: 0, labelsDrawn: 0, particlesDrawn: 0,
     influenceAuras: 0, constructionVisuals: 0, perfWarnings: 0,
+    spriteCacheHits: 0, spriteCacheMisses: 0, spriteDraws: 0, spriteEvictions: 0,
     reset() {
       this.terrainTilesDrawn = 0; this.entitiesSorted = 0; this.entitiesDrawn = 0; this.weatherDrawn = 0; this.staticSkipped = 0;
       this.staticRebuildMs = 0; this.dynamicDrawMs = 0; this.staticCacheHits = 0; this.staticCacheMisses = 0;
       this.prismPartsDrawn = 0; this.shadowsDrawn = 0; this.labelsDrawn = 0; this.particlesDrawn = 0;
       this.influenceAuras = 0; this.constructionVisuals = 0; this.perfWarnings = 0;
+      this.spriteCacheHits = 0; this.spriteCacheMisses = 0; this.spriteDraws = 0; this.spriteEvictions = 0;
     },
   };
   function qualityName() { return String(renderQuality?.quality || ST.visual?.quality || "fast").toLowerCase(); }
@@ -219,6 +233,25 @@ export function createCanvasPrismWorld(opts: CanvasWorldOptions): CanvasWorldApi
     if (stride <= 1) return false;
     return Math.abs(Math.trunc(x) * 31 + Math.trunc(z) * 17 + seed) % stride !== 0;
   }
+  function clearSpriteCaches(reason = "visual") {
+    if (buildingSpriteCache.size || resourceSpriteCache.size) {
+      renderCounters.spriteEvictions += buildingSpriteCache.size + resourceSpriteCache.size;
+      buildingSpriteCache.clear(); resourceSpriteCache.clear();
+    }
+    spriteCacheSerial++;
+  }
+  function evictOldestSprite(cache: Map<string, any>, max: number) {
+    if (cache.size <= max) return;
+    let oldestKey = "", oldestAt = Infinity;
+    for (const [k, v] of cache) {
+      const at = Number(v?.lastUsed || 0);
+      if (at < oldestAt) { oldestAt = at; oldestKey = k; }
+    }
+    if (oldestKey) { cache.delete(oldestKey); renderCounters.spriteEvictions++; }
+  }
+  function spriteTimeBand() { return Math.floor(currentHour() / 2); }
+  function spriteZoomBucket() { return Math.round(visualZoom() * 8) / 8; }
+  function spriteDprBucket() { return Math.round(dpr * 4) / 4; }
   function weatherDensity() { return clamp(qualityBudget("weatherDensity", 1), 0, 1); }
   function sparkleDensity() { return clamp(qualityBudget("sparkleDensity", 1), 0, 1); }
   function applyVisualQuality(nextVisual: any = ST.visual) {
@@ -234,6 +267,7 @@ export function createCanvasPrismWorld(opts: CanvasWorldOptions): CanvasWorldApi
       if (windLeaves.length > Math.round(weatherCap * 0.28)) windLeaves.splice(0, windLeaves.length - Math.round(weatherCap * 0.28));
     }
     invalidateStatic("quality");
+    clearSpriteCaches("quality");
     resize(); updateProjection(); rebuildCells(true);
   }
 
@@ -258,6 +292,7 @@ export function createCanvasPrismWorld(opts: CanvasWorldOptions): CanvasWorldApi
     screenCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
     staticCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx = screenCtx;
+    clearSpriteCaches("resize");
     invalidateStatic("resize");
   }
 
@@ -1146,6 +1181,89 @@ export function createCanvasPrismWorld(opts: CanvasWorldOptions): CanvasWorldApi
     ctx.fillText('4×4 CITY LOT', label.x, label.y);
     ctx.restore();
   }
+  function cachedSpriteCanvas(cssW: number, cssH: number) {
+    const c = document.createElement("canvas");
+    c.width = Math.max(1, Math.ceil(cssW * dpr));
+    c.height = Math.max(1, Math.ceil(cssH * dpr));
+    const cctx = c.getContext("2d", { alpha: true })!;
+    cctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    return { canvas: c, ctx: cctx, cssW, cssH };
+  }
+  function withSpriteProjection<T>(sctx: CanvasRenderingContext2D, anchorX: number, anchorY: number, fn: () => T): T {
+    const prevCtx = ctx, prevX = cameraX, prevY = cameraY;
+    ctx = sctx; cameraX = anchorX; cameraY = anchorY;
+    try { return fn(); } finally { ctx = prevCtx; cameraX = prevX; cameraY = prevY; }
+  }
+  function buildingSpriteKey(kind: string, color: string, scale: number, fp: number, maxParts: number) {
+    return ["b", kind, color, qualityName(), spriteTimeBand(), spriteZoomBucket(), spriteDprBucket(), Math.round(scale * 20), Math.round(fp * 20), maxParts, spriteCacheSerial].join("|");
+  }
+  function resourceSpriteKey(kind: string, scale: number) {
+    return ["r", kind, qualityName(), spriteTimeBand(), spriteZoomBucket(), spriteDprBucket(), Math.round(scale * 20), spriteCacheSerial].join("|");
+  }
+  function canSpriteBuilding(kind: string, b: any, construction: any) {
+    if (construction) return false;
+    if (kind === "worldwonder") return false;
+    // Keep active/conflict objects live so future damage/raid overlays can layer
+    // with exact depth and timing. Normal completed buildings are the hot path.
+    if (kind === "keep" || kind === "bomb" || kind.includes("gate")) return false;
+    if (b?.hp != null && b?.maxHp != null && Number(b.hp) < Number(b.maxHp)) return false;
+    return true;
+  }
+  function getBuildingSprite(kind: string, color: string, recipe: any[], scale: number, fp: number, maxParts: number) {
+    const key = buildingSpriteKey(kind, color, scale, fp, maxParts);
+    const hit = buildingSpriteCache.get(key);
+    if (hit) { hit.lastUsed = performance.now(); renderCounters.spriteCacheHits++; return hit; }
+    renderCounters.spriteCacheMisses++;
+    const cssW = Math.max(96, tileW * (fp + scale * 2.4 + 3.5));
+    const cssH = Math.max(96, tileH * (fp + 4) + heightScale * (scale + 2.2));
+    const anchorX = cssW / 2;
+    const anchorY = cssH * 0.66;
+    const spr = cachedSpriteCanvas(cssW, cssH);
+    withSpriteProjection(spr.ctx, anchorX, anchorY, () => {
+      spr.ctx.clearRect(0, 0, cssW, cssH);
+      drawShadow(0, 0, 0.36 * fp, 0.17 * fp, lightForTime().shadow * 0.95);
+      for (const part of recipe) drawRecipePart(0, 0, part, scale);
+    });
+    const out = { ...spr, anchorX, anchorY, lastUsed: performance.now() };
+    buildingSpriteCache.set(key, out);
+    evictOldestSprite(buildingSpriteCache, MAX_BUILDING_SPRITES);
+    return out;
+  }
+  function drawBuildingSprite(kind: string, b: any, color: string, recipe: any[], scale: number, fp: number, maxParts: number) {
+    const spr = getBuildingSprite(kind, color, recipe, scale, fp, maxParts);
+    const p = proj(Number(b.x || 0), 0, Number(b.z || 0));
+    ctx.drawImage(spr.canvas, p.x - spr.anchorX, p.y - spr.anchorY, spr.cssW, spr.cssH);
+    spr.lastUsed = performance.now();
+    renderCounters.spriteDraws++;
+  }
+  function getResourceSprite(kind: string, scale: number) {
+    const key = resourceSpriteKey(kind, scale);
+    const hit = resourceSpriteCache.get(key);
+    if (hit) { hit.lastUsed = performance.now(); renderCounters.spriteCacheHits++; return hit; }
+    renderCounters.spriteCacheMisses++;
+    const cssW = Math.max(72, tileW * (scale + 2.9));
+    const cssH = Math.max(78, tileH * 4 + heightScale * (scale + 1.6));
+    const anchorX = cssW / 2;
+    const anchorY = cssH * 0.68;
+    const spr = cachedSpriteCanvas(cssW, cssH);
+    withSpriteProjection(spr.ctx, anchorX, anchorY, () => {
+      spr.ctx.clearRect(0, 0, cssW, cssH);
+      drawShadow(0, 0, 0.52 * scale, 0.24 * scale, 0.16);
+      for (const part of resourceRecipeFor(kind, 0)) drawResourcePart(0, 0, part, scale);
+    });
+    const out = { ...spr, anchorX, anchorY, lastUsed: performance.now() };
+    resourceSpriteCache.set(key, out);
+    evictOldestSprite(resourceSpriteCache, MAX_RESOURCE_SPRITES);
+    return out;
+  }
+  function drawResourceSprite(kind: string, x: number, z: number, scale: number) {
+    const spr = getResourceSprite(kind, scale);
+    const p = proj(x, 0, z);
+    ctx.drawImage(spr.canvas, p.x - spr.anchorX, p.y - spr.anchorY, spr.cssW, spr.cssH);
+    spr.lastUsed = performance.now();
+    renderCounters.spriteDraws++;
+  }
+
   function drawBuilding(b: any) {
     const kind = String(b.kind || b.type || "building").toLowerCase();
     const progress = visualProgressForBuilding(b);
@@ -1167,7 +1285,8 @@ export function createCanvasPrismWorld(opts: CanvasWorldOptions): CanvasWorldApi
       ctx.restore();
       drawConstructionOverlay(b, construction, fp, scale);
     } else {
-      for (const part of recipe) drawRecipePart(ox, oz, part, scale);
+      if (canSpriteBuilding(kind, b, construction)) drawBuildingSprite(kind, b, cssHex(b.cl || b.color || "#d6604f"), recipe, scale, fp, maxParts);
+      else for (const part of recipe) drawRecipePart(ox, oz, part, scale);
       if (kind === "worldwonder") {
         const p = proj(ox, 3.65, oz);
         const name = String(b.nm || b.name || "Wonder").slice(0, 28);
@@ -1185,8 +1304,9 @@ export function createCanvasPrismWorld(opts: CanvasWorldOptions): CanvasWorldApi
   function drawDoodad(d: any) {
     const kind = String(d.type || d.kind || "tree").toLowerCase();
     const scale = kind === "rock" ? 2.05 : kind === "food" ? 1.70 : 2.10;
-    drawShadow(Number(d.x||0), Number(d.z||0), 0.52 * scale, 0.24 * scale, 0.16);
-    for (const part of resourceRecipeFor(kind, 0)) drawResourcePart(Number(d.x||0), Number(d.z||0), part, scale);
+    // Resource bodies are identical by kind at a given quality/time/zoom. Cache
+    // them as sprites but keep harvest pulses, loot, and target rings live.
+    drawResourceSprite(kind, Number(d.x||0), Number(d.z||0), scale);
   }
   function drawPlayerSprite(ply: any, isMe = false) {
     const x = isMe ? visualX(me) : remoteVisualX(ply);

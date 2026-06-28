@@ -307,7 +307,7 @@ export default function mount() {
     el.setAttribute("aria-label", "Performance diagnostics");
     el.textContent = "perf starting…";
     root.appendChild(el);
-    const data = { ping: 0, paint: 0, frame: 0, cells: 0, draws: 0, terrain: 0, entities: 0, weather: 0, quality: "", staticMs: 0, dynamicMs: 0, prisms: 0, particles: 0, cache: "", skipped: 0, last: 0 };
+    const data = { ping: 0, paint: 0, frame: 0, cells: 0, draws: 0, terrain: 0, entities: 0, weather: 0, quality: "", staticMs: 0, dynamicMs: 0, prisms: 0, particles: 0, sprites: 0, cache: "", skipped: 0, last: 0 };
     function update(partial: any = {}) {
       if (!perfOverlayEnabled) return;
       Object.assign(data, partial || {});
@@ -317,7 +317,7 @@ export default function mount() {
       const ping = data.ping ? `${Math.round(data.ping)}ms` : "—";
       const q = data.quality ? ` · q ${data.quality}` : "";
       const cache = data.cache ? ` · cache ${data.cache}` : "";
-      el.textContent = `ping ${ping} · frame ${Math.round(data.frame || 0)}ms · ui ${Math.round(data.paint || 0)}ms · static ${Math.round(data.staticMs || 0)}ms · dyn ${Math.round(data.dynamicMs || 0)}ms · prism ${Math.round(data.prisms || 0)} · part ${Math.round(data.particles || 0)} · cells ${Math.round(data.cells || 0)}${q}${cache}`;
+      el.textContent = `ping ${ping} · frame ${Math.round(data.frame || 0)}ms · ui ${Math.round(data.paint || 0)}ms · static ${Math.round(data.staticMs || 0)}ms · dyn ${Math.round(data.dynamicMs || 0)}ms · prism ${Math.round(data.prisms || 0)} · sprite ${Math.round(data.sprites || 0)} · part ${Math.round(data.particles || 0)} · cells ${Math.round(data.cells || 0)}${q}${cache}`;
     }
     return { update };
   })();
@@ -1105,6 +1105,7 @@ export default function mount() {
     world.applyMe(forceMe);
     world.applyPlayers(ST.players);
     refreshNear();
+    markSnapUiDirty();
     paint();
   }
 
@@ -4120,6 +4121,31 @@ export default function mount() {
     { name: "menu", root: menuRoot, view: Menu },
   ];
 
+  // UI paint policy: keep tradjs reconciliation explicit and debuggable. The
+  // canvas world can tick at rAF, but structural HUD regions only need to render
+  // when their state bucket changes. We intentionally avoid JSON/stringify
+  // signature gates here; changes are marked by code paths or by the conservative
+  // fallback in paint(). Live HP/energy stay on MicroStore direct DOM bindings.
+  const uiDirtyRegions = new Set(regions.map((r) => r.name));
+  const uiRegionLastPaint = new Map();
+  const uiRegionMinMs = { hud: 60, top: 90, utility: 120, bottom: 120, guide: 160, modal: 90, menu: 180 };
+  function markUiDirty(...names) {
+    const all = !names.length || names.includes("all");
+    if (all) { for (const r of regions) uiDirtyRegions.add(r.name); return; }
+    for (const name of names) if (name) uiDirtyRegions.add(String(name));
+  }
+  function markSnapUiDirty() {
+    markUiDirty("hud", "bottom", "guide");
+    if (ST.panel || ST.modal) markUiDirty("utility", "modal");
+    if (ST.screen !== "playing") markUiDirty("menu");
+  }
+  function regionCanThrottle(name, force, forceSet, now) {
+    if (force || forceSet) return false;
+    if (uiDirtyRegions.has(name)) return false;
+    const last = Number(uiRegionLastPaint.get(name) || 0);
+    return now - last < Number(uiRegionMinMs[name] || 100);
+  }
+
   function syncToolCursor() {
     const cursor = toolCursorForState({ screen: ST.screen, mode: ST.mode, tool: ST.tool, placing: ST.placing, hover: ST.hoverIntent });
     if (root.dataset.toolCursor !== cursor) root.dataset.toolCursor = cursor;
@@ -4129,6 +4155,20 @@ export default function mount() {
     syncToolCursor();
     const paintStart = performance.now();
     let changed = 0;
+    const nowForRegions = performance.now();
+    const forceSet = only ? new Set(Array.isArray(only) ? only : [only]) : null;
+    if (force) markUiDirty("all");
+    else if (forceSet) for (const name of forceSet) markUiDirty(name);
+    else if (!uiDirtyRegions.size) {
+      // Conservative fallback for older call sites that still say paint()
+      // without naming a region. This keeps correctness while avoiding repeated
+      // utility/menu/modal reconciliation during ordinary state polling.
+      markUiDirty("hud", "bottom");
+      if (ST.panel) markUiDirty("utility");
+      if (ST.modal) markUiDirty("modal");
+      if (ST.walkthrough?.active) markUiDirty("guide");
+      if (ST.screen !== "playing") markUiDirty("menu");
+    }
     /* chat panel visibility is imperative */
     perf.measure("ui.hints", () => updateHints());
     chatEl.style.display = ST.screen === "playing" ? "flex" : "none";
@@ -4141,12 +4181,15 @@ export default function mount() {
     vignetteEl.style.display = ST.screen === "playing" ? "block" : "none";
     if (ST.screen !== "playing" || ST.modal) hideCtx();
     let utilityRendered = false;
-    const forceSet = only ? new Set(Array.isArray(only) ? only : [only]) : null;
     for (let i = 0; i < regions.length; i++) {
       const r = regions[i];
       if (forceSet && !forceSet.has(r.name)) continue;
+      if (!forceSet && !force && !uiDirtyRegions.has(r.name) && regionCanThrottle(r.name, force, forceSet, nowForRegions)) continue;
+      if (!forceSet && !force && !uiDirtyRegions.has(r.name)) continue;
       const regionStart = performance.now();
       render(r.view(), r.root);
+      uiRegionLastPaint.set(r.name, nowForRegions);
+      uiDirtyRegions.delete(r.name);
       const regionMs = performance.now() - regionStart;
       perf.record("ui.region", regionMs, r.name);
       perf.record(`ui.region.${r.name}`, regionMs);
@@ -4181,7 +4224,8 @@ export default function mount() {
           dynamicMs: rc.dynamicDrawMs || 0,
           prisms: rc.prismPartsDrawn || 0,
           particles: rc.particlesDrawn || 0,
-          cache: `${rc.staticCacheHits || 0}/${rc.staticCacheMisses || 0}`,
+          sprites: rc.spriteDraws || 0,
+          cache: `${rc.staticCacheHits || 0}/${rc.staticCacheMisses || 0} · spr ${rc.spriteCacheHits || 0}/${rc.spriteCacheMisses || 0}`,
           skipped: rc.staticSkipped || 0,
         });
       } catch {}
