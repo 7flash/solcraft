@@ -203,18 +203,19 @@ export function createCanvasPrismWorld(opts: CanvasWorldOptions): CanvasWorldApi
   let staticDirty = true;
   let staticCacheKey = "";
   let lastStaticRebuildReason = "boot";
+  let lastStaticWorldSignature = "";
   const renderCounters = {
     terrainTilesDrawn: 0, entitiesSorted: 0, entitiesDrawn: 0, weatherDrawn: 0, staticSkipped: 0,
     staticRebuildMs: 0, dynamicDrawMs: 0, staticCacheHits: 0, staticCacheMisses: 0,
     prismPartsDrawn: 0, shadowsDrawn: 0, labelsDrawn: 0, particlesDrawn: 0,
     influenceAuras: 0, constructionVisuals: 0, perfWarnings: 0,
-    spriteCacheHits: 0, spriteCacheMisses: 0, spriteDraws: 0, spriteEvictions: 0,
+    spriteCacheHits: 0, spriteCacheMisses: 0, spriteDraws: 0, spriteEvictions: 0, buildingSlicesDrawn: 0,
     reset() {
       this.terrainTilesDrawn = 0; this.entitiesSorted = 0; this.entitiesDrawn = 0; this.weatherDrawn = 0; this.staticSkipped = 0;
       this.staticRebuildMs = 0; this.dynamicDrawMs = 0; this.staticCacheHits = 0; this.staticCacheMisses = 0;
       this.prismPartsDrawn = 0; this.shadowsDrawn = 0; this.labelsDrawn = 0; this.particlesDrawn = 0;
       this.influenceAuras = 0; this.constructionVisuals = 0; this.perfWarnings = 0;
-      this.spriteCacheHits = 0; this.spriteCacheMisses = 0; this.spriteDraws = 0; this.spriteEvictions = 0;
+      this.spriteCacheHits = 0; this.spriteCacheMisses = 0; this.spriteDraws = 0; this.spriteEvictions = 0; this.buildingSlicesDrawn = 0;
     },
   };
   function qualityName() { return String(renderQuality?.quality || ST.visual?.quality || "fast").toLowerCase(); }
@@ -948,6 +949,66 @@ export function createCanvasPrismWorld(opts: CanvasWorldOptions): CanvasWorldApi
     }
     ctx.restore();
   }
+
+  function drawTerrainFeatures() {
+    // Ground-detail decision: terrain should read as broad authored patches, not
+    // per-tile TV static. These decorative stones/bushes are baked into the
+    // static layer, use a coarse stride, and stay lower-contrast than buildings
+    // so they add scale without fighting gameplay silhouettes.
+    if (qualityName() === "fast") return;
+    const r = opts.currentTileLoadRadius?.() || 36;
+    const cx = Math.round(me.vx || me.x), cz = Math.round(me.vz || me.z);
+    const stride = qualityName() === "balanced" ? 7 : 5;
+    ctx.save();
+    for (let x = cx - r; x <= cx + r; x += stride) for (let z = cz - r; z <= cz + r; z += stride) {
+      const jx = x + Math.floor(stableRand(x, z, 551) * stride);
+      const jz = z + Math.floor(stableRand(x, z, 552) * stride);
+      if (Math.max(Math.abs(jx - cx), Math.abs(jz - cz)) > r) continue;
+      if (buildAt.has(kfn(jx, jz))) continue;
+      const roll = stableRand(jx, jz, 553);
+      if (roll < 0.48) continue;
+      const p = proj(jx + 0.28, 0.039, jz + 0.32);
+      const a = 0.08 + 0.05 * Math.max(0, frameLightForTime().elev);
+      if (roll > 0.82) {
+        ctx.fillStyle = `rgba(78,93,74,${a})`;
+        ctx.beginPath(); ctx.ellipse(p.x, p.y, tileW * 0.13, tileH * 0.10, -0.18, 0, Math.PI * 2); ctx.fill();
+        ctx.fillStyle = `rgba(38,58,48,${a * 0.9})`;
+        ctx.beginPath(); ctx.ellipse(p.x + tileW * 0.06, p.y - tileH * 0.02, tileW * 0.08, tileH * 0.07, 0.4, 0, Math.PI * 2); ctx.fill();
+      } else {
+        ctx.fillStyle = `rgba(36,42,40,${a})`;
+        ctx.beginPath(); ctx.ellipse(p.x, p.y, tileW * 0.08, tileH * 0.055, 0.15, 0, Math.PI * 2); ctx.fill();
+      }
+    }
+    ctx.restore();
+  }
+
+  function drawBuildingAprons() {
+    // Buildings should feel seated into the ground plane. Aprons are deliberately
+    // baked into the static layer rather than drawn with every building sprite:
+    // they hide small footprint/painter gaps and visually connect clustered lots.
+    if (qualityName() === "fast") return;
+    const L = frameLightForTime();
+    ctx.save();
+    for (const b of buildPool.values()) {
+      const kind = String(b?.kind || b?.type || "building").toLowerCase();
+      if (kind === "worldwonder") continue;
+      const fp = visualFootprintForKind(kind);
+      const ox = Number(b?.x || 0), oz = Number(b?.z || 0);
+      const pad = kind === "house" ? 0.22 : 0.34;
+      const y = 0.043;
+      const a = 0.10 + 0.08 * Math.max(0, L.elev);
+      const p0 = proj(ox - pad, y, oz + fp / 2), p1 = proj(ox + fp / 2, y, oz - pad), p2 = proj(ox + fp + pad, y, oz + fp / 2), p3 = proj(ox + fp / 2, y, oz + fp + pad);
+      poly([p0,p1,p2,p3], `rgba(78,66,45,${a})`, `rgba(255,232,164,${a * 0.16})`);
+      if (stableRand(ox, oz, 661) > 0.45) {
+        const q0 = proj(ox + fp / 2 - 0.16, y + 0.006, oz + fp / 2), q1 = proj(ox + fp / 2 + 0.16, y + 0.006, oz + fp / 2);
+        ctx.strokeStyle = `rgba(230,206,151,${a * 0.35})`;
+        ctx.lineWidth = Math.max(0.65, visualZoom() * 0.8);
+        ctx.beginPath(); ctx.moveTo(q0.x, q0.y); ctx.lineTo(q1.x, q1.y); ctx.stroke();
+      }
+    }
+    ctx.restore();
+  }
+
   function drawFaceWindows(f00: Pt, f10: Pt, f11: Pt, f01: Pt, cols: number, rows: number, seed: number, glow = true) {
     const bil = (u: number, v: number) => {
       const ax = f00.x + (f10.x - f00.x) * u, ay = f00.y + (f10.y - f00.y) * u;
@@ -1372,23 +1433,73 @@ export function createCanvasPrismWorld(opts: CanvasWorldOptions): CanvasWorldApi
     return out;
   }
 
-  function drawBuilding(b: any) {
-    const kind = String(b.kind || b.type || "building").toLowerCase();
+
+  function buildingRenderPlanFor(b: any) {
+    const kind = String(b?.kind || b?.type || "building").toLowerCase();
     const progress = visualProgressForBuilding(b);
     const construction = constructionStateFor(b);
-    const baseColor = cssHex(b.cl || b.color || "#d6604f");
+    const baseColor = cssHex(b?.cl || b?.color || "#d6604f");
     const plannedWonderRecipe = kind === "worldwonder" ? semanticWonderRecipeFor(b, baseColor) : null;
-    let recipe = recipeVisibleParts(plannedWonderRecipe || buildingRecipeFor(kind, { color: baseColor, plinth: "#8f7b53", name: b.nm || b.name, buildProgress: progress }), progress);
+    let recipe = recipeVisibleParts(plannedWonderRecipe || buildingRecipeFor(kind, { color: baseColor, plinth: "#8f7b53", name: b?.nm || b?.name, buildProgress: progress }), progress);
     const scale = visualScaleForKind(kind);
-    const ox = Number(b.x || 0), oz = Number(b.z || 0);
+    const ox = Number(b?.x || 0), oz = Number(b?.z || 0);
     const fp = visualFootprintForKind(kind);
     const dist = buildingDistanceFromPlayer(b);
     const maxParts = maxRecipePartsForBuilding(kind, dist, recipe.length);
     if (recipe.length > maxParts) recipe = recipe.slice(0, maxParts);
-    drawWonderAura(b, construction);
-    drawDirectionalGroundShadow(ox, oz, fp, scale, 0.10);
-    drawContactAO(ox, oz, fp, 0.11);
-    drawShadow(ox, oz, 0.36 * fp, 0.17 * fp, frameLightForTime().shadow * 0.95);
+    return { kind, progress, construction, baseColor, plannedWonderRecipe, recipe, scale, ox, oz, fp, dist, maxParts };
+  }
+
+  function canSliceBuildingEntity(b: any) {
+    const plan = buildingRenderPlanFor(b);
+    return qualityName() !== "fast" && plan.fp >= 3.5 && canSpriteBuilding(plan.kind, b, plan.construction);
+  }
+
+  function buildingSliceCountFor(fp: number) {
+    return Math.max(2, Math.min(6, Math.round(Number(fp || 1))));
+  }
+
+  function drawBuildingGrounding(plan: any, b: any) {
+    drawWonderAura(b, plan.construction);
+    drawDirectionalGroundShadow(plan.ox, plan.oz, plan.fp, plan.scale, 0.10);
+    drawContactAO(plan.ox, plan.oz, plan.fp, 0.11);
+    drawShadow(plan.ox, plan.oz, 0.36 * plan.fp, 0.17 * plan.fp, frameLightForTime().shadow * 0.95);
+  }
+
+  function drawBuildingSpriteSlice(plan: any, b: any, sliceIndex: number, totalSlices: number) {
+    const spr = getBuildingSprite(plan.kind, plan.baseColor, plan.recipe, plan.scale, plan.fp, plan.maxParts);
+    const p = proj(plan.ox, 0, plan.oz);
+    const cssW = spr.cssW / totalSlices;
+    const cssX = cssW * sliceIndex;
+    const srcX = Math.max(0, Math.floor(cssX * dpr));
+    const srcW = Math.max(1, Math.ceil(cssW * dpr));
+    // Occlusion decision: a single sprite key cannot express a 4x4 footprint in
+    // painter order. We split cached sprites into vertical screen bands and sort
+    // those bands with increasing depth. It is an approximation, but it restores
+    // the old tile-column mental model without rebuilding prism geometry/frame.
+    ctx.drawImage(spr.canvas, srcX, 0, srcW, spr.canvas.height, p.x - spr.anchorX + cssX, p.y - spr.anchorY, cssW, spr.cssH);
+    spr.lastUsed = performance.now();
+    renderCounters.spriteDraws++;
+    renderCounters.buildingSlicesDrawn++;
+  }
+
+  function drawBuildingSlice(payload: any) {
+    const b = payload?.b || payload?.data || payload;
+    const sliceIndex = Math.max(0, Math.trunc(Number(payload?.sliceIndex || 0)));
+    const totalSlices = Math.max(1, Math.trunc(Number(payload?.totalSlices || 1)));
+    const plan = buildingRenderPlanFor(b);
+    if (!canSpriteBuilding(plan.kind, b, plan.construction)) {
+      if (sliceIndex === 0) drawBuilding(b);
+      return;
+    }
+    if (sliceIndex === 0) drawBuildingGrounding(plan, b);
+    drawBuildingSpriteSlice(plan, b, sliceIndex, totalSlices);
+  }
+
+  function drawBuilding(b: any) {
+    const plan = buildingRenderPlanFor(b);
+    const { kind, progress, construction, baseColor, recipe, scale, ox, oz, fp, maxParts } = plan;
+    drawBuildingGrounding(plan, b);
     if (construction) {
       ctx.save();
       ctx.globalAlpha = 0.38 + 0.52 * progress;
@@ -1701,7 +1812,7 @@ export function createCanvasPrismWorld(opts: CanvasWorldOptions): CanvasWorldApi
       width, height, dpr.toFixed(2), qualityName(), hourBand,
       Math.round(cameraX / snap), Math.round(cameraY / snap),
       opts.currentTileLoadRadius?.() || 36,
-      Number(ST.rev || 0), tileOwner.size, cells.size,
+      tileOwner.size, cells.size,
     ].join("|");
   }
   function renderStaticLayerToCache(nextKey: string) {
@@ -1712,8 +1823,10 @@ export function createCanvasPrismWorld(opts: CanvasWorldOptions): CanvasWorldApi
     staticCtx.clearRect(0, 0, width, height);
     drawTerrain();
     drawGroundWash();
+    drawTerrainFeatures();
     drawCityRoads();
     drawCityGrid();
+    drawBuildingAprons();
     drawCityFurniture();
     ctx = prev;
     staticCacheKey = nextKey;
@@ -1784,7 +1897,15 @@ export function createCanvasPrismWorld(opts: CanvasWorldOptions): CanvasWorldApi
     const ents: any[] = [];
     for (const b of buildPool.values()) {
       const fp = visualFootprintForKind(b.kind);
-      ents.push({ kind:"building", x:Number(b.x||0)+fp/2, z:Number(b.z||0)+fp/2, y:0, h:visualScaleForKind(b.kind), data:b });
+      if (canSliceBuildingEntity(b)) {
+        const total = buildingSliceCountFor(fp);
+        for (let i = 0; i < total; i++) {
+          const t = (i + 0.5) / total;
+          ents.push({ kind:"buildingSlice", x:Number(b.x||0)+fp*t, z:Number(b.z||0)+fp*t, y:0, h:visualScaleForKind(b.kind), data:{ b, sliceIndex:i, totalSlices:total } });
+        }
+      } else {
+        ents.push({ kind:"building", x:Number(b.x||0)+fp/2, z:Number(b.z||0)+fp/2, y:0, h:visualScaleForKind(b.kind), data:b });
+      }
     }
     for (const d of doodads.values()) if (d && d.type !== "gone") ents.push({ kind:"doodad", x:Number(d.x||0)-0.8, z:Number(d.z||0)-0.8, y:0, h:1.6, data:d });
     for (const l of lootPool.values()) ents.push({ kind:"loot", x:Number(l.x||0), z:Number(l.z||0), y:0, h:0.4, data:l });
@@ -1813,6 +1934,7 @@ export function createCanvasPrismWorld(opts: CanvasWorldOptions): CanvasWorldApi
       ctx.save();
       if (fade > 0) ctx.globalAlpha = 1 - fade * 0.22;
       if (e.kind === "building") drawBuilding(e.data);
+      else if (e.kind === "buildingSlice") drawBuildingSlice(e.data);
       else if (e.kind === "doodad") drawDoodad(e.data);
       else if (e.kind === "loot") drawLoot(e.data);
       else if (e.kind === "trade") drawTradePost(e.data);
@@ -2018,23 +2140,104 @@ export function createCanvasPrismWorld(opts: CanvasWorldOptions): CanvasWorldApi
     setTimeout(() => { if (!pendingPath.length && inFlight === 0) me.walking = false; }, 180);
     return true;
   }
-  function applyWorld(w: any = {}) {
-    tileOwner.clear(); buildAt.clear(); buildPool.clear(); lootPool.clear(); doodads.clear(); tradePostPool.clear(); npcPool.clear();
-    for (const t of w.tiles || []) tileOwner.set(kfn(t.x,t.z), { owner:t.owner, body:t.ownerBody, name:t.ownerName });
-    for (const d of w.doodads || []) { if (!d) continue; const kk=kfn(d.x,d.z); if (exceptions.get(kk)==="gone") continue; doodads.set(kk, { ...d, x:Math.trunc(Number(d.x)), z:Math.trunc(Number(d.z)) }); }
-    const worldBuildings = Array.isArray(w.buildings) ? w.buildings : [];
+  function reconcileTileOwners(rows: any[] = []) {
+    const seen = new Set<string>();
+    for (const t of rows || []) {
+      if (!t) continue;
+      const kk = kfn(t.x, t.z); seen.add(kk);
+      tileOwner.set(kk, { owner:t.owner, body:t.ownerBody, name:t.ownerName });
+    }
+    for (const kk of Array.from(tileOwner.keys())) if (!seen.has(kk)) tileOwner.delete(kk);
+  }
+  function reconcileDoodads(rows: any[] = []) {
+    const seen = new Set<string>();
+    for (const d of rows || []) {
+      if (!d) continue;
+      const x = Math.trunc(Number(d.x)), z = Math.trunc(Number(d.z));
+      if (!Number.isFinite(x) || !Number.isFinite(z)) continue;
+      const kk = kfn(x, z); seen.add(kk);
+      if (exceptions.get(kk) === "gone") continue;
+      doodads.set(kk, { ...d, x, z });
+    }
+    for (const [kk, d] of Array.from(doodads.entries())) {
+      if (!d?.natural && !seen.has(kk)) doodads.delete(kk);
+    }
+  }
+  function reconcileBuildings(rows: any[] = []) {
     let virtualCapital:any[] = [];
-    try { virtualCapital = opts.capitalBuildingsInView?.(Number(w.ax || ST.ax || 0), Number(w.az || ST.az || 0), (opts.currentTileLoadRadius?.() || 36) + 12) || []; } catch {}
+    try { virtualCapital = opts.capitalBuildingsInView?.(Number(ST.ax || 0), Number(ST.az || 0), (opts.currentTileLoadRadius?.() || 36) + 12) || []; } catch {}
+    const worldBuildings = Array.isArray(rows) ? rows : [];
     const blockedCapital = new Set(worldBuildings.map((b:any) => kfn(b.x,b.z)));
     const renderBuildings = worldBuildings.concat(virtualCapital.filter((b:any)=>!blockedCapital.has(kfn(b.x,b.z))));
+    const seen = new Set<any>();
+    buildAt.clear();
     for (const b of renderBuildings) {
+      if (!b) continue;
       const uid = b.uid ?? `${b.kind || b.type}:${b.x},${b.z}`;
       const row = { ...b, uid, x:Math.trunc(Number(b.x||0)), z:Math.trunc(Number(b.z||0)), kind:String(b.kind || b.type || "building") };
-      buildPool.set(uid,row); buildAt.set(kfn(row.x,row.z), row);
+      seen.add(uid);
+      const prev = buildPool.get(uid);
+      // Preserve object identity when possible so cached picking/debug references
+      // do not split from the drawable pool during delta-heavy polling.
+      if (prev) Object.assign(prev, row); else buildPool.set(uid,row);
+      const live = buildPool.get(uid);
+      buildAt.set(kfn(live.x, live.z), live);
     }
-    for (const l of w.loot || []) { const id = l.id ?? `${l.x},${l.z},${l.g || 0}`; lootPool.set(id, { ...l, id }); }
-    invalidateStatic("world");
-    rebuildCells(true);
+    for (const uid of Array.from(buildPool.keys())) if (!seen.has(uid)) buildPool.delete(uid);
+  }
+  function reconcileLoot(rows: any[] = []) {
+    const seen = new Set<any>();
+    for (const l of rows || []) {
+      if (!l) continue;
+      const id = l.id ?? `${l.x},${l.z},${l.g || 0}`;
+      seen.add(id);
+      const row = { ...l, id };
+      const prev = lootPool.get(id);
+      if (prev) Object.assign(prev, row); else lootPool.set(id, row);
+    }
+    for (const id of Array.from(lootPool.keys())) if (!seen.has(id)) lootPool.delete(id);
+  }
+  function hashPart(h: number, value: any) {
+    const s = String(value ?? "");
+    for (let i = 0; i < s.length; i++) h = Math.imul((h ^ s.charCodeAt(i)) >>> 0, 16777619) >>> 0;
+    return h >>> 0;
+  }
+  function unorderedRowsSignature(rows: any[] = [], pick: (row: any) => any[]) {
+    let sum = 0, xor = 0, count = 0;
+    for (const row of rows || []) {
+      if (!row) continue;
+      let h = 2166136261;
+      for (const part of pick(row)) h = hashPart(h, part);
+      sum = (sum + h) >>> 0;
+      xor = (xor ^ ((h << (count % 13)) | (h >>> (32 - (count % 13 || 1))))) >>> 0;
+      count++;
+    }
+    return `${count}:${sum.toString(36)}:${xor.toString(36)}`;
+  }
+  function worldStaticSignature(w: any = {}) {
+    // Static cache decision: polling may advance rev/chat/nearby players without
+    // changing any pixels in the baked terrain layer. Key the cache from the
+    // drawable static content, not from rev alone, so the optimized REST loop does
+    // not accidentally force a terrain redraw every successful poll.
+    return [
+      unorderedRowsSignature(Array.isArray(w.tiles) ? w.tiles : [], (t:any) => [Math.trunc(Number(t.x||0)), Math.trunc(Number(t.z||0)), t.owner || 0]),
+      unorderedRowsSignature(Array.isArray(w.doodads) ? w.doodads : [], (d:any) => [Math.trunc(Number(d.x||0)), Math.trunc(Number(d.z||0)), d.kind || d.type || ""]),
+      unorderedRowsSignature(Array.isArray(w.buildings) ? w.buildings : [], (b:any) => [b.uid || b.id || `${b.kind}:${b.x},${b.z}`, b.kind || b.type || "", Math.trunc(Number(b.x||0)), Math.trunc(Number(b.z||0)), b.cl || b.color || "", b.constructUntil || b.cdUntil || 0, b.hp || ""]),
+    ].join("|");
+  }
+  function applyWorld(w: any = {}) {
+    // Delta-friendly client decision: page.client.tsx still materializes a safe
+    // full snapshot for debugging/replay, but the renderer no longer clears every
+    // pool on each poll. It reconciles keys in place so object identity, pick
+    // references, and sprite caches survive ordinary delta traffic.
+    const nextStaticSig = worldStaticSignature(w);
+    const staticChanged = nextStaticSig !== lastStaticWorldSignature;
+    reconcileTileOwners(Array.isArray(w.tiles) ? w.tiles : []);
+    reconcileDoodads(Array.isArray(w.doodads) ? w.doodads : []);
+    reconcileBuildings(Array.isArray(w.buildings) ? w.buildings : []);
+    reconcileLoot(Array.isArray(w.loot) ? w.loot : []);
+    if (staticChanged) { lastStaticWorldSignature = nextStaticSig; invalidateStatic("world"); rebuildCells(true); }
+    else rebuildCells(false);
   }
   function applyMe(p: any) {
     const src = p || ST.me || {};

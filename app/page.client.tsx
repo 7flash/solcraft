@@ -307,7 +307,7 @@ export default function mount() {
     el.setAttribute("aria-label", "Performance diagnostics");
     el.textContent = "perf starting…";
     root.appendChild(el);
-    const data = { ping: 0, paint: 0, frame: 0, cells: 0, draws: 0, terrain: 0, entities: 0, weather: 0, quality: "", staticMs: 0, dynamicMs: 0, prisms: 0, particles: 0, sprites: 0, cache: "", skipped: 0, last: 0 };
+    const data = { ping: 0, paint: 0, frame: 0, cells: 0, draws: 0, terrain: 0, entities: 0, weather: 0, quality: "", staticMs: 0, dynamicMs: 0, prisms: 0, particles: 0, sprites: 0, slices: 0, cache: "", skipped: 0, last: 0 };
     function update(partial: any = {}) {
       if (!perfOverlayEnabled) return;
       Object.assign(data, partial || {});
@@ -317,7 +317,7 @@ export default function mount() {
       const ping = data.ping ? `${Math.round(data.ping)}ms` : "—";
       const q = data.quality ? ` · q ${data.quality}` : "";
       const cache = data.cache ? ` · cache ${data.cache}` : "";
-      el.textContent = `ping ${ping} · frame ${Math.round(data.frame || 0)}ms · ui ${Math.round(data.paint || 0)}ms · static ${Math.round(data.staticMs || 0)}ms · dyn ${Math.round(data.dynamicMs || 0)}ms · prism ${Math.round(data.prisms || 0)} · sprite ${Math.round(data.sprites || 0)} · part ${Math.round(data.particles || 0)} · cells ${Math.round(data.cells || 0)}${q}${cache}`;
+      el.textContent = `ping ${ping} · frame ${Math.round(data.frame || 0)}ms · ui ${Math.round(data.paint || 0)}ms · static ${Math.round(data.staticMs || 0)}ms · dyn ${Math.round(data.dynamicMs || 0)}ms · prism ${Math.round(data.prisms || 0)} · sprite ${Math.round(data.sprites || 0)} · slice ${Math.round(data.slices || 0)} · part ${Math.round(data.particles || 0)} · cells ${Math.round(data.cells || 0)}${q}${cache}`;
     }
     return { update };
   })();
@@ -4225,6 +4225,7 @@ export default function mount() {
           prisms: rc.prismPartsDrawn || 0,
           particles: rc.particlesDrawn || 0,
           sprites: rc.spriteDraws || 0,
+          slices: rc.buildingSlicesDrawn || 0,
           cache: `${rc.staticCacheHits || 0}/${rc.staticCacheMisses || 0} · spr ${rc.spriteCacheHits || 0}/${rc.spriteCacheMisses || 0}`,
           skipped: rc.staticSkipped || 0,
         });
