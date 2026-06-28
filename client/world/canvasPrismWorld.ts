@@ -143,6 +143,21 @@ export function createCanvasPrismWorld(opts: CanvasWorldOptions): CanvasWorldApi
   }));
   const citySparkles: any[] = [];
   let lastCitySparkleAt = 0;
+  const ambientCitizens = Array.from({ length: 18 }, (_, i) => ({
+    id: `citizen:${i}`,
+    lane: i % 6,
+    seed: i * 37 + 11,
+    speed: 0.035 + stableRand(i, 97, 2) * 0.045,
+    offset: stableRand(i, 101, 3) * 1024,
+    body: stableRand(i, 107, 4) > 0.5 ? 0x2980b9 : stableRand(i, 109, 5) > 0.5 ? 0xc0392b : 0x27ae60,
+    hat: stableRand(i, 113, 6) > 0.5 ? 0xf6b73c : 0x7dcfe8,
+  }));
+  const ambientCarts = Array.from({ length: 5 }, (_, i) => ({
+    id: `cart:${i}`,
+    seed: i * 53 + 7,
+    speed: 0.022 + stableRand(i, 127, 2) * 0.025,
+    offset: stableRand(i, 131, 3) * 2048,
+  }));
   let lastVisibleCenter = { x: 1e9, z: 1e9, r: 0 };
 
   const hoverMarker = {
@@ -289,6 +304,49 @@ export function createCanvasPrismWorld(opts: CanvasWorldOptions): CanvasWorldApi
     const z = Math.round(me.vz || me.z) + Math.floor((stableRand(Math.floor(nowMs/113), 7, 92) - 0.5) * r * 1.55);
     citySparkles.push({ x, z, y: 0.45 + stableRand(x,z,33) * 2.2, life: 1.0, phase: stableRand(x,z,44) * Math.PI * 2 });
   }
+  function roadStep() { return cityGridStep * 4; }
+  function cityLoopPos(seed: number, offset: number, speed: number, nowMs = performance.now()) {
+    const step = roadStep();
+    const cx = Math.floor(Number(me.vx || me.x || 0) / step) * step;
+    const cz = Math.floor(Number(me.vz || me.z || 0) / step) * step;
+    const span = step * 6;
+    const raw = ((nowMs / 1000) * speed * step + offset) % (span * 2);
+    const horizontal = seed % 2 === 0;
+    const laneShift = ((seed % 5) - 2) * 0.18;
+    const roadBand = (Math.floor(seed / 3) % 5 - 2) * step;
+    if (horizontal) return { x: cx - span / 2 + raw, z: cz + roadBand + laneShift, dx: 1, dz: 0 };
+    return { x: cx + roadBand + laneShift, z: cz - span / 2 + raw, dx: 0, dz: 1 };
+  }
+  function drawTinyCitizen(citizen: any, x: number, z: number, phase: number) {
+    const p = proj(x, 0.04, z);
+    const L = lightForTime();
+    const sc = visualZoom() * 0.72;
+    const bob = Math.abs(Math.sin(phase)) * 1.6 * sc;
+    ctx.save();
+    ctx.translate(p.x, p.y - 10 * sc - bob);
+    ctx.scale(sc, sc);
+    ctx.fillStyle = tint(numColorToHex(citizen.body, '#2980b9'), 0.86 + L.elev * 0.25, L.tint);
+    ctx.beginPath(); ctx.roundRect(-4, -13, 8, 12, 3); ctx.fill();
+    ctx.fillStyle = tint('#f1c27d', 0.82 + L.elev * 0.28, L.tint);
+    ctx.beginPath(); ctx.arc(0, -17, 5, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = tint(numColorToHex(citizen.hat, '#f6b73c'), 0.86 + L.elev * 0.25, L.tint);
+    ctx.fillRect(-5, -20, 10, 3);
+    ctx.fillStyle = 'rgba(24,20,18,0.78)';
+    const leg = Math.sin(phase * 1.35) * 1.5;
+    ctx.fillRect(-3 + leg, -1, 3, 5); ctx.fillRect(1 - leg, -1, 3, 5);
+    ctx.restore();
+  }
+  function drawTinyCart(cart: any, x: number, z: number, horizontal: boolean) {
+    const L = lightForTime();
+    const yaw = horizontal ? 0 : 1;
+    const w = horizontal ? 0.92 : 0.48;
+    const d = horizontal ? 0.48 : 0.92;
+    drawShadow(x, z, 0.36, 0.15, 0.10);
+    drawPrismMin(x - w/2, z - d/2, 0.05, w, d, 0.28, '#8a5e34', '#5d3a21', '#3d2515', 0.95);
+    const lamp = proj(x + (yaw ? 0.22 : 0.42), 0.36, z + (yaw ? 0.42 : 0.22));
+    ctx.fillStyle = `rgba(255,210,110,${0.25 + L.night * 0.55})`;
+    ctx.beginPath(); ctx.arc(lamp.x, lamp.y, Math.max(2, 3.2 * visualZoom()), 0, Math.PI * 2); ctx.fill();
+  }
   function poly(pts: Pt[], fill: string, stroke = "") {
     ctx.beginPath(); ctx.moveTo(pts[0].x, pts[0].y);
     for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i].x, pts[i].y);
@@ -421,14 +479,19 @@ export function createCanvasPrismWorld(opts: CanvasWorldOptions): CanvasWorldApi
   function drawCityRoads() {
     const r = opts.currentTileLoadRadius?.() || 36;
     const cx = Math.round(me.vx || me.x), cz = Math.round(me.vz || me.z);
-    const roadStep = cityGridStep * 4;
-    const minX = Math.floor((cx - r - roadStep) / roadStep) * roadStep;
-    const maxX = Math.ceil((cx + r + roadStep) / roadStep) * roadStep;
-    const minZ = Math.floor((cz - r - roadStep) / roadStep) * roadStep;
-    const maxZ = Math.ceil((cz + r + roadStep) / roadStep) * roadStep;
+    const step = roadStep();
+    const minX = Math.floor((cx - r - step) / step) * step;
+    const maxX = Math.ceil((cx + r + step) / step) * step;
+    const minZ = Math.floor((cz - r - step) / step) * step;
+    const maxZ = Math.ceil((cz + r + step) / step) * step;
     ctx.save();
-    for (let x = minX; x <= maxX; x += roadStep) drawRoadStripX(x, minZ, maxZ, 1.35);
-    for (let z = minZ; z <= maxZ; z += roadStep) drawRoadStripZ(z, minX, maxX, 1.35);
+    for (let x = minX; x <= maxX; x += step) drawRoadStripX(x, minZ, maxZ, 1.35);
+    for (let z = minZ; z <= maxZ; z += step) drawRoadStripZ(z, minX, maxX, 1.35);
+    // Plaza diamonds at intersections give the grid an intentional city-plan feel.
+    for (let x = minX; x <= maxX; x += step) for (let z = minZ; z <= maxZ; z += step) {
+      const a = proj(x - 0.82, 0.033, z), b = proj(x, 0.033, z - 0.82), c = proj(x + 0.82, 0.033, z), d = proj(x, 0.033, z + 0.82);
+      poly([a,b,c,d], lightForTime().night > 0.45 ? 'rgba(50,58,72,0.50)' : 'rgba(118,108,82,0.25)', 'rgba(255,255,255,0.035)');
+    }
     ctx.restore();
   }
   function drawCityGrid() {
@@ -615,6 +678,14 @@ export function createCanvasPrismWorld(opts: CanvasWorldOptions): CanvasWorldApi
       const da = proj(tx - 0.48, 0.066, tz), db = proj(tx, 0.066, tz - 0.48), dc = proj(tx + 0.48, 0.066, tz), dd = proj(tx, 0.066, tz + 0.48);
       ctx.beginPath(); ctx.moveTo(da.x, da.y); ctx.lineTo(db.x, db.y); ctx.lineTo(dc.x, dc.y); ctx.lineTo(dd.x, dd.y); ctx.closePath(); ctx.stroke();
     }
+    const label = proj(x, 0.18, z - 2.55);
+    ctx.font = `900 ${Math.max(10, 11 * visualZoom())}px system-ui, sans-serif`;
+    ctx.textAlign = 'center';
+    ctx.lineWidth = Math.max(2, 3 * visualZoom());
+    ctx.strokeStyle = 'rgba(18,22,30,0.72)';
+    ctx.fillStyle = `${color}${Math.round(255 * Math.min(0.95, alpha + 0.38)).toString(16).padStart(2,'0')}`;
+    ctx.strokeText('4×4 CITY LOT', label.x, label.y);
+    ctx.fillText('4×4 CITY LOT', label.x, label.y);
     ctx.restore();
   }
   function drawBuilding(b: any) {
@@ -831,8 +902,17 @@ export function createCanvasPrismWorld(opts: CanvasWorldOptions): CanvasWorldApi
     for (const t of tradePostPool.values()) ents.push({ kind:"trade", x:Number(t.x||0)-0.6, z:Number(t.z||0)-0.6, y:0, h:1.4, data:t });
     for (const n of npcPool.values()) ents.push({ kind:"npc", x:Number(n.x||0), z:Number(n.z||0), y:0, h:1.7, data:n });
     for (const p of remotes) if (p && p.id !== me.id) ents.push({ kind:"remote", x:remoteVisualX(p), z:remoteVisualZ(p), y:0, h:1.6, data:p });
+    const nowMs = performance.now();
+    for (const c of ambientCitizens) {
+      const pos = cityLoopPos(c.seed, c.offset, c.speed, nowMs);
+      ents.push({ kind:'citizen', x:pos.x, z:pos.z, y:0, h:1.0, data:{...c, ...pos, phase: nowMs / 165 + c.seed} });
+    }
+    for (const c of ambientCarts) {
+      const pos = cityLoopPos(c.seed, c.offset, c.speed, nowMs);
+      ents.push({ kind:'cart', x:pos.x, z:pos.z, y:0, h:0.7, data:{...c, ...pos, horizontal: Math.abs(pos.dx) > Math.abs(pos.dz)} });
+    }
     ents.push({ kind:"me", x: visualX(me), z: visualZ(me), y:0, h:1.8, data:me });
-    ents.sort((a,b) => ((a.x+a.z+a.h*0.18) - (b.x+b.z+b.h*0.18)));
+    ents.sort((a,b) => ((a.x + a.z + (a.y || 0) * 0.45 + a.h * 0.18) - (b.x + b.z + (b.y || 0) * 0.45 + b.h * 0.18)));
     for (const e of ents) {
       if (e.kind === "building") drawBuilding(e.data);
       else if (e.kind === "doodad") drawDoodad(e.data);
@@ -840,6 +920,8 @@ export function createCanvasPrismWorld(opts: CanvasWorldOptions): CanvasWorldApi
       else if (e.kind === "trade") drawTradePost(e.data);
       else if (e.kind === "npc") drawNpc(e.data);
       else if (e.kind === "remote") drawPlayerSprite(e.data, false);
+      else if (e.kind === 'citizen') drawTinyCitizen(e.data, e.x, e.z, e.data.phase || 0);
+      else if (e.kind === 'cart') drawTinyCart(e.data, e.x, e.z, !!e.data.horizontal);
       else if (e.kind === "me") drawPlayerSprite(me, true);
     }
     for (let i = dustPuffs.length - 1; i >= 0; i--) {

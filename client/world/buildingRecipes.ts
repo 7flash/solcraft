@@ -294,6 +294,38 @@ function cityTower(_color: string, plinth: string): PrismRecipePart[] {
   ];
 }
 
+
+function civicBlock(_color: string, plinth: string): PrismRecipePart[] {
+  return [
+    ...baseParts(plinth, 1.34),
+    win(part("civic-podium", 0, 0, 0.24, 1.10, 0.82, 0.70, "#d6c38e", "#9b8150", "#6f5a38"), 5, 2),
+    part("civic-steps", 0, 0.43, 0.26, 0.82, 0.16, 0.10, MAT.stoneTop, MAT.stoneLeft, MAT.stoneRight),
+    win(part("civic-left-wing", -0.36, -0.02, 0.86, 0.42, 0.58, 0.78, MAT.creamTop, MAT.creamLeft, MAT.creamRight), 2, 3),
+    win(part("civic-right-wing", 0.36, -0.02, 0.86, 0.42, 0.58, 0.78, MAT.creamTop, MAT.creamLeft, MAT.creamRight), 2, 3),
+    win(part("civic-center-tower", 0, -0.04, 0.92, 0.46, 0.50, 1.34, "#b98a4e", "#825a2e", "#59391f"), 3, 5),
+    part("civic-gold-waist", 0, -0.04, 1.58, 1.04, 0.72, 0.10, MAT.brassTop, MAT.brassLeft, MAT.brassRight),
+    ...roofStack("civic", 2.22, MAT.brassTop, MAT.brassLeft, MAT.brassRight, 0.78, 0.56),
+    part("civic-clock", 0, 0.23, 1.72, 0.18, 0.04, 0.18, "#fff0a8", "#b99a31", "#80681d"),
+    ...flag("civic", 0.32, -0.22, 2.54, MAT.blueTop),
+  ];
+}
+
+function arcadeMarket(color: string, plinth: string): PrismRecipePart[] {
+  const accent = isTerrainGreenish(color) ? MAT.violetTop : color;
+  const parts: PrismRecipePart[] = [
+    ...baseParts(plinth, 1.30),
+    win(part("arcade-core", 0, 0, 0.23, 1.04, 0.78, 0.72, MAT.creamTop, MAT.creamLeft, MAT.creamRight), 5, 2),
+    part("arcade-left-awning", -0.32, 0.34, 0.58, 0.38, 0.18, 0.16, accent, shade(accent, -0.24), shade(accent, -0.36)),
+    part("arcade-mid-awning", 0, 0.34, 0.60, 0.38, 0.18, 0.18, MAT.brassTop, MAT.brassLeft, MAT.brassRight),
+    part("arcade-right-awning", 0.32, 0.34, 0.58, 0.38, 0.18, 0.16, "#53adc0", "#327b89", "#22535d"),
+    part("arcade-upper-deck", 0, -0.02, 0.93, 0.92, 0.64, 0.32, "#b9854a", "#82582f", "#5a3a20"),
+    part("arcade-sign", 0, 0.43, 1.02, 0.42, 0.05, 0.18, MAT.brassTop, MAT.brassLeft, MAT.brassRight),
+    ...roofStack("arcade", 1.24, accent, shade(accent, -0.24), shade(accent, -0.36), 1.02, 0.70),
+  ];
+  [-0.42, -0.14, 0.14, 0.42].forEach((x, i) => parts.push(part(`arcade-lamp-${i}`, x, 0.44, 0.48, 0.07, 0.05, 0.18, "#ffd76e", "#a98728", "#755d1a")));
+  return parts;
+}
+
 function generic(color: string, plinth: string): PrismRecipePart[] {
   const accent = isTerrainGreenish(color) ? MAT.redTop : color;
   return [
@@ -312,7 +344,8 @@ export function buildingRecipeFor(kind: string, opts: BuildingRecipeOptions = {}
   if (k === "cottage" || k === "house") return house(accent, plinth);
   if (k === "tower" || k === "skyscraper" || k === "highrise" || k === "citytower" || k === "apartment") return cityTower(accent, plinth);
   if (k === "market" || k === "tradepost") return market(accent, plinth);
-  if (k === "townhall" || k === "guidehall" || k === "academy") return hall(accent, plinth);
+  if (k === "mall" || k === "arcade" || k === "exchange") return arcadeMarket(accent, plinth);
+  if (k === "townhall" || k === "guidehall" || k === "academy") return civicBlock(accent, plinth);
   if (k === "vault" || k === "bank" || k === "goldmine") return bank(accent, plinth);
   if (k === "workshop" || k === "forge" || k === "alchemy") return workshop(accent, plinth);
   if (k === "quarry") return quarry(accent, plinth);
