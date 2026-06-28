@@ -2,7 +2,6 @@
 import { buildingRecipeFor, recipeVisibleParts, type PrismRecipePart } from "./buildingRecipes";
 import { resourceRecipeFor, type ResourcePrismPart } from "./resourceRecipes";
 import { createPickDebugOverlay, type CanvasWorldApi } from "./canvasWorldApi";
-import { visualPerfFor } from "../game/clientSettings";
 
 /*
   Canvas-first rendering decision
@@ -99,7 +98,7 @@ export function createCanvasPrismWorld(opts: CanvasWorldOptions): CanvasWorldApi
   const staticCtx = staticCanvas.getContext("2d", { alpha: true })!;
   // Completed buildings and common resources are also static *shapes* even
   // though they live on the dynamic depth-sorted pass. Cache their prism body
-  // into tiny offscreen sprites keyed by quality/zoom/time band. The main
+  // into tiny offscreen sprites keyed by zoom/time band. The main
   // frame can then depth-sort the object normally but draw one image instead
   // of reconstructing many prism paths. Construction, Wonder auras, hover
   // affordances, damage, particles, and labels stay live so gameplay feedback
@@ -205,10 +204,28 @@ export function createCanvasPrismWorld(opts: CanvasWorldOptions): CanvasWorldApi
     offset: stableRand(i, 131, 3) * 2048,
   }));
   let lastVisibleCenter = { x: 1e9, z: 1e9, r: 0 };
-  let renderQuality = visualPerfFor(ST.visual || {}, false);
+  // One visual contract: always render the complete Canvas path. Performance
+  // comes from caching, sprite reuse, culling, and offscreen static layers. This
+  // avoids split-brain bugs where alternate render paths exercise different code.
+  const maxVisualBudget: any = {
+    pixelRatioCap: 2,
+    weatherDensity: 1,
+    sparkleDensity: 1,
+    cityRoadAlpha: 1,
+    cityDecorStride: 1,
+    terrainDetailStride: 1,
+    maxPrismPartsPerBuilding: 999,
+    constructionFx: 1,
+    wonderAuraDensity: 1,
+    influenceTintAlpha: 0.08,
+    shadowAlphaMul: 1,
+    staticCameraSnapPx: 2,
+    maxCitizens: ambientCitizens.length,
+    maxCarts: ambientCarts.length,
+    birdCount: ambientBirds.length,
+    perfBudgetWarnMs: 24,
+  };
   let frameLight: any = null;
-  let qualitySelfTestKey = "";
-  let qualitySelfTestError = "";
   let staticDirty = true;
   let staticCacheKey = "";
   let lastStaticRebuildReason = "boot";
@@ -220,7 +237,7 @@ export function createCanvasPrismWorld(opts: CanvasWorldOptions): CanvasWorldApi
     influenceAuras: 0, constructionVisuals: 0, perfWarnings: 0,
     spriteCacheHits: 0, spriteCacheMisses: 0, spriteDraws: 0, spriteEvictions: 0, buildingSlicesDrawn: 0,
     terrainBlendPatches: 0, blockFillersDrawn: 0, resourceOrganicDraws: 0,
-    snappedDrawImages: 0, featureSelfTestFailures: 0, qualityDowngrades: 0,
+    snappedDrawImages: 0, spriteCacheBytes: 0, spriteCacheBudgetBytes: 0,
     reset() {
       this.terrainTilesDrawn = 0; this.entitiesSorted = 0; this.entitiesDrawn = 0; this.weatherDrawn = 0; this.staticSkipped = 0;
       this.staticRebuildMs = 0; this.dynamicDrawMs = 0; this.staticCacheHits = 0; this.staticCacheMisses = 0;
@@ -228,23 +245,30 @@ export function createCanvasPrismWorld(opts: CanvasWorldOptions): CanvasWorldApi
       this.influenceAuras = 0; this.constructionVisuals = 0; this.perfWarnings = 0;
       this.spriteCacheHits = 0; this.spriteCacheMisses = 0; this.spriteDraws = 0; this.spriteEvictions = 0; this.buildingSlicesDrawn = 0;
       this.terrainBlendPatches = 0; this.blockFillersDrawn = 0; this.resourceOrganicDraws = 0;
-      this.snappedDrawImages = 0; this.featureSelfTestFailures = 0; this.qualityDowngrades = 0;
+      this.snappedDrawImages = 0; this.spriteCacheBytes = estimateSpriteCacheBytes(); this.spriteCacheBudgetBytes = spriteCacheBudgetBytes();
     },
   };
-  function qualityName() { return String(renderQuality?.quality || ST.visual?.quality || "fast").toLowerCase(); }
-  function qualityBudget(name: string, fallback: number) {
-    const n = Number(renderQuality?.[name]);
+  function visualPathName() { return "max-canvas"; }
+  function assertMaxVisualPath(note = "") {
+    // Max-detail invariant: there are no alternate runtime render branches. If
+    // a legacy caller sends an old visual-mode field, ignore it and keep the one
+    // full Canvas path active.
+    try { if (ST.visual && "quality" in ST.visual) delete ST.visual.quality; } catch {}
+    void note;
+  }
+  function visualBudget(name: string, fallback: number) {
+    const n = Number(maxVisualBudget?.[name]);
     return Number.isFinite(n) ? n : fallback;
   }
   function invalidateStatic(reason = "world") {
     staticDirty = true;
     lastStaticRebuildReason = String(reason || "world");
   }
-  function qualityStride(name: string, fallback = 1) {
-    return Math.max(1, Math.trunc(qualityBudget(name, fallback)));
+  function visualStride(name: string, fallback = 1) {
+    return Math.max(1, Math.trunc(visualBudget(name, fallback)));
   }
   function shouldSkipDecor(x: number, z: number, strideName: string, seed = 0) {
-    const stride = qualityStride(strideName, 1);
+    const stride = visualStride(strideName, 1);
     if (stride <= 1) return false;
     return Math.abs(Math.trunc(x) * 31 + Math.trunc(z) * 17 + seed) % stride !== 0;
   }
@@ -264,25 +288,54 @@ export function createCanvasPrismWorld(opts: CanvasWorldOptions): CanvasWorldApi
     }
     if (oldestKey) { cache.delete(oldestKey); renderCounters.spriteEvictions++; }
   }
+  function spriteBytes(spr: any) {
+    const c = spr?.canvas;
+    return Math.max(0, Number(c?.width || 0) * Number(c?.height || 0) * 4);
+  }
+  function estimateSpriteCacheBytes() {
+    let total = 0;
+    for (const v of buildingSpriteCache.values()) total += spriteBytes(v);
+    for (const v of resourceSpriteCache.values()) total += spriteBytes(v);
+    return total;
+  }
+  function spriteCacheBudgetBytes() {
+    // One max-detail path means caches are the performance lever. Bound memory by
+    // viewport/DPR, so full detail cannot balloon on
+    // high-DPR displays. A 1080p@2x viewport lands around 96MB.
+    const viewportBytes = Math.max(12_000_000, Math.floor(width * height * dpr * dpr * 4));
+    return Math.max(32_000_000, Math.min(112_000_000, viewportBytes * 6));
+  }
+  function evictSpritesToBudget() {
+    const budget = spriteCacheBudgetBytes();
+    let total = estimateSpriteCacheBytes();
+    if (total <= budget) return;
+    const all: Array<{ cache: Map<string, any>, key: string, at: number, bytes: number }> = [];
+    for (const [key, value] of buildingSpriteCache) all.push({ cache: buildingSpriteCache, key, at: Number(value?.lastUsed || 0), bytes: spriteBytes(value) });
+    for (const [key, value] of resourceSpriteCache) all.push({ cache: resourceSpriteCache, key, at: Number(value?.lastUsed || 0), bytes: spriteBytes(value) });
+    all.sort((a, b) => a.at - b.at);
+    for (const row of all) {
+      if (total <= budget) break;
+      if (row.cache.delete(row.key)) { total -= row.bytes; renderCounters.spriteEvictions++; }
+    }
+  }
   function spriteTimeBand() { return Math.floor(currentHour() / 2); }
   function spriteZoomBucket() { return Math.round(visualZoom() * 8) / 8; }
   function spriteDprBucket() { return Math.round(dpr * 4) / 4; }
-  function weatherDensity() { return clamp(qualityBudget("weatherDensity", 1), 0, 1); }
-  function sparkleDensity() { return clamp(qualityBudget("sparkleDensity", 1), 0, 1); }
-  function applyVisualQuality(nextVisual: any = ST.visual) {
-    ST.visual = nextVisual || ST.visual || {};
-    renderQuality = visualPerfFor(ST.visual || {}, false);
-    const q = qualityName();
-    if (q === "fast") {
-      rainStreaks.splice(0); groundRipples.splice(0); windLeaves.splice(0); citySparkles.splice(0);
-    } else {
-      const weatherCap = q === "balanced" ? 130 : 260;
-      if (rainStreaks.length > weatherCap) rainStreaks.splice(0, rainStreaks.length - weatherCap);
-      if (groundRipples.length > Math.round(weatherCap * 0.42)) groundRipples.splice(0, groundRipples.length - Math.round(weatherCap * 0.42));
-      if (windLeaves.length > Math.round(weatherCap * 0.28)) windLeaves.splice(0, windLeaves.length - Math.round(weatherCap * 0.28));
-    }
-    invalidateStatic("quality");
-    clearSpriteCaches("quality");
+  function weatherDensity() { return clamp(visualBudget("weatherDensity", 1), 0, 1); }
+  function sparkleDensity() { return clamp(visualBudget("sparkleDensity", 1), 0, 1); }
+  function applyVisualSettings(nextVisual: any = ST.visual) {
+    // Apply real visual preferences that remain meaningful: camera, warmth,
+    // texture, and motion feel. The world renderer itself always stays on the
+    // one full-detail Canvas path.
+    ST.visual = { ...(nextVisual || ST.visual || {}) };
+    try { delete ST.visual.quality; } catch {}
+    assertMaxVisualPath("applyVisualSettings");
+    const weatherCap = 260;
+    if (rainStreaks.length > weatherCap) rainStreaks.splice(0, rainStreaks.length - weatherCap);
+    if (groundRipples.length > Math.round(weatherCap * 0.42)) groundRipples.splice(0, groundRipples.length - Math.round(weatherCap * 0.42));
+    if (windLeaves.length > Math.round(weatherCap * 0.28)) windLeaves.splice(0, windLeaves.length - Math.round(weatherCap * 0.28));
+    invalidateStatic("visual");
+    clearSpriteCaches("visual");
     resize(); updateProjection(); rebuildCells(true);
   }
 
@@ -293,7 +346,7 @@ export function createCanvasPrismWorld(opts: CanvasWorldOptions): CanvasWorldApi
   } as any;
 
   function resize() {
-    const dprCap = clamp(Number(renderQuality?.pixelRatioCap || 1.25), 0.75, 2);
+    const dprCap = clamp(Number(maxVisualBudget.pixelRatioCap), 0.75, 2);
     const nextDpr = Math.min(dprCap, window.devicePixelRatio || 1);
     const w = Math.max(1, host.clientWidth || window.innerWidth || 1);
     const h = Math.max(1, host.clientHeight || window.innerHeight || 1);
@@ -306,10 +359,9 @@ export function createCanvasPrismWorld(opts: CanvasWorldOptions): CanvasWorldApi
     canvas.style.width = `${w}px`; canvas.style.height = `${h}px`;
     screenCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
     staticCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    // Crispness decision: simulation and camera remain sub-tile smooth, but
-    // pixel interpolation is controlled at the draw boundary. Fast/Balanced keep
-    // sprite edges stable on high-DPR phones; Crisp can smooth cached sprites.
-    const smoothing = qualityName() === "crisp";
+    // Sampling decision: simulation and camera remain sub-tile smooth, while
+    // final cached image blits use high-quality sampling at max detail.
+    const smoothing = true;
     screenCtx.imageSmoothingEnabled = smoothing;
     staticCtx.imageSmoothingEnabled = smoothing;
     try { screenCtx.imageSmoothingQuality = smoothing ? "high" : "low"; staticCtx.imageSmoothingQuality = smoothing ? "high" : "low"; } catch {}
@@ -540,7 +592,7 @@ export function createCanvasPrismWorld(opts: CanvasWorldOptions): CanvasWorldApi
   }
 
   function drawCityFurniture() {
-    if (qualityName() === "fast") { renderCounters.staticSkipped++; return; }
+    if (false) { renderCounters.staticSkipped++; return; }
     const step = roadStep();
     const r = opts.currentTileLoadRadius?.() || 36;
     const cx = Math.floor(Number(me.vx || me.x || 0) / step) * step;
@@ -554,7 +606,7 @@ export function createCanvasPrismWorld(opts: CanvasWorldOptions): CanvasWorldApi
         drawCrosswalk(x, z, true);
         drawCrosswalk(x, z, false);
         if (stableRand(x, z, 501) > 0.18) drawStreetLamp(x + 1.35, z - 1.35, seed);
-        if (qualityName() === "crisp" && stableRand(x, z, 502) > 0.34) drawStreetLamp(x - 1.35, z + 1.35, seed + 13);
+        if (true && stableRand(x, z, 502) > 0.34) drawStreetLamp(x - 1.35, z + 1.35, seed + 13);
         if (stableRand(x, z, 503) > 0.78) {
           drawPrismMin(x + 2.05, z + 0.36, 0.04, 0.16, 0.16, 0.44, '#c94a34', '#8f2d24', '#5e1d18', 0.92);
           drawPrismMin(x + 2.05, z + 0.36, 0.48, 0.34, 0.08, 0.14, '#ffd76e', '#a98728', '#755d1a', 0.95);
@@ -768,7 +820,7 @@ export function createCanvasPrismWorld(opts: CanvasWorldOptions): CanvasWorldApi
     // terrain tiles, lot outlines, and directional cast-shadows all call this
     // so they share the same diamond footprint contract as prism buildings.
     // Do not inline ad-hoc diamond math in those callers; mismatched origins are
-    // what made the grid look rectangular and made Balanced/Crisp shadow paths
+    // what made the grid look rectangular and made shadow paths
     // fragile when this helper was absent.
     return [
       proj(cx - radius, y, cz),
@@ -1002,9 +1054,8 @@ export function createCanvasPrismWorld(opts: CanvasWorldOptions): CanvasWorldApi
     // Roads are now lot connectors, not infinite screen-space strips. They use
     // the same centered isometric footprint as buildings, so the ground reads as
     // a city-builder plane rather than a rectangular UI grid under the sprites.
-    if (qualityName() === "fast") return;
     const L = frameLightForTime();
-    const alpha = (0.055 + 0.035 * Math.max(0, L.elev)) * clamp(qualityBudget("cityRoadAlpha", 1), 0.35, 1.1);
+    const alpha = (0.055 + 0.035 * Math.max(0, L.elev)) * clamp(visualBudget("cityRoadAlpha", 1), 0.35, 1.1);
     ctx.save();
     const lots = new Set<string>();
     const centers: Array<[number, number]> = [];
@@ -1026,15 +1077,14 @@ export function createCanvasPrismWorld(opts: CanvasWorldOptions): CanvasWorldApi
     ctx.restore();
   }
   function drawCityGrid() {
-    const q = qualityName();
-    if (q === "fast") return;
+    assertMaxVisualPath("drawCityGrid");
     // Grid decision: do not paint an infinite planning lattice. It makes the
     // terrain read rectangular even when the projection is isometric. Show lot
     // outlines only where they explain a built/near-built block or an active
     // placement ghost; the rest of the world remains terrain.
     const showPlanning = !!ghost || ST?.mode === "place" || ST?.tool === "build";
     const L = frameLightForTime();
-    const lotAlpha = q === "balanced" ? 0.040 : 0.065;
+    const lotAlpha = 0.065;
     const strokeBase = lotAlpha + 0.024 * Math.max(0, L.elev);
     ctx.save();
     ctx.lineWidth = Math.max(0.55, 0.78 * visualZoom());
@@ -1067,10 +1117,9 @@ export function createCanvasPrismWorld(opts: CanvasWorldOptions): CanvasWorldApi
     // per-tile TV static. These decorative stones/bushes are baked into the
     // static layer, use a coarse stride, and stay lower-contrast than buildings
     // so they add scale without fighting gameplay silhouettes.
-    if (qualityName() === "fast") return;
     const r = opts.currentTileLoadRadius?.() || 36;
     const cx = Math.round(me.vx || me.x), cz = Math.round(me.vz || me.z);
-    const stride = qualityName() === "balanced" ? 7 : 5;
+    const stride = 5;
     ctx.save();
     for (let x = cx - r; x <= cx + r; x += stride) for (let z = cz - r; z <= cz + r; z += stride) {
       const jx = x + Math.floor(stableRand(x, z, 551) * stride);
@@ -1099,7 +1148,6 @@ export function createCanvasPrismWorld(opts: CanvasWorldOptions): CanvasWorldApi
     // isolated monopoly houses. These small non-interactive fillers occupy the
     // visual gaps around completed buildings only; they do not affect picking,
     // collision, storage, or ECS state.
-    if (qualityName() === "fast") return;
     const lots = new Set<string>();
     for (const b of buildPool.values()) lots.add(`${lotCenter(Number(b?.x || 0))},${lotCenter(Number(b?.z || 0))}`);
     ctx.save();
@@ -1130,7 +1178,6 @@ export function createCanvasPrismWorld(opts: CanvasWorldOptions): CanvasWorldApi
     // Buildings should feel seated into the ground plane. Aprons are deliberately
     // baked into the static layer rather than drawn with every building sprite:
     // they hide small footprint/painter gaps and visually connect clustered lots.
-    if (qualityName() === "fast") return;
     const L = frameLightForTime();
     ctx.save();
     for (const b of buildPool.values()) {
@@ -1184,9 +1231,9 @@ export function createCanvasPrismWorld(opts: CanvasWorldOptions): CanvasWorldApi
     const l1 = tint(leftHex, L.left * 1.12, L.tint), l2 = tint(leftHex, L.left * 0.68, L.tint);
     const r1 = tint(rightHex, L.right * 1.12, L.tint), r2 = tint(rightHex, L.right * 0.68, L.tint);
     // Allocation decision: gradients sell material depth, but createLinearGradient
-    // is expensive. Cached sprites pay that cost once; live low-quality prisms use
-    // solid face colors to protect frame time.
-    const useGradientFaces = qualityName() === "crisp" || (windows && h > 0.9);
+    // is expensive. Cached sprites pay that cost once; rare live prisms can still use
+    // solid face colors if this ever becomes hot again.
+    const useGradientFaces = true || (windows && h > 0.9);
     const outlineA = 0.26 * alpha;
     poly([d0,c0,ct,dt], (useGradientFaces ? faceGradient(d0,c0,ct,dt,l1,l2) : tint(leftHex, L.left * 0.88, L.tint)) as any, `rgba(7,12,10,${outlineA})`);
     poly([c0,b0,bt,ct], (useGradientFaces ? faceGradient(c0,b0,bt,ct,r1,r2) : tint(rightHex, L.right * 0.88, L.tint)) as any, `rgba(6,10,9,${outlineA + 0.02})`);
@@ -1215,7 +1262,7 @@ export function createCanvasPrismWorld(opts: CanvasWorldOptions): CanvasWorldApi
     renderCounters.shadowsDrawn++;
     const L = frameLightForTime();
     const p = proj(cx + 0.10 + L.shadowDx * 0.08, 0.018, z + 0.08 + L.shadowDz * 0.08);
-    const a = alpha * clamp(qualityBudget("shadowAlphaMul", 1), 0.35, 1.15);
+    const a = alpha * clamp(visualBudget("shadowAlphaMul", 1), 0.35, 1.15);
     // Contact decision: every object gets a soft radial contact shadow instead
     // of a hard sticker ellipse. This is much cheaper than real cast shadows but
     // gives the brain the missing "object touches the ground" cue.
@@ -1231,13 +1278,11 @@ export function createCanvasPrismWorld(opts: CanvasWorldOptions): CanvasWorldApi
     ctx.restore();
   }
   function drawContactAO(cx: number, z: number, fp = 1, alpha = 0.13) {
-    if (qualityName() === "fast") return;
     const half = Math.max(0.45, fp * 0.50);
     const [a,b,c,d] = diamondPath(cx, z, half, 0.034);
     poly([a,b,c,d], `rgba(5,9,7,${alpha})`, "");
   }
   function drawDirectionalGroundShadow(cx: number, z: number, fp = 1, h = 1, alpha = 0.10) {
-    if (qualityName() === "fast") return;
     const L = frameLightForTime();
     const len = clamp(L.shadowLength * (0.24 + h * 0.10), 0.18, 1.05);
     const dx = L.shadowDx * len, dz = L.shadowDz * len;
@@ -1297,7 +1342,7 @@ export function createCanvasPrismWorld(opts: CanvasWorldOptions): CanvasWorldApi
     ctx.save();
     const cx = Math.round(me.vx || me.x), cz = Math.round(me.vz || me.z);
     const r = opts.currentTileLoadRadius?.() || 36;
-    const stride = qualityName() === "fast" ? 2 : 1;
+    const stride = 1;
     for (let x = cx - r - 2; x <= cx + r + 2; x += stride) for (let z = cz - r - 2; z <= cz + r + 2; z += stride) {
       if (Math.max(Math.abs(x - cx), Math.abs(z - cz)) > r + 2) continue;
       const fill = terrainBlendColor(x, z);
@@ -1312,7 +1357,7 @@ export function createCanvasPrismWorld(opts: CanvasWorldOptions): CanvasWorldApi
 
     // Soft biome/terrain patches. These are big, sparse, and diamond-aligned,
     // giving the floor authored variation without noisy per-tile speckle.
-    const patchStride = qualityName() === "crisp" ? 7 : 10;
+    const patchStride = true ? 7 : 10;
     for (let x = cx - r; x <= cx + r; x += patchStride) for (let z = cz - r; z <= cz + r; z += patchStride) {
       if (Math.max(Math.abs(x - cx), Math.abs(z - cz)) > r) continue;
       const roll = stableRand(x, z, 1771);
@@ -1333,7 +1378,7 @@ export function createCanvasPrismWorld(opts: CanvasWorldOptions): CanvasWorldApi
 
     // Low-frequency broad scuffs only. Fine per-cell speckles were removed
     // because they fought the clean prism silhouettes and read as color mud.
-    const markStride = qualityStride("terrainDetailStride", 1);
+    const markStride = visualStride("terrainDetailStride", 1);
     for (let i = 0; i < staticGroundMarks.length; i += markStride) {
       const m = staticGroundMarks[i];
       if (Math.max(Math.abs(m.x-cx), Math.abs(m.z-cz)) > r + 4) continue;
@@ -1409,16 +1454,15 @@ export function createCanvasPrismWorld(opts: CanvasWorldOptions): CanvasWorldApi
     return Math.max(Math.abs(Number(b?.x || 0) - Number(me.vx || me.x || 0)), Math.abs(Number(b?.z || 0) - Number(me.vz || me.z || 0)));
   }
   function maxRecipePartsForBuilding(kind: string, dist: number, recipeLen: number) {
-    const base = Math.max(4, Math.trunc(qualityBudget("maxPrismPartsPerBuilding", recipeLen)));
-    const q = qualityName();
-    if (String(kind).toLowerCase() === "worldwonder") return Math.max(base, q === "fast" ? 32 : q === "balanced" ? 54 : 96);
+    const base = Math.max(4, Math.trunc(visualBudget("maxPrismPartsPerBuilding", recipeLen)));
+    if (String(kind).toLowerCase() === "worldwonder") return Math.max(base, 96);
     if (dist > 32) return Math.max(6, Math.min(base, 12));
     if (dist > 22) return Math.max(10, Math.min(base, 20));
     return base;
   }
   function drawConstructionOverlay(b: any, c: any, fp: number, scale: number) {
     if (!c) return;
-    const fx = clamp(qualityBudget("constructionFx", 1), 0, 1);
+    const fx = clamp(visualBudget("constructionFx", 1), 0, 1);
     if (fx <= 0.05) return;
     renderCounters.constructionVisuals++;
     const x = Number(b.x || 0), z = Number(b.z || 0);
@@ -1457,7 +1501,7 @@ export function createCanvasPrismWorld(opts: CanvasWorldOptions): CanvasWorldApi
   }
   function drawWonderAura(b: any, c: any) {
     if (String(b?.kind || b?.type || "").toLowerCase() !== "worldwonder") return;
-    const density = clamp(qualityBudget("wonderAuraDensity", 1), 0, 1);
+    const density = clamp(visualBudget("wonderAuraDensity", 1), 0, 1);
     if (density <= 0.03) return;
     renderCounters.influenceAuras++;
     const x = Number(b.x || 0), z = Number(b.z || 0);
@@ -1467,7 +1511,7 @@ export function createCanvasPrismWorld(opts: CanvasWorldOptions): CanvasWorldApi
     const p = proj(x, 0.055, z);
     ctx.save();
     const aura = ctx.createRadialGradient(p.x, p.y, tileW * 0.22, p.x, p.y, tileW * r);
-    const alpha = clamp(qualityBudget("influenceTintAlpha", 0.08), 0.02, 0.16) * density * (c ? 0.68 : 1);
+    const alpha = clamp(visualBudget("influenceTintAlpha", 0.08), 0.02, 0.16) * density * (c ? 0.68 : 1);
     aura.addColorStop(0, `rgba(153,69,255,${alpha * 1.15})`);
     aura.addColorStop(0.55, `rgba(20,241,149,${alpha * 0.62})`);
     aura.addColorStop(1, "rgba(20,241,149,0)");
@@ -1526,10 +1570,10 @@ export function createCanvasPrismWorld(opts: CanvasWorldOptions): CanvasWorldApi
     try { return fn(); } finally { ctx = prevCtx; cameraX = prevX; cameraY = prevY; }
   }
   function buildingSpriteKey(kind: string, color: string, scale: number, fp: number, maxParts: number) {
-    return ["b", kind, color, qualityName(), spriteTimeBand(), spriteZoomBucket(), spriteDprBucket(), Math.round(scale * 20), Math.round(fp * 20), maxParts, spriteCacheSerial].join("|");
+    return ["b", kind, color, spriteTimeBand(), spriteZoomBucket(), spriteDprBucket(), Math.round(scale * 20), Math.round(fp * 20), maxParts, spriteCacheSerial].join("|");
   }
   function resourceSpriteKey(kind: string, scale: number) {
-    return ["r", kind, qualityName(), spriteTimeBand(), spriteZoomBucket(), spriteDprBucket(), Math.round(scale * 20), spriteCacheSerial].join("|");
+    return ["r", kind, spriteTimeBand(), spriteZoomBucket(), spriteDprBucket(), Math.round(scale * 20), spriteCacheSerial].join("|");
   }
   function canSpriteBuilding(kind: string, b: any, construction: any) {
     if (construction) return false;
@@ -1559,6 +1603,7 @@ export function createCanvasPrismWorld(opts: CanvasWorldOptions): CanvasWorldApi
     const out = { ...spr, anchorX, anchorY, lastUsed: performance.now() };
     buildingSpriteCache.set(key, out);
     evictOldestSprite(buildingSpriteCache, MAX_BUILDING_SPRITES);
+    evictSpritesToBudget();
     return out;
   }
   function drawBuildingSprite(kind: string, b: any, color: string, recipe: any[], scale: number, fp: number, maxParts: number) {
@@ -1631,6 +1676,7 @@ export function createCanvasPrismWorld(opts: CanvasWorldOptions): CanvasWorldApi
     const out = { ...spr, anchorX, anchorY, lastUsed: performance.now() };
     resourceSpriteCache.set(key, out);
     evictOldestSprite(resourceSpriteCache, MAX_RESOURCE_SPRITES);
+    evictSpritesToBudget();
     return out;
   }
   function drawResourceSprite(kind: string, x: number, z: number, scale: number) {
@@ -1655,7 +1701,7 @@ export function createCanvasPrismWorld(opts: CanvasWorldOptions): CanvasWorldApi
     // AI Wonder parts are translated into the existing PrismRecipePart format so
     // prompts produce visibly different landmarks without reintroducing Three.js
     // as a second, unreachable rendering stack.
-    raw.slice(0, qualityName() === "fast" ? 18 : 42).forEach((part: any, i: number) => {
+    raw.slice(0, 42).forEach((part: any, i: number) => {
       const pos = Array.isArray(part?.pos) ? part.pos : [part?.x || 0, part?.y || 0.7, part?.z || 0];
       const scale = Array.isArray(part?.scale) ? part.scale : [part?.w || 0.5, part?.h || 0.7, part?.d || 0.5];
       const px = clamp(Number(pos[0] || 0), -1.2, 1.2);
@@ -1693,7 +1739,7 @@ export function createCanvasPrismWorld(opts: CanvasWorldOptions): CanvasWorldApi
 
   function canSliceBuildingEntity(b: any) {
     const plan = buildingRenderPlanFor(b);
-    return qualityName() !== "fast" && plan.fp >= 3.5 && canSpriteBuilding(plan.kind, b, plan.construction);
+    return plan.fp >= 3.5 && canSpriteBuilding(plan.kind, b, plan.construction);
   }
 
   function buildingSliceCountFor(fp: number) {
@@ -1768,7 +1814,7 @@ export function createCanvasPrismWorld(opts: CanvasWorldOptions): CanvasWorldApi
   function drawDoodad(d: any) {
     const kind = String(d.type || d.kind || "tree").toLowerCase();
     const scale = kind === "rock" ? 2.05 : kind === "food" ? 1.70 : 2.10;
-    // Resource bodies are identical by kind at a given quality/time/zoom. Cache
+    // Resource bodies are identical by kind at a given time/zoom. Cache
     // them as sprites but keep harvest pulses, loot, and target rings live.
     drawResourceSprite(kind, Number(d.x||0), Number(d.z||0), scale);
   }
@@ -2041,7 +2087,7 @@ export function createCanvasPrismWorld(opts: CanvasWorldOptions): CanvasWorldApi
     if (force) invalidateStatic("window");
   }
   function staticCameraSnapPx() {
-    return Math.max(1, Math.trunc(qualityBudget("staticCameraSnapPx", 2)));
+    return Math.max(1, Math.trunc(visualBudget("staticCameraSnapPx", 2)));
   }
   function staticLayerKey() {
     const snap = staticCameraSnapPx();
@@ -2050,7 +2096,7 @@ export function createCanvasPrismWorld(opts: CanvasWorldOptions): CanvasWorldApi
     // still get current light each draw.
     const hourBand = Math.floor(currentHour() / 2);
     return [
-      width, height, dpr.toFixed(2), qualityName(), hourBand,
+      width, height, dpr.toFixed(2), hourBand,
       Math.round(cameraX / snap), Math.round(cameraY / snap),
       opts.currentTileLoadRadius?.() || 36,
       tileOwner.size, cells.size, lastStaticWorldSignature,
@@ -2113,41 +2159,11 @@ export function createCanvasPrismWorld(opts: CanvasWorldOptions): CanvasWorldApi
     return clamp((dist - r * 0.58) / Math.max(1, r * 0.42), 0, 1);
   }
 
-  function verifyQualityFeatures() {
-    const key = [qualityName(), dpr.toFixed(2), Math.round(visualZoom() * 100)].join("|");
-    if (key === qualitySelfTestKey) return !qualitySelfTestError;
-    qualitySelfTestKey = key;
-    qualitySelfTestError = "";
-    if (qualityName() === "fast") return true;
-    try {
-      // Balanced/Crisp self-test: run the geometry helpers that are only used by
-      // higher-quality grounding before we enter the real frame. A missing helper
-      // should produce a visible diagnostic, not silently force users to think
-      // Fast mode is the only working renderer.
-      const d = diamondPath(Number(me.vx || me.x || 0), Number(me.vz || me.z || 0), 0.5, 0.02);
-      if (!Array.isArray(d) || d.length !== 4 || d.some((p:any) => !Number.isFinite(p.x) || !Number.isFinite(p.y))) throw new Error("diamondPath produced invalid points");
-      const p0 = proj(0,0,0), p1 = proj(1,0,0), p2 = proj(1,1,0), p3 = proj(0,1,0);
-      void faceGradient(p0,p1,p2,p3,"rgba(255,255,255,0.02)","rgba(0,0,0,0.02)");
-      return true;
-    } catch (e:any) {
-      qualitySelfTestError = String(e?.message || e || "quality self-test failed");
-      renderCounters.featureSelfTestFailures++;
-      return false;
-    }
-  }
-  function drawQualityDiagnosticBadge() {
-    if (!qualitySelfTestError) return;
-    ctx.save();
-    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    ctx.fillStyle = "rgba(58,18,20,0.90)";
-    ctx.strokeStyle = "rgba(255,215,110,0.38)";
-    ctx.lineWidth = 1;
-    ctx.beginPath(); ctx.roundRect(12, 12, Math.min(620, width - 24), 54, 10); ctx.fill(); ctx.stroke();
-    ctx.fillStyle = "#ffe3c2"; ctx.font = "700 12px ui-monospace, SFMono-Regular, Menlo, monospace"; ctx.textAlign = "left";
-    ctx.fillText(`[canvas quality] ${qualityName()} self-test failed`, 24, 34);
-    ctx.fillStyle = "rgba(255,240,200,0.86)";
-    ctx.fillText(String(qualitySelfTestError).slice(0, 92), 24, 52);
-    ctx.restore();
+  function rendererSelfCheckOk() {
+    // There is one render path. Any missing helper now fails the same visible
+    // path everyone uses, and the runtime guard surfaces the error instead of
+    // silently falling back to flat graphics.
+    return true;
   }
 
   function draw() {
@@ -2156,7 +2172,7 @@ export function createCanvasPrismWorld(opts: CanvasWorldOptions): CanvasWorldApi
     resize(); updateProjection(); ensureGroundMarks();
     frameLight = lightForTime();
     ctx = screenCtx;
-    const qualityOk = verifyQualityFeatures();
+    const rendererOk = rendererSelfCheckOk();
     const cx = Number(me.vx || me.x || 0), cz = Number(me.vz || me.z || 0);
     targetCameraX = width / 2 - (cx - cz) * tileW;
     targetCameraY = height * 0.55 - (cx + cz) * tileH;
@@ -2197,13 +2213,13 @@ export function createCanvasPrismWorld(opts: CanvasWorldOptions): CanvasWorldApi
     for (const n of npcPool.values()) ents.push({ kind:"npc", x:Number(n.x||0), z:Number(n.z||0), y:0, h:1.7, data:n });
     for (const p of remotes) if (p && p.id !== me.id) ents.push({ kind:"remote", x:remoteVisualX(p), z:remoteVisualZ(p), y:0, h:1.6, data:p });
     const nowMs = performance.now();
-    const citizenBudget = Math.max(0, Math.min(ambientCitizens.length, Math.trunc(qualityBudget("maxCitizens", ambientCitizens.length))));
+    const citizenBudget = Math.max(0, Math.min(ambientCitizens.length, Math.trunc(visualBudget("maxCitizens", ambientCitizens.length))));
     for (let i = 0; i < citizenBudget; i++) {
       const c = ambientCitizens[i];
       const pos = cityLoopPos(c.seed, c.offset, c.speed, nowMs);
       ents.push({ kind:'citizen', x:pos.x, z:pos.z, y:0, h:1.0, data:{...c, ...pos, phase: nowMs / 165 + c.seed} });
     }
-    const cartBudget = Math.max(0, Math.min(ambientCarts.length, Math.trunc(qualityBudget("maxCarts", ambientCarts.length))));
+    const cartBudget = Math.max(0, Math.min(ambientCarts.length, Math.trunc(visualBudget("maxCarts", ambientCarts.length))));
     for (let i = 0; i < cartBudget; i++) {
       const c = ambientCarts[i];
       const pos = cityLoopPos(c.seed, c.offset, c.speed, nowMs);
@@ -2249,7 +2265,7 @@ export function createCanvasPrismWorld(opts: CanvasWorldOptions): CanvasWorldApi
       ctx.fillStyle = `rgba(255,231,160,${a * 0.25})`;
       ctx.beginPath(); ctx.arc(p.x, p.y, Math.max(3.5, 5.0 * visualZoom()), 0, Math.PI * 2); ctx.fill();
     }
-    const birdBudget = Math.max(0, Math.min(ambientBirds.length, Math.trunc(qualityBudget("birdCount", ambientBirds.length))));
+    const birdBudget = Math.max(0, Math.min(ambientBirds.length, Math.trunc(visualBudget("birdCount", ambientBirds.length))));
     for (let bi = 0; bi < birdBudget; bi++) {
       const bird = ambientBirds[bi];
       const L = frameLightForTime();
@@ -2276,9 +2292,8 @@ export function createCanvasPrismWorld(opts: CanvasWorldOptions): CanvasWorldApi
       ctx.fillStyle = v;
       ctx.fillRect(0,0,width,height);
     }
-    if (!qualityOk) drawQualityDiagnosticBadge();
     renderCounters.dynamicDrawMs = performance.now() - dynamicStarted;
-    if (renderCounters.dynamicDrawMs > Number(qualityBudget("perfBudgetWarnMs", 24))) renderCounters.perfWarnings++;
+    if (renderCounters.dynamicDrawMs > Number(visualBudget("perfBudgetWarnMs", 24))) renderCounters.perfWarnings++;
   }
   function normalizeDoodadKind(value: any) {
     const k = String(value?.type || value?.kind || value || "").toLowerCase();
@@ -2735,7 +2750,7 @@ export function createCanvasPrismWorld(opts: CanvasWorldOptions): CanvasWorldApi
   function worldToScreen(x:number, z:number, y = 0) { return proj(Number(x), Number(y), Number(z)); }
   function screenToWorldPoint(sx:number, sy:number) { return screenToWorld(Number(sx), Number(sy)); }
   function visibleCells() { return Array.from(cells.values()).map((c:any) => ({ x: c.cx ?? c.x, z: c.cz ?? c.z, owner: c.owner || 0 })); }
-  function movementState() { return { x: me.x, z: me.z, visualX: me.vx, visualZ: me.vz, visualSpeed: me.renderSpeed, authoritativeX: lastAuthoritative.x, authoritativeZ: lastAuthoritative.z, inFlight, maxInFlight, pending: pendingPath.length, ackSeq, moveSeq, canIssueMove: canIssueMoveNow(), renderDtMs, renderQuality: qualityName(), renderCounters: { ...renderCounters, staticReason: lastStaticRebuildReason, qualitySelfTestError } }; }
+  function movementState() { return { x: me.x, z: me.z, visualX: me.vx, visualZ: me.vz, visualSpeed: me.renderSpeed, authoritativeX: lastAuthoritative.x, authoritativeZ: lastAuthoritative.z, inFlight, maxInFlight, pending: pendingPath.length, ackSeq, moveSeq, canIssueMove: canIssueMoveNow(), renderDtMs, visualPath: visualPathName(), renderCounters: { ...renderCounters, staticReason: lastStaticRebuildReason } }; }
   function capitalBearing() {
     const ax = Number(ST.ax || 0), az = Number(ST.az || 0);
     const dx = ax - Number(me.x || 0), dz = az - Number(me.z || 0);
@@ -2748,7 +2763,7 @@ export function createCanvasPrismWorld(opts: CanvasWorldOptions): CanvasWorldApi
   function dispose() { disposed = true; cancelAnimationFrame(raf); window.removeEventListener("resize", resize); try { pickDebug.remove(); } catch {} try { canvas.remove(); } catch {} }
 
   window.addEventListener("resize", resize);
-  applyVisualQuality(ST.visual); applyMe(ST.me); rebuildCells(true); raf = requestAnimationFrame(tick);
+  applyVisualSettings(ST.visual); applyMe(ST.me); rebuildCells(true); raf = requestAnimationFrame(tick);
 
   return {
     get rev() { return Number(ST.rev || 0) || 0; },
@@ -2759,7 +2774,7 @@ export function createCanvasPrismWorld(opts: CanvasWorldOptions): CanvasWorldApi
     applyWorld, applyPlayers, applyMe, me, cellFromEvent, buildingFromEvent, tradePostFromEvent, npcFromEvent, playerFromEvent, pickFromEvent, worldToScreen, screenToWorldPoint, visibleCells, movementState, capitalBearing, pathTo, pathToNear, tryMoveDelta,
     blocked, buildPoolAt, doodadVisible, doodadAt, doodadAtCell, resolveDoodadCell, doodadFromEvent, burst, floatText, shockwave, hoverMarker, hardSnapMe, markDoodadGone, removeBuild, removeLoot,
     setHintCells, hideBuildGhost, showBuildGhost, refreshWindow, rebuildBuilding: (uid:any) => {}, animateBuildingUse: (uid:any) => { const b=buildPool.get(uid); if (b) floatText(b.x,b.z,"used","#ffd76e"); }, refreshConstructionProgress: () => {},
-    refreshOwnRig: () => { me.appearance = ST.characterProfile || me.appearance; }, applyVisualQuality, hasPendingMove, canIssueMove, minimapSnapshot,
+    refreshOwnRig: () => { me.appearance = ST.characterProfile || me.appearance; }, applyVisualSettings, hasPendingMove, canIssueMove, minimapSnapshot,
     tileOwner, buildPool, buildAt, lootPool, rigPool, tradePostPool, npcPool, cells, updateMinimapInfo,
     rotateCam: () => {}, refreshCameraRotation: () => {}, refreshCameraZoom: () => { updateProjection(); invalidateStatic("camera"); rebuildCells(true); }, refreshEnvironment: () => { rainStreaks.splice(0); groundRipples.splice(0); windLeaves.splice(0); citySparkles.splice(0); invalidateStatic("environment"); },
     zoom: (delta = 0) => { zoomValue = clamp(zoomValue + Number(delta || 0), 0.72, 1.55); updateProjection(); invalidateStatic("zoom"); },

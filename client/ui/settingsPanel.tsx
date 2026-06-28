@@ -51,11 +51,11 @@ export function SettingsPanelView(props: any) {
         <div>
           <p className="settings-kicker">Paused</p>
           <h3>Settings</h3>
-          <p>Adjust controls, audio, visuals, camera, and tutorial help.</p>
+          <p>Adjust controls, audio, motion, camera, and tutorial help.</p>
         </div>
         <button className="btn primary" data-click="panel-close">Resume</button>
       </div>
-      <div className="sc-settings-tabs"><a href="#settings-gameplay">Gameplay</a><a href="#settings-audio">Audio</a><a href="#settings-visuals">Video</a><a href="#settings-controls">Controls</a></div>
+      <div className="sc-settings-tabs"><a href="#settings-gameplay">Gameplay</a><a href="#settings-audio">Audio</a><a href="#settings-visuals">Motion</a><a href="#settings-controls">Controls</a></div>
       <div className="settings-grid pause-grid">
         <div className="settings-card wide" id="settings-gameplay">
           <div className="settings-card-head"><b>Tutorial</b><span>First steps</span></div>
@@ -72,14 +72,9 @@ export function SettingsPanelView(props: any) {
           </div>
         </div>
         <div className="settings-card wide">
-          <div id="settings-visuals" className="settings-card-head"><b>Visuals</b><span>{visual?.quality || "fast"}</span></div>
+          <div id="settings-visuals" className="settings-card-head"><b>Motion & time</b><span>Full-detail world</span></div>
           <div className="settings-actions stacked">
-            <label className="settings-field"><span>Quality</span><select className="settings-select" data-input="visual-quality" value={visual?.quality || "fast"}>
-              <option value="auto">Auto</option>
-              <option value="crisp">Crisp</option>
-              <option value="balanced">Balanced</option>
-              <option value="fast">Fast</option>
-            </select></label>
+            <p className="settings-note">The world renderer has one full-detail Canvas path. Performance is handled by caching, culling, sprite reuse, and static layers instead of player-visible downgrades.</p>
             <label className="settings-field"><span>Motion</span><select className="settings-select" data-input="motion-feel" value={visual?.motion || "classic"}>
               <option value="smooth">Smooth</option>
               <option value="classic">Classic hop</option>
@@ -94,7 +89,7 @@ export function SettingsPanelView(props: any) {
                 <button className="btn" data-click="time-set-dusk">Set dusk</button>
               </div>
             </div>
-            <button className="btn" data-click="visual-comfort">Comfort preset</button>
+            <button className="btn" data-click="visual-comfort">Comfort motion preset</button>
             <button className="btn" data-click="reload-art">Reload art</button>
           </div>
         </div>

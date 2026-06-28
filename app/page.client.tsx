@@ -76,7 +76,7 @@ import {
   cameraYawDeg, cameraZoomPct, clampCameraZoom, clampUiScale,
   loadUiSettings, loadVisualSettings, normalizeCameraYaw,
   readAckedClientVersion, saveUiSettings, saveVisualSettings,
-  uiScalePct, visualPerfFor, writeAckedClientVersion,
+  uiScalePct, writeAckedClientVersion,
 } from "../client/game/clientSettings";
 import { UiIcon } from "../client/ui/proceduralIcon";
 import {
@@ -306,7 +306,7 @@ export default function mount() {
     el.setAttribute("aria-label", "Performance diagnostics");
     el.textContent = "perf starting…";
     root.appendChild(el);
-    const data = { ping: 0, paint: 0, frame: 0, cells: 0, draws: 0, terrain: 0, entities: 0, weather: 0, quality: "", staticMs: 0, dynamicMs: 0, prisms: 0, particles: 0, sprites: 0, slices: 0, patches: 0, fillers: 0, organic: 0, snapped: 0, selftest: 0, cache: "", skipped: 0, last: 0 };
+    const data = { ping: 0, paint: 0, frame: 0, cells: 0, draws: 0, terrain: 0, entities: 0, weather: 0, staticMs: 0, dynamicMs: 0, prisms: 0, particles: 0, sprites: 0, slices: 0, patches: 0, fillers: 0, organic: 0, snapped: 0, cache: "", evict: 0, skipped: 0, last: 0 };
     function update(partial: any = {}) {
       if (!perfOverlayEnabled) return;
       Object.assign(data, partial || {});
@@ -314,9 +314,8 @@ export default function mount() {
       if (now - data.last < 180) return;
       data.last = now;
       const ping = data.ping ? `${Math.round(data.ping)}ms` : "—";
-      const q = data.quality ? ` · q ${data.quality}` : "";
-      const cache = data.cache ? ` · cache ${data.cache}` : "";
-      el.textContent = `ping ${ping} · frame ${Math.round(data.frame || 0)}ms · ui ${Math.round(data.paint || 0)}ms · static ${Math.round(data.staticMs || 0)}ms · dyn ${Math.round(data.dynamicMs || 0)}ms · prism ${Math.round(data.prisms || 0)} · sprite ${Math.round(data.sprites || 0)} · slice ${Math.round(data.slices || 0)} · patch ${Math.round(data.patches || 0)} · fill ${Math.round(data.fillers || 0)} · org ${Math.round(data.organic || 0)} · snap ${Math.round(data.snapped || 0)} · self ${Math.round(data.selftest || 0)} · part ${Math.round(data.particles || 0)} · cells ${Math.round(data.cells || 0)}${q}${cache}`;
+      const cache = data.cache ? ` · cache ${data.cache}` + (data.evict ? ` · evict ${Math.round(data.evict || 0)}` : "") : "";
+      el.textContent = `ping ${ping} · frame ${Math.round(data.frame || 0)}ms · ui ${Math.round(data.paint || 0)}ms · static ${Math.round(data.staticMs || 0)}ms · dyn ${Math.round(data.dynamicMs || 0)}ms · prism ${Math.round(data.prisms || 0)} · sprite ${Math.round(data.sprites || 0)} · slice ${Math.round(data.slices || 0)} · patch ${Math.round(data.patches || 0)} · fill ${Math.round(data.fillers || 0)} · org ${Math.round(data.organic || 0)} · snap ${Math.round(data.snapped || 0)} · part ${Math.round(data.particles || 0)} · cells ${Math.round(data.cells || 0)}${cache}`;
     }
     return { update };
   })();
@@ -351,21 +350,12 @@ export default function mount() {
   };
 
   function currentTileLoadRadius() {
-    // Canvas world still needs the old streaming/window radius contract.
-    // The Three.js rewrite accidentally removed this helper while the new
-    // renderer still receives it as an option, causing mount to fail before
-    // the page could render. Keep the radius deterministic and bounded.
-    let quality = "";
-    try {
-      const perf = visualPerfFor?.(ST.visual);
-      quality = String(perf?.quality || ST.visual?.perf || ST.visual?.quality || "").toLowerCase();
-    } catch { quality = ""; }
-    const low = quality === "fast" || quality === "low" || quality === "lite" || quality === "battery";
-    const crisp = quality === "crisp";
+    // One max-detail visual path. World radius changes only with camera needs;
+    // performance is handled by static caches, sprite caches, culling, and
+    // adaptive polling/HUD cadence instead of alternate render modes.
     const zoom = clampCameraZoom(Number(ST.visual?.cameraZoom || 1), 1);
     const zoomBoost = zoom < 0.9 ? 5 : zoom > 1.22 ? -5 : 0;
-    const base = low ? Math.max(26, RENDER_R - 6) : crisp ? TILE_LOAD_R + 2 : TILE_LOAD_R;
-    return Math.max(22, Math.min(TILE_LOAD_R_MAX, Math.round(base + zoomBoost)));
+    return Math.max(24, Math.min(TILE_LOAD_R_MAX, Math.round(TILE_LOAD_R + 2 + zoomBoost)));
   }
 
   const capitalCompass = (() => {
@@ -720,8 +710,13 @@ export default function mount() {
     saveLiveCharacterProfile("");
   }
   function setVisual(change) {
-    ST.visual = saveVisualSettings({ ...ST.visual, ...change });
-      world?.applyVisualQuality?.(ST.visual);
+    // The renderer has one full-detail Canvas path. This function only applies
+    // real visual preferences such as camera, warmth/texture legacy values, and
+    // motion feel.
+    const next = { ...ST.visual, ...change };
+    delete next.quality;
+    ST.visual = saveVisualSettings(next);
+    world?.applyVisualSettings?.(ST.visual);
     loadAtlasRuntimeConfig(true).finally(() => { for (const [, c] of world.cells) c.owner = -1; world.refreshWindow?.(true); paint(); });
   }
   function setTimeControls(change) {
@@ -2600,7 +2595,7 @@ export default function mount() {
       case "camera-rotate-left": return stepCameraYaw(-CAMERA_ROTATION_STEP);
       case "camera-rotate-right": return stepCameraYaw(CAMERA_ROTATION_STEP);
       case "camera-rotation-set": return setCameraYaw(readNum(el, "value", Math.PI / 4) * Math.PI / 180, true);
-      case "visual-comfort": return setVisual({ warmth: 0.66, texture: 0.18, quality: "balanced", motion: "smooth" });
+      case "visual-comfort": return setVisual({ warmth: 0.66, texture: 0.18, motion: "smooth" });
       case "time-auto-toggle": return toggleTimeAuto();
       case "time-set-noon": return setFixedWorldHour(12);
       case "time-set-dusk": return setFixedWorldHour(18);
@@ -2728,7 +2723,6 @@ export default function mount() {
     const kind = input.getAttribute("data-input");
     if (kind === "visual-warmth") return setVisual({ warmth: Number(input.value) });
     if (kind === "visual-texture") return setVisual({ texture: Number(input.value) });
-    if (kind === "visual-quality") return setVisual({ quality: input.value });
     if (kind === "motion-feel") return setVisual({ motion: input.value });
     if (kind === "ui-scale") return setUiScale(input.getAttribute("data-kind") || "ui", Number(input.value));
     if (kind === "camera-zoom") return setCameraZoom(Number(input.value));
@@ -2751,7 +2745,6 @@ export default function mount() {
     const input = ev.target?.closest?.("[data-input]");
     if (!input || !hudEl.contains(input)) return;
     const kind = input.getAttribute("data-input");
-    if (kind === "visual-quality") return setVisual({ quality: input.value });
     if (kind === "motion-feel") return setVisual({ motion: input.value });
     if (kind === "camera-zoom") return setCameraZoom(Number(input.value), true);
     if (kind === "camera-rotation") return setCameraYaw(Number(input.value) * Math.PI / 180, true);
@@ -4225,7 +4218,6 @@ export default function mount() {
         const rc = ms?.renderCounters || {};
         perfMini.update({
           frame: Number(ms?.renderDtMs || 0),
-          quality: ms?.renderQuality || "",
           cells: world?.cells?.size || 0,
           terrain: rc.terrainTilesDrawn || 0,
           entities: rc.entitiesDrawn || rc.entitiesSorted || 0,
@@ -4240,8 +4232,8 @@ export default function mount() {
           fillers: rc.blockFillersDrawn || 0,
           organic: rc.resourceOrganicDraws || 0,
           snapped: rc.snappedDrawImages || 0,
-          selftest: rc.featureSelfTestFailures || 0,
-          cache: `${rc.staticCacheHits || 0}/${rc.staticCacheMisses || 0} · spr ${rc.spriteCacheHits || 0}/${rc.spriteCacheMisses || 0}`,
+          cache: `${rc.staticCacheHits || 0}/${rc.staticCacheMisses || 0} · spr ${rc.spriteCacheHits || 0}/${rc.spriteCacheMisses || 0}` + (rc.spriteCacheBudgetBytes ? ` · ${Math.round((rc.spriteCacheBytes || 0) / 1048576)}MB/${Math.round((rc.spriteCacheBudgetBytes || 1) / 1048576)}MB` : ""),
+          evict: rc.spriteEvictions || 0,
           skipped: rc.staticSkipped || 0,
         });
       } catch {}
