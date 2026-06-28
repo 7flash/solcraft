@@ -1867,7 +1867,7 @@ export default function mount() {
     const pick = world.pickFromEvent?.(ev) || { building: world.buildingFromEvent?.(ev), doodad: world.doodadFromEvent?.(ev), raw: world.cellFromEvent(ev) };
     const hitB = pick.building;
     const c = pick.cell || pick.raw || world.cellFromEvent(ev);
-    if (hitB) { openBuildingInspect(hitB); return; }
+    if (hitB && ST.tool !== "none") { openBuildingInspect(hitB); return; }
     if (c) {
       const found = world.resolveDoodadCell?.(c.x, c.z);
       if (tradePostAt(c.x, c.z) || proceduralNpcAt(c.x, c.z) || found || world.doodadVisible(c.x, c.z)) openObjectPreview(worldObjectPreviewForCell(found || c));
@@ -2361,12 +2361,19 @@ export default function mount() {
       }
     }
     if (ST.tool === "none" && c) {
-      if (hitB) { openBuildingInspect(hitB); return; }
-      if (hitP?.player) { ST.inspectPlayer = hitP.player; ST.modal = "player"; paint(true); return; }
+      // Playability-first click rule: the raw projected tile is the movement
+      // target. Large visual sprites may still be inspected, but they should not
+      // steal ordinary left-click movement unless the click lands on their
+      // authoritative/anchor cell. Right-click remains the reliable inspect path.
+      const raw = rawCell || c;
+      const sameCell = (a, b) => !!a && !!b && Math.trunc(Number(a.x)) === Math.trunc(Number(b.x)) && Math.trunc(Number(a.z)) === Math.trunc(Number(b.z));
+      if (hitB && sameCell(raw, hitB.b)) { openBuildingInspect(hitB); return; }
+      if (hitP?.player && sameCell(raw, hitP)) { ST.inspectPlayer = hitP.player; ST.modal = "player"; paint(true); return; }
       const found = hitD || world.resolveDoodadCell?.(c.x, c.z);
       const d = found?.kind || world.doodadVisible(c.x, c.z);
-      if (d && !world.buildPoolAt(found?.x ?? c.x, found?.z ?? c.z)) { openObjectPreview(worldObjectPreviewForCell(found || c)); return; }
-      if (tradePostAt(c.x, c.z) || proceduralNpcAt(c.x, c.z)) { openObjectPreview(worldObjectPreviewForCell(c)); return; }
+      if (found && sameCell(raw, found) && d && !world.buildPoolAt(found.x, found.z)) { openObjectPreview(worldObjectPreviewForCell(found)); return; }
+      if (tradePostAt(raw.x, raw.z) || proceduralNpcAt(raw.x, raw.z)) { openObjectPreview(worldObjectPreviewForCell(raw)); return; }
+      if (raw && world.pathTo?.(raw.x, raw.z)) return;
     }
     if (hitB?.b?.capital && ST.tool !== "none") { openBuildingInspect(hitB); return; }
     if (ST.tool === "spawn" && c) {
@@ -2404,7 +2411,7 @@ export default function mount() {
       else { sfx.err(); world.floatText?.(hitB.b.x, hitB.b.z, t("toast.notYourBuilding", "Not your building."), "#ff8a5e"); }
       return;
     }
-    if (hitB) { openBuildingInspect(hitB); return; }
+    if (hitB && ST.tool !== "none") { openBuildingInspect(hitB); return; }
     if (c) {
       const found = world.resolveDoodadCell?.(c.x, c.z);
       if (tradePostAt(c.x, c.z) || proceduralNpcAt(c.x, c.z) || found || world.doodadVisible(c.x, c.z)) openObjectPreview(worldObjectPreviewForCell(found || c));

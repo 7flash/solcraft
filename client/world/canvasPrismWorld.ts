@@ -122,6 +122,8 @@ export function createCanvasPrismWorld(opts: CanvasWorldOptions): CanvasWorldApi
   let lastStepAt = 0;
   let moveSeq = 0, ackSeq = 0, inFlight = 0;
   const maxInFlight = 4;
+  const moveTimeoutMs = 1800;
+  const pendingMoveSentAt = new Map<number, number>();
 
   const me = {
     id: 0,
@@ -879,15 +881,21 @@ export function createCanvasPrismWorld(opts: CanvasWorldOptions): CanvasWorldApi
   function buildingCenterFor(b: any) {
     return { x: Number(b?.x || 0), z: Number(b?.z || 0) };
   }
+  const warnedOriginKinds = new Set<string>();
   function assertCenteredBuildingOrigin(b: any, where = "building") {
-    // Guard against the half-applied origin flip that caused aprons, sort keys,
-    // picking, and sprites to disagree. In this renderer b.x/b.z is always the
-    // visual center/recipe origin. Footprint corners are derived only inside
-    // footprint helpers; never add fp/2 to entity positions.
+    // Playability decision: renderer guards must never break controls. Earlier
+    // iterations threw here when a server/cached row carried a legacy origin
+    // marker, which made pointer picking fail and could make the game feel
+    // unresponsive. Keep the centered-origin convention, but degrade to a
+    // one-time diagnostic instead of throwing inside draw/pick paths.
     if (!b || b.origin == null) return;
     const o = String(b.origin || "").toLowerCase();
     if (o && o !== "center" && o !== "centre") {
-      throw new Error(`[canvas world] ${where} expected centered building origin, got ${o}`);
+      const key = `${where}:${b.kind || "building"}:${o}`;
+      if (!warnedOriginKinds.has(key)) {
+        warnedOriginKinds.add(key);
+        try { console.warn(`[canvas world] ${where} expected centered building origin, got ${o}; treating ${b.kind || "building"} as centered for playability.`); } catch {}
+      }
     }
   }
   function lotOriginMin(center: number) { return center - lotHalf(); }
@@ -2625,16 +2633,31 @@ export function createCanvasPrismWorld(opts: CanvasWorldOptions): CanvasWorldApi
     // canvas renderer. Pointer projection may land on a neighboring tile even
     // though the player clearly clicked the visual tree/rock. Resolve with a
     // generous visual radius, then return the authoritative server cell.
-    return resolvedDoodad(doodadAt(x, z, 2.15, want));
+    return resolvedDoodad(doodadAt(x, z, 1.75, want));
   }
   function doodadFromEvent(ev: PointerEvent | MouseEvent, want?: string) {
     const w = eventWorld(ev);
     // Use the fractional pointer world coordinate here; rounding first is what
     // made large prism resources feel unclickable near their visible edges.
-    return resolvedDoodad(doodadAt(w.wx, w.wz, 2.65, want));
+    return resolvedDoodad(doodadAt(w.wx, w.wz, 1.65, want));
   }
-  function canIssueMoveNow() { return inFlight < maxInFlight; }
-  function hasPendingMove() { return pendingPath.length > 0 || inFlight > 0; }
+  function purgeStaleMoves(now = performance.now()) {
+    // REST polling/actions are intentionally kept for debugging, but movement
+    // must never be held hostage by a lost HTTP response. If a move request has
+    // not settled after a short window, stop counting it against local input and
+    // let the next poll reconcile authority. This preserves server truth while
+    // avoiding the "controls are frozen" failure mode.
+    let purged = false;
+    for (const [seq, at] of Array.from(pendingMoveSentAt.entries())) {
+      if (now - Number(at || 0) > moveTimeoutMs) { pendingMoveSentAt.delete(seq); purged = true; }
+    }
+    if (purged) {
+      inFlight = pendingMoveSentAt.size;
+      try { opts.pollSoon?.(); } catch {}
+    }
+  }
+  function canIssueMoveNow() { purgeStaleMoves(); return pendingMoveSentAt.size < maxInFlight; }
+  function hasPendingMove() { purgeStaleMoves(); return pendingPath.length > 0 || pendingMoveSentAt.size > 0; }
 
   function tick(now: number) {
     if (disposed) return;
@@ -2644,6 +2667,7 @@ export function createCanvasPrismWorld(opts: CanvasWorldOptions): CanvasWorldApi
     updateAmbientWeather(dt, now);
     maybeSpawnCitySparkle(now);
     if (me.walking || me.renderSpeed > 0.05) me.walkPhase += dt * (0.006 + Math.min(1.4, me.renderSpeed) * 0.010);
+    purgeStaleMoves(now);
     if (pendingPath.length && now - lastStepAt >= 126 && canIssueMoveNow()) {
       const next = pendingPath[0];
       if (next && stepTo(next.x, next.z)) pendingPath.shift();
@@ -2688,18 +2712,22 @@ export function createCanvasPrismWorld(opts: CanvasWorldOptions): CanvasWorldApi
     while (cur && kfn(cur.x,cur.z) !== start) { out.push({x:cur.x,z:cur.z}); cur = prev.get(kfn(cur.x,cur.z)); }
     return out.reverse();
   }
+  function settleMove(seq: number) {
+    pendingMoveSentAt.delete(seq);
+    inFlight = pendingMoveSentAt.size;
+  }
   function sendMove(x: number, z: number) {
     if (!opts.sendAction || !canIssueMoveNow()) return false;
-    const seq = ++moveSeq; inFlight++;
+    const seq = ++moveSeq;
+    pendingMoveSentAt.set(seq, performance.now());
+    inFlight = pendingMoveSentAt.size;
     opts.sendAction("movePath", { baseSeq: ackSeq, moveSeq: seq, steps: [{ x, z, seq }] }).then((r:any) => {
-      inFlight = Math.max(0, inFlight - 1);
+      settleMove(seq);
       if (!r || !r.ok) {
         opts.onError?.();
         const rx = Number(r?.x), rz = Number(r?.z);
-        // The Three renderer used authoritative mesh/raycast state, so a
-        // rejected move naturally corrected on the next scene update. Canvas is
-        // fully local between polls; roll back immediately to the last known
-        // server position if the rejection did not include coordinates.
+        // Rejections correct immediately, but stale/lost responses do not keep
+        // movement locked forever because purgeStaleMoves removes them above.
         hardSnapMe(Number.isFinite(rx) ? rx : lastAuthoritative.x, Number.isFinite(rz) ? rz : lastAuthoritative.z);
         opts.pollSoon?.();
         return;
@@ -2708,10 +2736,10 @@ export function createCanvasPrismWorld(opts: CanvasWorldOptions): CanvasWorldApi
       const serverX = Number(r.x ?? (Array.isArray(r.path) && r.path.length ? r.path[r.path.length - 1]?.x : NaN));
       const serverZ = Number(r.z ?? (Array.isArray(r.path) && r.path.length ? r.path[r.path.length - 1]?.z : NaN));
       if (Number.isFinite(serverX) && Number.isFinite(serverZ)) lastAuthoritative = { x: Math.trunc(serverX), z: Math.trunc(serverZ) };
-      if (!pendingPath.length && inFlight === 0 && Number.isFinite(serverX) && Number.isFinite(serverZ)) {
+      if (!pendingPath.length && pendingMoveSentAt.size === 0 && Number.isFinite(serverX) && Number.isFinite(serverZ)) {
         reconcileAuthoritative(serverX, serverZ);
       }
-    }).catch(() => { inFlight = Math.max(0, inFlight - 1); hardSnapMe(lastAuthoritative.x, lastAuthoritative.z); });
+    }).catch(() => { settleMove(seq); opts.pollSoon?.(); });
     return true;
   }
   function stepTo(x: number, z: number) {
@@ -2886,7 +2914,9 @@ export function createCanvasPrismWorld(opts: CanvasWorldOptions): CanvasWorldApi
     return { x: Math.round(w.wx), z: Math.round(w.wz) };
   }
   function buildingVisualRadius(kind: any) {
-    return Math.max(2.75, visualFootprintForKind(kind) * 0.72);
+    // Visual buildings are intentionally large, but the *input* radius must be
+    // tighter or roofs steal normal click-to-move across half the screen.
+    return Math.max(1.25, visualFootprintForKind(kind) * 0.42);
   }
   function buildingFromEvent(ev: PointerEvent | MouseEvent) {
     const w = eventWorld(ev);
@@ -2920,8 +2950,18 @@ export function createCanvasPrismWorld(opts: CanvasWorldOptions): CanvasWorldApi
     return d ? normalizeDoodadKind(d) || true : false;
   }
   function refreshWindow(force = false) { if (force) invalidateStatic("refresh-window"); rebuildCells(!!force); }
-  function pathTo(x:number,z:number) { const p = computePath(Math.trunc(x),Math.trunc(z),false); if (!p.length) return false; pendingPath = p; return true; }
-  function pathToNear(x:number,z:number) { const p = computePath(Math.trunc(x),Math.trunc(z),true); if (!p.length) return false; pendingPath = p; return true; }
+  function pathTo(x:number,z:number) {
+    const tx = Math.trunc(Number(x)), tz = Math.trunc(Number(z));
+    let p = computePath(tx, tz, false);
+    // Click-to-move should be forgiving. If the exact projected tile is blocked
+    // by a visual tree/building/prop, walk to the nearest reachable neighbor
+    // instead of doing nothing.
+    if (!p.length) p = computePath(tx, tz, true);
+    if (!p.length) return false;
+    pendingPath = p;
+    return true;
+  }
+  function pathToNear(x:number,z:number) { const p = computePath(Math.trunc(x),Math.trunc(z),true); if (!p.length) return pathTo(x, z); pendingPath = p; return true; }
   function canIssueMove() { return canIssueMoveNow(); }
   function tryMoveDelta(dx:number,dz:number) { if (!canIssueMoveNow()) return false; pendingPath.length = 0; return stepTo(me.x + Math.trunc(dx), me.z + Math.trunc(dz)); }
   function hardSnapMe(x:number,z:number) {
@@ -3046,7 +3086,7 @@ export function createCanvasPrismWorld(opts: CanvasWorldOptions): CanvasWorldApi
   function worldToScreen(x:number, z:number, y = 0) { return proj(Number(x), Number(y), Number(z)); }
   function screenToWorldPoint(sx:number, sy:number) { return screenToWorld(Number(sx), Number(sy)); }
   function visibleCells() { return Array.from(cells.values()).map((c:any) => ({ x: c.cx ?? c.x, z: c.cz ?? c.z, owner: c.owner || 0 })); }
-  function movementState() { return { x: me.x, z: me.z, visualX: me.vx, visualZ: me.vz, visualSpeed: me.renderSpeed, authoritativeX: lastAuthoritative.x, authoritativeZ: lastAuthoritative.z, inFlight, maxInFlight, pending: pendingPath.length, ackSeq, moveSeq, canIssueMove: canIssueMoveNow(), renderDtMs, visualPath: visualPathName(), renderCounters: { ...renderCounters, staticReason: lastStaticRebuildReason } }; }
+  function movementState() { purgeStaleMoves(); return { x: me.x, z: me.z, visualX: me.vx, visualZ: me.vz, visualSpeed: me.renderSpeed, authoritativeX: lastAuthoritative.x, authoritativeZ: lastAuthoritative.z, inFlight: pendingMoveSentAt.size, maxInFlight, pending: pendingPath.length, ackSeq, moveSeq, canIssueMove: canIssueMoveNow(), renderDtMs, visualPath: visualPathName(), renderCounters: { ...renderCounters, staticReason: lastStaticRebuildReason } }; }
   function capitalBearing() {
     const ax = Number(ST.ax || 0), az = Number(ST.az || 0);
     const dx = ax - Number(me.x || 0), dz = az - Number(me.z || 0);
