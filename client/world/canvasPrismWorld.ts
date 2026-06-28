@@ -230,6 +230,7 @@ export function createCanvasPrismWorld(opts: CanvasWorldOptions): CanvasWorldApi
   let staticCacheKey = "";
   let lastStaticRebuildReason = "boot";
   let lastStaticWorldSignature = "";
+  const terrainColorFrameCache = new Map<string, string>();
   const renderCounters = {
     terrainTilesDrawn: 0, entitiesSorted: 0, entitiesDrawn: 0, weatherDrawn: 0, staticSkipped: 0,
     staticRebuildMs: 0, dynamicDrawMs: 0, staticCacheHits: 0, staticCacheMisses: 0,
@@ -864,6 +865,20 @@ export function createCanvasPrismWorld(opts: CanvasWorldOptions): CanvasWorldApi
     const step = lotStep();
     return Math.round(Number(v || 0) / step) * step;
   }
+  function buildingCenterFor(b: any) {
+    return { x: Number(b?.x || 0), z: Number(b?.z || 0) };
+  }
+  function assertCenteredBuildingOrigin(b: any, where = "building") {
+    // Guard against the half-applied origin flip that caused aprons, sort keys,
+    // picking, and sprites to disagree. In this renderer b.x/b.z is always the
+    // visual center/recipe origin. Footprint corners are derived only inside
+    // footprint helpers; never add fp/2 to entity positions.
+    if (!b || b.origin == null) return;
+    const o = String(b.origin || "").toLowerCase();
+    if (o && o !== "center" && o !== "centre") {
+      throw new Error(`[canvas world] ${where} expected centered building origin, got ${o}`);
+    }
+  }
   function lotOriginMin(center: number) { return center - lotHalf(); }
   function eachVisibleLot(cb: (x: number, z: number) => void) {
     const r = opts.currentTileLoadRadius?.() || 36;
@@ -886,6 +901,9 @@ export function createCanvasPrismWorld(opts: CanvasWorldOptions): CanvasWorldApi
     return diamondPath(x, z, pad, lift);
   }
   function terrainBlendColor(x: number, z: number) {
+    // Cached because the static terrain pass asks for self/east/south colors for
+    // thousands of samples. The map is cleared once per frame/static rebuild, so
+    // ownership/biome changes still show immediately after invalidateStatic().
     const c = colorToRgb(terrainColor(x, z), "#1f3a2f");
     const east = colorToRgb(terrainColor(x + 1, z), "#1f3a2f");
     const south = colorToRgb(terrainColor(x, z + 1), "#1f3a2f");
@@ -1232,6 +1250,48 @@ export function createCanvasPrismWorld(opts: CanvasWorldOptions): CanvasWorldApi
     ctx.restore();
   }
 
+  function drawSettlementPaths() {
+    // Terrain-feature decision: paths should be authored from actual settlement
+    // relationships, not an infinite rectangular grid. Connect nearby building
+    // centers with low-contrast dirt strips so cities read as clusters/blocks
+    // while the ground remains an organic isometric surface.
+    const centers = settlementCenters(80);
+    if (centers.length < 2) return;
+    let drawn = 0;
+    ctx.save();
+    for (let i = 0; i < centers.length && drawn < 90; i++) {
+      const a = centers[i];
+      let best:any = null, bestD = Infinity;
+      for (let j = 0; j < centers.length; j++) {
+        if (i === j) continue;
+        const b = centers[j];
+        const d = Math.hypot(a[0] - b[0], a[1] - b[1]);
+        if (d > 1.4 && d < bestD && d <= 9.2) { bestD = d; best = b; }
+      }
+      if (!best) continue;
+      const mx = (a[0] + best[0]) / 2, mz = (a[1] + best[1]) / 2;
+      const wobble = (stableRand(Math.round(mx), Math.round(mz), 7781) - 0.5) * 0.45;
+      const dx = best[0] - a[0], dz = best[1] - a[1];
+      const len = Math.max(0.001, Math.hypot(dx, dz));
+      const nx = -dz / len * (0.20 + stableRand(i, Math.round(bestD * 10), 7782) * 0.10);
+      const nz = dx / len * (0.20 + stableRand(i, Math.round(bestD * 10), 7783) * 0.10);
+      const c0 = [a[0] + dx * 0.18 + nx * wobble, a[1] + dz * 0.18 + nz * wobble];
+      const c1 = [best[0] - dx * 0.18 - nx * wobble, best[1] - dz * 0.18 - nz * wobble];
+      const p0 = proj(c0[0] + nx, 0.040, c0[1] + nz);
+      const p1 = proj(c1[0] + nx, 0.040, c1[1] + nz);
+      const p2 = proj(c1[0] - nx, 0.040, c1[1] - nz);
+      const p3 = proj(c0[0] - nx, 0.040, c0[1] - nz);
+      poly([p0,p1,p2,p3], "rgba(118,92,54,0.105)", "");
+      if (stableRand(i, Math.round(mx), 7784) > 0.62) {
+        const m = proj(mx + nx * 0.4, 0.046, mz + nz * 0.4);
+        ctx.fillStyle = "rgba(208,184,112,0.055)";
+        ctx.beginPath(); ctx.ellipse(m.x, m.y, tileW * 0.38, tileH * 0.10, Math.atan2(dz, dx) * 0.35, 0, Math.PI * 2); ctx.fill();
+      }
+      drawn++;
+    }
+    ctx.restore();
+  }
+
   function drawBuildingAprons() {
     // Buildings should feel seated into the ground plane. Aprons are deliberately
     // baked into the static layer rather than drawn with every building sprite:
@@ -1242,7 +1302,8 @@ export function createCanvasPrismWorld(opts: CanvasWorldOptions): CanvasWorldApi
       const kind = String(b?.kind || b?.type || "building").toLowerCase();
       if (kind === "worldwonder") continue;
       const fp = visualFootprintForKind(kind);
-      const ox = Number(b?.x || 0), oz = Number(b?.z || 0);
+      assertCenteredBuildingOrigin(b, "apron");
+      const { x: ox, z: oz } = buildingCenterFor(b);
       const pad = kind === "house" ? 0.22 : 0.34;
       const y = 0.043;
       const a = 0.10 + 0.08 * Math.max(0, L.elev);
@@ -1354,21 +1415,27 @@ export function createCanvasPrismWorld(opts: CanvasWorldOptions): CanvasWorldApi
     ctx.restore();
   }
   function terrainColor(x: number, z: number) {
-    const owner = tileOwner.get(kfn(Math.round(x), Math.round(z)));
-    const biome = opts.biomeTerrainAt?.(Math.round(x), Math.round(z)) || "grass";
+    const ix = Math.round(x), iz = Math.round(z);
+    const cacheKey = `${ix},${iz}`;
+    const cached = terrainColorFrameCache.get(cacheKey);
+    if (cached) return cached;
+    const owner = tileOwner.get(kfn(ix, iz));
+    const biome = opts.biomeTerrainAt?.(ix, iz) || "grass";
     // Art direction decision: terrain must be a quiet stage, not high-frequency
     // TV static. Use a tiny authored ramp per biome instead of continuous random
     // noise; buildings/resources carry the sharper contrast and saturation.
     const ramps:any = {
-      grass: [[27,52,43], [31,58,47], [35,64,50]],
-      sand: [[78,64,43], [88,72,47], [98,80,53]],
-      water: [[24,54,64], [29,64,73], [35,74,82]],
-      stone: [[48,52,54], [56,60,61], [64,67,66]],
+      grass: [[23,45,38], [27,52,43], [31,58,47]],
+      sand: [[70,56,38], [80,65,43], [91,74,50]],
+      water: [[20,48,60], [25,58,68], [31,68,78]],
+      stone: [[42,46,48], [50,54,55], [58,62,61]],
     };
     const ramp = ramps[String(biome)] || ramps.grass;
-    let base = ramp[Math.floor(stableRand(Math.round(x / lotStep()), Math.round(z / lotStep()), 17) * ramp.length) % ramp.length].slice();
+    let base = ramp[Math.floor(stableRand(Math.round(ix / lotStep()), Math.round(iz / lotStep()), 17) * ramp.length) % ramp.length].slice();
     if (owner) base = mixRgb(base, hexToRgb(numColorToHex(owner.body || owner.ownerBody || "#14f195", "#14f195")), 0.10);
-    return rgbToCss(base);
+    const out = rgbToCss(base);
+    terrainColorFrameCache.set(cacheKey, out);
+    return out;
   }
   function lotOwnerTint(cx: number, z: number) {
     // Ownership is still tile-authoritative on the server, but visually it should
@@ -1474,21 +1541,25 @@ export function createCanvasPrismWorld(opts: CanvasWorldOptions): CanvasWorldApi
   }
   function visualFootprintForKind(kind: any) {
     const k = String(kind || "building").toLowerCase();
-    if (k === "worldwonder") return 9.2;
-    if (k === "townhall") return 6.4;
-    if (k === "keep" || k.includes("gate") || k === "watchtower" || k === "tower") return 6.0;
-    if (k === "academy" || k === "bank" || k === "vault" || k === "warehouse") return 5.2;
-    return 4.1;
+    // Scale hierarchy decision: civic/defensive/Wonder buildings must dominate
+    // the skyline. Houses stay modest; landmarks become visible anchors.
+    if (k === "worldwonder") return 10.8;
+    if (k === "townhall" || k === "capital" || k === "cityhall") return 7.2;
+    if (k === "keep" || k.includes("gate") || k === "watchtower" || k === "tower" || k === "citytower") return 6.4;
+    if (k === "academy" || k === "bank" || k === "vault" || k === "warehouse" || k === "library") return 5.6;
+    if (k === "garden" || k === "flowerbed" || k === "bench" || k === "campfire") return 2.8;
+    return 4.0;
   }
   function visualScaleForKind(kind: any) {
     const k = String(kind || "building").toLowerCase();
-    if (k === "worldwonder") return 6.20;
-    if (k === "townhall") return 4.85;
-    if (k === "keep" || k.includes("gate") || k === "watchtower") return 4.55;
-    if (k === "tower" || k === "skyscraper" || k === "highrise") return 4.70;
-    if (k === "academy" || k === "bank" || k === "vault" || k === "warehouse") return 4.05;
-    if (k === "garden" || k === "flowerbed" || k === "bench" || k === "campfire") return 2.55;
-    return 3.18;
+    if (k === "worldwonder") return 7.65;
+    if (k === "townhall" || k === "capital" || k === "cityhall") return 5.70;
+    if (k === "keep" || k.includes("gate") || k === "watchtower") return 5.25;
+    if (k === "tower" || k === "citytower" || k === "skyscraper" || k === "highrise") return 5.55;
+    if (k === "academy" || k === "bank" || k === "vault" || k === "warehouse" || k === "library") return 4.45;
+    if (k === "garden" || k === "flowerbed" || k === "bench" || k === "campfire") return 2.35;
+    if (k === "house" || k === "cottage" || k === "hut") return 3.00;
+    return 3.30;
   }
   function constructionStateFor(b: any) {
     const end = Number(b?.constructUntil || b?.cdUntil || b?.buildUntil || b?.finishAt || 0);
@@ -1776,15 +1847,25 @@ export function createCanvasPrismWorld(opts: CanvasWorldOptions): CanvasWorldApi
   }
 
 
+  function normalizedBuildingKind(kind: any) {
+    const k = String(kind || "building").toLowerCase();
+    // Route skyline aliases to the richer tall recipe when the recipe library has
+    // one. This makes towers/civic landmarks read as landmarks instead of houses
+    // scaled by only a few percent.
+    if (k === "watchtower" || k === "tower" || k === "citytower" || k === "skyscraper" || k === "highrise") return "citytower";
+    return k;
+  }
+
   function buildingRenderPlanFor(b: any) {
-    const kind = String(b?.kind || b?.type || "building").toLowerCase();
+    const kind = normalizedBuildingKind(b?.kind || b?.type || "building");
     const progress = visualProgressForBuilding(b);
     const construction = constructionStateFor(b);
     const baseColor = cssHex(b?.cl || b?.color || "#d6604f");
     const plannedWonderRecipe = kind === "worldwonder" ? semanticWonderRecipeFor(b, baseColor) : null;
     let recipe = recipeVisibleParts(plannedWonderRecipe || buildingRecipeFor(kind, { color: baseColor, plinth: "#8f7b53", name: b?.nm || b?.name, buildProgress: progress }), progress);
     const scale = visualScaleForKind(kind);
-    const ox = Number(b?.x || 0), oz = Number(b?.z || 0);
+    assertCenteredBuildingOrigin(b, "render-plan");
+    const { x: ox, z: oz } = buildingCenterFor(b);
     const fp = visualFootprintForKind(kind);
     const dist = buildingDistanceFromPlayer(b);
     const maxParts = maxRecipePartsForBuilding(kind, dist, recipe.length);
@@ -2159,6 +2240,7 @@ export function createCanvasPrismWorld(opts: CanvasWorldOptions): CanvasWorldApi
   }
   function renderStaticLayerToCache(nextKey: string) {
     const prev = ctx;
+    terrainColorFrameCache.clear();
     const started = performance.now();
     ctx = staticCtx;
     staticCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
@@ -2168,6 +2250,7 @@ export function createCanvasPrismWorld(opts: CanvasWorldOptions): CanvasWorldApi
     drawTerrainFeatures();
     drawCityRoads();
     drawCityGrid();
+    drawSettlementPaths();
     drawBuildingAprons();
     drawBlockFillers();
     drawCityFurniture();
@@ -2185,28 +2268,22 @@ export function createCanvasPrismWorld(opts: CanvasWorldOptions): CanvasWorldApi
   }
 
 
-  function quantizeDepth(v: any, step = 1 / 64) {
-    const n = Number(v || 0);
-    return Number.isFinite(n) ? Math.round(n / step) * step : 0;
-  }
   function stableEntityTie(e: any) {
-    const id = String(e?.data?.uid ?? e?.data?.id ?? e?.kind ?? "");
+    const id = String(e?.data?.b?.uid ?? e?.data?.uid ?? e?.data?.id ?? e?.kind ?? "");
     let h = 0;
     for (let i = 0; i < id.length; i++) h = (h * 31 + id.charCodeAt(i)) | 0;
     return h / 1_000_000_000;
   }
   function depthKeyForEntity(e: any) {
-    // Sorting decision: keep simulation positions smooth, but quantize the *sort*
-    // key so painter ordering does not flip every frame due to sub-pixel easing.
-    // Large buildings use their near/front footprint edge, not only their origin;
-    // this is not full per-tile slicing, but it removes the worst occlusion
-    // regression until sprite-column slicing is worth the complexity.
-    const x = quantizeDepth(e.x);
-    const z = quantizeDepth(e.z);
-    const y = quantizeDepth(e.y || 0);
-    const h = quantizeDepth(e.h || 0);
-    const bias = e.kind === "building" ? 0.24 : e.kind === "me" ? 0.08 : e.kind === "remote" ? 0.07 : 0;
-    return x + z + y * 0.45 + h * 0.18 + bias + stableEntityTie(e);
+    // Sorting decision: no quantized depth band-aid now that large sprites are
+    // sliced. Quantizing slice representatives can collapse adjacent slices back
+    // onto the same key and reintroduce hash-order popping. Use the actual smooth
+    // representative position, with only tiny stable ties for exact equality.
+    const x = Number(e.x || 0), z = Number(e.z || 0);
+    const y = Number(e.y || 0), h = Number(e.h || 0);
+    const slice = e.kind === "buildingSlice" ? Number(e.data?.sliceIndex || 0) * 0.0007 : 0;
+    const bias = e.kind === "buildingSlice" ? 0.18 : e.kind === "building" ? 0.20 : e.kind === "me" ? 0.08 : e.kind === "remote" ? 0.07 : 0;
+    return x + z + y * 0.45 + h * 0.18 + bias + slice + stableEntityTie(e);
   }
   function depthFadeForEntity(e: any) {
     const r = opts.currentTileLoadRadius?.() || 36;
@@ -2223,6 +2300,7 @@ export function createCanvasPrismWorld(opts: CanvasWorldOptions): CanvasWorldApi
 
   function draw() {
     renderCounters.reset();
+    terrainColorFrameCache.clear();
     const dynamicStarted = performance.now();
     resize(); updateProjection(); ensureGroundMarks();
     frameLight = lightForTime();
@@ -2247,8 +2325,9 @@ export function createCanvasPrismWorld(opts: CanvasWorldOptions): CanvasWorldApi
 
     const ents: any[] = [];
     for (const b of buildPool.values()) {
+      assertCenteredBuildingOrigin(b, "entity-sort");
       const fp = visualFootprintForKind(b.kind);
-      const ox = Number(b.x || 0), oz = Number(b.z || 0);
+      const { x: ox, z: oz } = buildingCenterFor(b);
       if (canSliceBuildingEntity(b)) {
         const total = buildingSliceCountFor(fp);
         for (let i = 0; i < total; i++) {
@@ -2283,11 +2362,7 @@ export function createCanvasPrismWorld(opts: CanvasWorldOptions): CanvasWorldApi
     ents.push({ kind:"me", x: visualX(me), z: visualZ(me), y:0, h:1.8, data:me });
     renderCounters.entitiesSorted = ents.length;
     ents.sort((a,b) => depthKeyForEntity(a) - depthKeyForEntity(b));
-    for (const e of ents) {
-      renderCounters.entitiesDrawn++;
-      const fade = e.kind === "me" ? 0 : depthFadeForEntity(e);
-      ctx.save();
-      if (fade > 0) ctx.globalAlpha = 1 - fade * 0.22;
+    const drawEntity = (e: any) => {
       if (e.kind === "building") drawBuilding(e.data);
       else if (e.kind === "buildingSlice") drawBuildingSlice(e.data);
       else if (e.kind === "doodad") drawDoodad(e.data);
@@ -2298,7 +2373,18 @@ export function createCanvasPrismWorld(opts: CanvasWorldOptions): CanvasWorldApi
       else if (e.kind === 'citizen') drawTinyCitizen(e.data, e.x, e.z, e.data.phase || 0);
       else if (e.kind === 'cart') drawTinyCart(e.data, e.x, e.z, !!e.data.horizontal);
       else if (e.kind === "me") drawPlayerSprite(me, true);
-      ctx.restore();
+    };
+    for (const e of ents) {
+      renderCounters.entitiesDrawn++;
+      const fade = e.kind === "me" ? 0 : depthFadeForEntity(e);
+      if (fade > 0) {
+        ctx.save();
+        ctx.globalAlpha = 1 - fade * 0.22;
+        drawEntity(e);
+        ctx.restore();
+      } else {
+        drawEntity(e);
+      }
     }
     drawActionEffects();
     renderCounters.particlesDrawn += dustPuffs.length + citySparkles.length + floaters.length;
@@ -2529,7 +2615,8 @@ export function createCanvasPrismWorld(opts: CanvasWorldOptions): CanvasWorldApi
     for (const b of renderBuildings) {
       if (!b) continue;
       const uid = b.uid ?? `${b.kind || b.type}:${b.x},${b.z}`;
-      const row = { ...b, uid, x:Math.trunc(Number(b.x||0)), z:Math.trunc(Number(b.z||0)), kind:String(b.kind || b.type || "building") };
+      const row = { ...b, uid, x:Math.trunc(Number(b.x||0)), z:Math.trunc(Number(b.z||0)), kind:String(b.kind || b.type || "building"), origin: b.origin || "center" };
+      assertCenteredBuildingOrigin(row, "reconcileBuildings");
       seen.add(uid);
       const prev = buildPool.get(uid);
       // Preserve object identity when possible so cached picking/debug references
@@ -2660,7 +2747,8 @@ export function createCanvasPrismWorld(opts: CanvasWorldOptions): CanvasWorldApi
     // on nearby terrain cells and tools/inspect feel broken.
     let best:any = null, bestScore = Infinity;
     for (const b of buildPool.values()) {
-      const bx = Number(b.x || 0), bz = Number(b.z || 0);
+      assertCenteredBuildingOrigin(b, "pick");
+      const { x: bx, z: bz } = buildingCenterFor(b);
       const r = buildingVisualRadius(b.kind);
       const dx = Math.abs(w.wx - bx), dz = Math.abs(w.wz - bz);
       if (Math.max(dx, dz) > r) continue;
