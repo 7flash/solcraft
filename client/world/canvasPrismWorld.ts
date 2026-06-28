@@ -237,7 +237,7 @@ export function createCanvasPrismWorld(opts: CanvasWorldOptions): CanvasWorldApi
     prismPartsDrawn: 0, shadowsDrawn: 0, labelsDrawn: 0, particlesDrawn: 0,
     influenceAuras: 0, constructionVisuals: 0, perfWarnings: 0,
     spriteCacheHits: 0, spriteCacheMisses: 0, spriteDraws: 0, spriteEvictions: 0, buildingSlicesDrawn: 0,
-    terrainBlendPatches: 0, blockFillersDrawn: 0, resourceOrganicDraws: 0,
+    terrainBlendPatches: 0, blockFillersDrawn: 0, resourceOrganicDraws: 0, terrainFeatureDraws: 0, settlementPropDraws: 0,
     snappedDrawImages: 0, spriteCacheBytes: 0, spriteCacheBudgetBytes: 0,
     reset() {
       this.terrainTilesDrawn = 0; this.entitiesSorted = 0; this.entitiesDrawn = 0; this.weatherDrawn = 0; this.staticSkipped = 0;
@@ -245,7 +245,7 @@ export function createCanvasPrismWorld(opts: CanvasWorldOptions): CanvasWorldApi
       this.prismPartsDrawn = 0; this.shadowsDrawn = 0; this.labelsDrawn = 0; this.particlesDrawn = 0;
       this.influenceAuras = 0; this.constructionVisuals = 0; this.perfWarnings = 0;
       this.spriteCacheHits = 0; this.spriteCacheMisses = 0; this.spriteDraws = 0; this.spriteEvictions = 0; this.buildingSlicesDrawn = 0;
-      this.terrainBlendPatches = 0; this.blockFillersDrawn = 0; this.resourceOrganicDraws = 0;
+      this.terrainBlendPatches = 0; this.blockFillersDrawn = 0; this.resourceOrganicDraws = 0; this.terrainFeatureDraws = 0; this.settlementPropDraws = 0;
       this.snappedDrawImages = 0; this.spriteCacheBytes = estimateSpriteCacheBytes(); this.spriteCacheBudgetBytes = spriteCacheBudgetBytes();
     },
   };
@@ -548,24 +548,35 @@ export function createCanvasPrismWorld(opts: CanvasWorldOptions): CanvasWorldApi
     return { x, z, dx, dz };
   }
   function drawTinyCitizen(citizen: any, x: number, z: number, phase: number) {
+    // Ambient citizens must share the same visual language as the player. They
+    // stay tiny and cheap, but get silhouettes, sleeves, hair/hat, and legs so
+    // the settlement does not look like high-detail buildings populated by UI
+    // placeholders.
     const p = proj(x, 0.04, z);
     const L = frameLightForTime();
-    const sc = visualZoom() * 0.72;
-    const bob = Math.abs(Math.sin(phase)) * 1.6 * sc;
+    const sc = visualZoom() * 0.74;
+    const bob = Math.abs(Math.sin(phase)) * 1.35 * sc;
+    const body = tint(numColorToHex(citizen.body, '#2980b9'), 0.88 + L.elev * 0.26, L.tint) as string;
+    const trim = tint(numColorToHex(citizen.hat, '#f6b73c'), 0.90 + L.elev * 0.24, L.tint) as string;
+    const skin = tint('#f1c27d', 0.84 + L.elev * 0.30, L.tint) as string;
+    const hair = stableRand(citizen.seed || 1, 231, 5) > 0.48 ? '#3a261c' : '#72502d';
+    const leg = Math.sin(phase * 1.35) * 1.25;
     ctx.save();
     ctx.translate(p.x, p.y - 10 * sc - bob);
     ctx.scale(sc, sc);
-    ctx.fillStyle = tint(numColorToHex(citizen.body, '#2980b9'), 0.86 + L.elev * 0.25, L.tint);
-    ctx.beginPath(); ctx.roundRect(-4, -13, 8, 12, 3); ctx.fill();
-    ctx.fillStyle = tint('#f1c27d', 0.82 + L.elev * 0.28, L.tint);
-    ctx.beginPath(); ctx.arc(0, -17, 5, 0, Math.PI * 2); ctx.fill();
-    ctx.fillStyle = tint(numColorToHex(citizen.hat, '#f6b73c'), 0.86 + L.elev * 0.25, L.tint);
-    ctx.fillRect(-5, -20, 10, 3);
-    ctx.fillStyle = 'rgba(24,20,18,0.78)';
-    const leg = Math.sin(phase * 1.35) * 1.5;
-    ctx.fillRect(-3 + leg, -1, 3, 5); ctx.fillRect(1 - leg, -1, 3, 5);
+    ctx.lineWidth = 1.15;
+    ctx.strokeStyle = 'rgba(8,11,12,0.45)';
+    ctx.fillStyle = body; ctx.beginPath(); ctx.roundRect(-4.8, -13, 9.6, 13, 3.2); ctx.fill(); ctx.stroke();
+    ctx.fillStyle = trim; ctx.fillRect(-4.8, -8.4, 9.6, 2.0);
+    ctx.fillStyle = body; ctx.fillRect(-8.2 - leg * 0.25, -10, 3.0, 8.5); ctx.fillRect(5.2 + leg * 0.25, -10, 3.0, 8.5);
+    ctx.fillStyle = '#23221d'; ctx.fillRect(-3.4 + leg, -1, 3, 5.2); ctx.fillRect(0.4 - leg, -1, 3, 5.2);
+    ctx.fillStyle = skin; ctx.beginPath(); ctx.arc(0, -17.2, 5.2, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+    ctx.fillStyle = hair; ctx.beginPath(); ctx.arc(0, -19.7, 5.0, Math.PI, Math.PI * 2); ctx.fill();
+    if (stableRand(citizen.seed || 1, 233, 7) > 0.36) { ctx.fillStyle = trim; ctx.fillRect(-5.8, -21.1, 11.6, 2.8); }
+    ctx.fillStyle = 'rgba(20,18,16,0.86)'; ctx.beginPath(); ctx.arc(-1.7, -17.5, 0.6, 0, Math.PI * 2); ctx.arc(2.1, -17.5, 0.6, 0, Math.PI * 2); ctx.fill();
     ctx.restore();
   }
+
   function drawTinyCart(cart: any, x: number, z: number, horizontal: boolean) {
     const L = frameLightForTime();
     const yaw = horizontal ? 0 : 1;
@@ -1220,32 +1231,96 @@ export function createCanvasPrismWorld(opts: CanvasWorldOptions): CanvasWorldApi
   }
 
   function drawBlockFillers() {
-    // Density decision: real settlements read as blocks and clusters, not
-    // isolated monopoly houses. These small non-interactive fillers occupy the
-    // visual gaps around completed buildings only; they do not affect picking,
-    // collision, storage, or ECS state.
+    // Density decision: city blocks need negative space, small props, fences,
+    // awnings, walls, and sheds around real buildings. These are static-cache
+    // only and never participate in picking or ECS logic, so they add density
+    // without resurrecting per-frame prism cost or a fake rectangular grid.
+    const centers = settlementCenters(140);
+    if (!centers.length) return;
     const lots = new Set<string>();
-    for (const b of buildPool.values()) lots.add(`${lotCenter(Number(b?.x || 0))},${lotCenter(Number(b?.z || 0))}`);
+    for (const [x, z] of centers) lots.add(`${lotCenter(x)},${lotCenter(z)}`);
     ctx.save();
     for (const b of buildPool.values()) {
       const kind = String(b?.kind || b?.type || "building").toLowerCase();
       if (kind === "worldwonder" || kind === "garden" || kind === "bench" || kind === "flowerbed") continue;
-      const cx = lotCenter(Number(b?.x || 0)), cz = lotCenter(Number(b?.z || 0));
+      const cx = Number(b?.x || 0), cz = Number(b?.z || 0);
+      const fp = visualFootprintForKind(kind);
       const seed = Math.trunc(cx * 17 + cz * 31);
-      const choices = [
-        { dx: 1.55, dz: -1.55, w: 0.44, d: 0.30, h: 0.32, c: '#7a5632' },
-        { dx: -1.62, dz: 1.38, w: 0.36, d: 0.42, h: 0.26, c: '#5d6a55' },
-        { dx: 1.40, dz: 1.48, w: 0.30, d: 0.30, h: 0.42, c: '#8f7b53' },
-      ];
-      for (let i = 0; i < choices.length; i++) {
-        if (stableRand(cx, cz, 1800 + i) < (i === 0 ? 0.36 : 0.58)) continue;
-        const ch = choices[i];
-        const fx = cx + ch.dx + (stableRand(seed, i, 1810) - 0.5) * 0.18;
-        const fz = cz + ch.dz + (stableRand(seed, i, 1811) - 0.5) * 0.18;
-        drawContactAO(fx, fz, 0.52, 0.055);
-        drawPrismMin(fx - ch.w/2, fz - ch.d/2, 0.035, ch.w, ch.d, ch.h, ch.c, shadeHex(ch.c, -0.26), shadeHex(ch.c, -0.42), 0.82);
+      const civic = /town|hall|academy|bank|vault|library|keep|tower/.test(kind);
+      const propCount = civic ? 6 : 4;
+      for (let i = 0; i < propCount; i++) {
+        const side = Math.floor(stableRand(seed, i, 1801) * 4);
+        const along = (stableRand(seed, i, 1802) - 0.5) * fp * 0.72;
+        const inset = fp * 0.50 + 0.18 + stableRand(seed, i, 1803) * 0.42;
+        const fx = cx + (side === 0 ? inset : side === 1 ? -inset : along);
+        const fz = cz + (side === 2 ? inset : side === 3 ? -inset : along);
+        const nearLot = lots.has(`${lotCenter(fx)},${lotCenter(fz)}`);
+        if (nearLot && stableRand(seed, i, 1804) < 0.55) continue;
+        const roll = stableRand(seed, i, 1805);
+        if (roll < 0.24) {
+          // Low wall/fence segment bridging visual gaps.
+          const horizontal = side < 2;
+          const w = horizontal ? 0.16 : 0.68, d = horizontal ? 0.68 : 0.16;
+          drawContactAO(fx, fz, 0.40, 0.035);
+          drawPrismMin(fx - w/2, fz - d/2, 0.034, w, d, 0.18, '#8f7b53', '#5e4b31', '#3f3224', 0.76);
+        } else if (roll < 0.52) {
+          // Market awning / shed.
+          drawContactAO(fx, fz, 0.46, 0.045);
+          drawPrismMin(fx - 0.26, fz - 0.22, 0.038, 0.52, 0.44, 0.26, '#765232', '#4d3523', '#352319', 0.78);
+          drawPrismMin(fx - 0.34, fz - 0.28, 0.30, 0.68, 0.56, 0.10, stableRand(seed,i,1806) > 0.5 ? '#b88a47' : '#6f7f68', '#70542e', '#4a3925', 0.82);
+        } else if (roll < 0.74) {
+          // Planter / crate cluster.
+          drawContactAO(fx, fz, 0.30, 0.035);
+          drawPrismMin(fx - 0.17, fz - 0.14, 0.036, 0.34, 0.28, 0.16, '#7f5d36', '#503820', '#362516', 0.72);
+          const pp = proj(fx + 0.03, 0.25, fz - 0.01);
+          ctx.fillStyle = 'rgba(72,126,75,0.42)'; ctx.beginPath(); ctx.ellipse(pp.x, pp.y, tileW * 0.07, tileH * 0.08, 0, 0, Math.PI * 2); ctx.fill();
+        } else {
+          // Lamp/banner post for silhouette detail and scale cues.
+          const p0 = proj(fx, 0.04, fz), p1 = proj(fx, 0.92, fz);
+          ctx.strokeStyle = 'rgba(75,59,38,0.72)'; ctx.lineWidth = Math.max(1, 1.15 * visualZoom());
+          ctx.beginPath(); ctx.moveTo(p0.x, p0.y); ctx.lineTo(p1.x, p1.y); ctx.stroke();
+          ctx.fillStyle = `rgba(255,210,112,${0.10 + frameLightForTime().night * 0.42})`; ctx.beginPath(); ctx.arc(p1.x, p1.y, Math.max(1.8, 2.8 * visualZoom()), 0, Math.PI * 2); ctx.fill();
+        }
         renderCounters.blockFillersDrawn++;
+        renderCounters.settlementPropDraws++;
       }
+    }
+    ctx.restore();
+  }
+
+  function drawSettlementPlazas() {
+    // Feature decision: terrain should contain authored-feeling places. Around
+    // dense clusters we paint plazas/courtyards as irregular soft diamonds and
+    // dirt aprons, instead of exposing the underlying grid or leaving an empty
+    // stippled plane.
+    const centers = settlementCenters(96);
+    if (centers.length < 3) return;
+    let drawn = 0;
+    ctx.save();
+    for (let i = 0; i < centers.length && drawn < 34; i++) {
+      const [x, z] = centers[i];
+      let neighbors = 0;
+      for (let j = 0; j < centers.length; j++) {
+        if (i === j) continue;
+        const [bx, bz] = centers[j];
+        const d = Math.hypot(x - bx, z - bz);
+        if (d > 1.2 && d < 8.0) neighbors++;
+      }
+      if (neighbors < 2 || stableRand(Math.round(x), Math.round(z), 8471) < 0.36) continue;
+      const r = 1.15 + Math.min(2.2, neighbors * 0.22) + stableRand(x, z, 8472) * 0.75;
+      const p = proj(x + (stableRand(x,z,8473)-0.5) * 0.8, 0.039, z + (stableRand(x,z,8474)-0.5) * 0.8);
+      ctx.save();
+      ctx.translate(p.x, p.y);
+      ctx.rotate((stableRand(x,z,8475)-0.5) * 0.42);
+      const g = ctx.createRadialGradient(0, 0, 0, 0, 0, tileW * r * 0.70);
+      g.addColorStop(0, 'rgba(132,104,63,0.115)');
+      g.addColorStop(0.58, 'rgba(132,104,63,0.060)');
+      g.addColorStop(1, 'rgba(132,104,63,0)');
+      ctx.fillStyle = g;
+      ctx.beginPath(); ctx.ellipse(0, 0, tileW * r * 0.78, tileH * r * 0.38, 0, 0, Math.PI * 2); ctx.fill();
+      ctx.restore();
+      drawn++;
+      renderCounters.terrainFeatureDraws++;
     }
     ctx.restore();
   }
@@ -1476,6 +1551,22 @@ export function createCanvasPrismWorld(opts: CanvasWorldOptions): CanvasWorldApi
     const stride = 5;
     const L = frameLightForTime();
     ctx.save();
+    // Broad authored-feeling swales/water ribbons break the “infinite flat mat”
+    // read. They are deterministic, non-interactive, and low alpha so they
+    // support the scene without becoming a gameplay grid.
+    for (let band = -2; band <= 2; band++) {
+      const wx0 = cx - r + stableRand(band, Math.round(cz), 9401) * 6;
+      const wz0 = cz + band * 7 + (stableRand(band, Math.round(cx), 9402) - 0.5) * 5;
+      const wx1 = cx + r - stableRand(band, Math.round(cz), 9403) * 6;
+      const wz1 = wz0 + (stableRand(band, Math.round(cx), 9404) - 0.5) * 10;
+      if (stableRand(band, Math.round(cx + cz), 9405) < 0.52) continue;
+      const p0 = proj(wx0, 0.031, wz0), p1 = proj((wx0 + wx1) * 0.5, 0.031, (wz0 + wz1) * 0.5 + (stableRand(band, 7, 9406) - 0.5) * 6), p2 = proj(wx1, 0.031, wz1);
+      ctx.strokeStyle = stableRand(band, 11, 9407) > 0.55 ? 'rgba(48,88,93,0.040)' : 'rgba(145,112,67,0.046)';
+      ctx.lineWidth = Math.max(6, tileH * (0.22 + stableRand(band, 13, 9408) * 0.20));
+      ctx.lineCap = 'round';
+      ctx.beginPath(); ctx.moveTo(p0.x, p0.y); ctx.quadraticCurveTo(p1.x, p1.y, p2.x, p2.y); ctx.stroke();
+      renderCounters.terrainFeatureDraws++;
+    }
     for (let x = Math.floor((cx - r) / stride) * stride; x <= cx + r; x += stride) {
       for (let z = Math.floor((cz - r) / stride) * stride; z <= cz + r; z += stride) {
         if (Math.max(Math.abs(x - cx), Math.abs(z - cz)) > r) continue;
@@ -1543,20 +1634,20 @@ export function createCanvasPrismWorld(opts: CanvasWorldOptions): CanvasWorldApi
     const k = String(kind || "building").toLowerCase();
     // Scale hierarchy decision: civic/defensive/Wonder buildings must dominate
     // the skyline. Houses stay modest; landmarks become visible anchors.
-    if (k === "worldwonder") return 10.8;
-    if (k === "townhall" || k === "capital" || k === "cityhall") return 7.2;
-    if (k === "keep" || k.includes("gate") || k === "watchtower" || k === "tower" || k === "citytower") return 6.4;
-    if (k === "academy" || k === "bank" || k === "vault" || k === "warehouse" || k === "library") return 5.6;
+    if (k === "worldwonder") return 12.4;
+    if (k === "townhall" || k === "capital" || k === "cityhall") return 8.6;
+    if (k === "keep" || k.includes("gate") || k === "watchtower" || k === "tower" || k === "citytower" || k === "skyscraper" || k === "highrise") return 7.4;
+    if (k === "academy" || k === "bank" || k === "vault" || k === "warehouse" || k === "library" || k === "workshop" || k === "market" || k === "forge") return 6.0;
     if (k === "garden" || k === "flowerbed" || k === "bench" || k === "campfire") return 2.8;
     return 4.0;
   }
   function visualScaleForKind(kind: any) {
     const k = String(kind || "building").toLowerCase();
-    if (k === "worldwonder") return 7.65;
-    if (k === "townhall" || k === "capital" || k === "cityhall") return 5.70;
-    if (k === "keep" || k.includes("gate") || k === "watchtower") return 5.25;
-    if (k === "tower" || k === "citytower" || k === "skyscraper" || k === "highrise") return 5.55;
-    if (k === "academy" || k === "bank" || k === "vault" || k === "warehouse" || k === "library") return 4.45;
+    if (k === "worldwonder") return 8.95;
+    if (k === "townhall" || k === "capital" || k === "cityhall") return 6.65;
+    if (k === "keep" || k.includes("gate") || k === "watchtower") return 6.05;
+    if (k === "tower" || k === "citytower" || k === "skyscraper" || k === "highrise") return 6.35;
+    if (k === "academy" || k === "bank" || k === "vault" || k === "warehouse" || k === "library" || k === "workshop" || k === "market" || k === "forge") return 4.95;
     if (k === "garden" || k === "flowerbed" || k === "bench" || k === "campfire") return 2.35;
     if (k === "house" || k === "cottage" || k === "hut") return 3.00;
     return 3.30;
@@ -1852,7 +1943,7 @@ export function createCanvasPrismWorld(opts: CanvasWorldOptions): CanvasWorldApi
     // Route skyline aliases to the richer tall recipe when the recipe library has
     // one. This makes towers/civic landmarks read as landmarks instead of houses
     // scaled by only a few percent.
-    if (k === "watchtower" || k === "tower" || k === "citytower" || k === "skyscraper" || k === "highrise") return "citytower";
+    if (k === "watchtower" || k === "tower" || k === "citytower" || k === "skyscraper" || k === "highrise" || k === "observatory" || k === "spire" || k === "beacon") return "citytower";
     return k;
   }
 
@@ -1947,12 +2038,40 @@ export function createCanvasPrismWorld(opts: CanvasWorldOptions): CanvasWorldApi
       }
     }
   }
+  function drawResourceIdleOverlay(kind: string, x: number, z: number, scale: number, nowMs = performance.now()) {
+    // Cached resource bodies stay cheap; this small live overlay gives nature a
+    // different temporal register from buildings. Trees breathe, crops sway, and
+    // rocks get tiny glints without rebuilding their sprite.
+    const p = proj(x, 0.16, z);
+    const ph = nowMs * 0.0014 + x * 1.7 + z * 2.1;
+    ctx.save();
+    ctx.translate(p.x, p.y);
+    if (kind === 'tree') {
+      const sway = Math.sin(ph) * tileW * 0.040 * scale;
+      ctx.fillStyle = 'rgba(128,188,107,0.095)';
+      ctx.beginPath(); ctx.ellipse(sway, -tileH * 1.38 * scale, tileW * 0.25 * scale, tileH * 0.10 * scale, -0.12, 0, Math.PI * 2); ctx.fill();
+      if (stableRand(Math.round(x), Math.round(z), Math.floor(nowMs / 2400)) > 0.78) {
+        ctx.fillStyle = 'rgba(177,214,129,0.20)';
+        ctx.beginPath(); ctx.arc(sway + tileW * 0.10 * scale, -tileH * 1.55 * scale, Math.max(1.2, 1.8 * visualZoom()), 0, Math.PI * 2); ctx.fill();
+      }
+    } else if (kind === 'food') {
+      ctx.strokeStyle = 'rgba(236,198,84,0.20)'; ctx.lineWidth = Math.max(0.8, 1.0 * visualZoom());
+      for (let i = -1; i <= 1; i++) { ctx.beginPath(); ctx.moveTo(i * tileW * 0.05 * scale, -tileH * 0.15 * scale); ctx.lineTo((i * 0.05 + Math.sin(ph + i) * 0.035) * tileW * scale, -tileH * 0.72 * scale); ctx.stroke(); }
+    } else if (kind === 'rock') {
+      ctx.fillStyle = 'rgba(210,222,218,0.10)';
+      ctx.beginPath(); ctx.ellipse(tileW * 0.08 * scale, -tileH * 0.28 * scale, tileW * 0.045 * scale, tileH * 0.020 * scale, -0.25, 0, Math.PI * 2); ctx.fill();
+    }
+    ctx.restore();
+  }
+
   function drawDoodad(d: any) {
     const kind = String(d.type || d.kind || "tree").toLowerCase();
     const scale = kind === "rock" ? 2.05 : kind === "food" ? 1.70 : 2.10;
     // Resource bodies are identical by kind at a given time/zoom. Cache
     // them as sprites but keep harvest pulses, loot, and target rings live.
-    drawResourceSprite(kind, Number(d.x||0), Number(d.z||0), scale);
+    const x = Number(d.x||0), z = Number(d.z||0);
+    drawResourceSprite(kind, x, z, scale);
+    drawResourceIdleOverlay(kind, x, z, scale);
   }
 
   function profilePaletteForPlayer(ply: any, isMe = false) {
@@ -1972,28 +2091,50 @@ export function createCanvasPrismWorld(opts: CanvasWorldOptions): CanvasWorldApi
   function drawPlayerSprite(ply: any, isMe = false) {
     const x = isMe ? visualX(me) : remoteVisualX(ply);
     const z = isMe ? visualZ(me) : remoteVisualZ(ply);
-    drawShadow(x, z, isMe ? 0.44 : 0.34, isMe ? 0.23 : 0.18, isMe ? 0.22 : 0.16);
+    drawShadow(x, z, isMe ? 0.48 : 0.38, isMe ? 0.24 : 0.19, isMe ? 0.22 : 0.16);
     const speed = isMe ? Math.min(1.4, Number(me.renderSpeed || 0)) : Math.min(1.15, Number(ply.__renderSpeed || 0));
     const phase = isMe ? Number(me.walkPhase || 0) : Number(ply.__walkPhase || 0);
     const bob = speed > 0.05 ? Math.sin(phase) * (1.1 + speed * 2.0) * visualZoom() : 0;
     const p = proj(x, 0, z);
-    const sc = visualZoom() * (isMe ? 1.42 : 1.12);
+    const sc = visualZoom() * (isMe ? 1.48 : 1.16);
     ctx.save(); ctx.translate(p.x, p.y - 24*sc + bob); ctx.scale(sc, sc);
     const pal = profilePaletteForPlayer(ply, isMe);
-    const body = pal.body;
-    const hat = pal.trim;
+    const body = tint(pal.body, 1.10, frameLightForTime().tint) as string;
+    const trim = tint(pal.trim, 1.05, frameLightForTime().tint) as string;
+    const parts = pal.parts || {};
+    const headId = Math.trunc(Number(parts.head || 0));
+    const torsoId = Math.trunc(Number(parts.torso || 0));
+    const legsId = Math.trunc(Number(parts.legs || 0));
+    const backId = Math.trunc(Number(parts.back || 0));
     const sway = speed > 0.05 ? Math.sin(phase * 1.25) * (0.8 + speed * 1.8) : 0;
-    ctx.fillStyle = pal.skin; ctx.beginPath(); ctx.arc(0,-16,9,0,Math.PI*2); ctx.fill();
-    ctx.fillStyle = pal.hair; ctx.beginPath(); ctx.arc(0,-20,8.5,Math.PI,Math.PI*2); ctx.fill();
-    ctx.fillStyle = hat; ctx.fillRect(-9,-21,18,4);
-    if (Number(pal.parts?.back || 0) > 0 || pal.parts?.showBack) { ctx.fillStyle = pal.leather; ctx.beginPath(); ctx.roundRect(-11,-8,22,19,6); ctx.fill(); }
-    ctx.fillStyle = tint(body, 1.12, frameLightForTime().tint) as string; ctx.beginPath(); ctx.roundRect(-8,-8,16,22,5); ctx.fill();
-    ctx.fillStyle = pal.skin; ctx.fillRect(-13 - sway,-5,5,16); ctx.fillRect(8 + sway,-5,5,16);
-    ctx.fillStyle = pal.leather;
-    const leg = isMe && speed > 0.05 ? Math.sin(me.walkPhase * 1.4) * (1.2 + speed * 2.2) : 0;
-    ctx.fillRect(-6 + leg,14,5,6); ctx.fillRect(2 - leg,14,5,6);
-    ctx.fillStyle = "#2b211d"; ctx.beginPath(); ctx.arc(-3,-16,1.2,0,Math.PI*2); ctx.arc(4,-16,1.2,0,Math.PI*2); ctx.fill();
-    ctx.strokeStyle = "#7a4135"; ctx.lineWidth = 1; ctx.beginPath(); ctx.arc(1,-13,3,0.15,Math.PI-0.15); ctx.stroke();
+    const leg = speed > 0.05 ? Math.sin(phase * 1.4) * (1.2 + speed * 2.2) : 0;
+    // Dark outer silhouette glues the character to the same illustrated world
+    // as the prisms instead of a flat emoji-style primitive.
+    ctx.strokeStyle = 'rgba(8,10,12,0.48)'; ctx.lineWidth = 1.2;
+    if (backId > 0 || parts.showBack) {
+      ctx.fillStyle = pal.leather; ctx.beginPath(); ctx.roundRect(-12,-9,24,21,6); ctx.fill(); ctx.stroke();
+      if (backId > 2) { ctx.fillStyle = shadeHex(pal.leather, 0.18); ctx.fillRect(-9, -5, 18, 3); }
+    }
+    // Legs/feet first so torso overlaps naturally.
+    ctx.fillStyle = legsId > 0 ? shadeHex(body, -0.28) : pal.leather;
+    ctx.beginPath(); ctx.roundRect(-6 + leg, 12, 5, 8, 2); ctx.roundRect(2 - leg, 12, 5, 8, 2); ctx.fill(); ctx.stroke();
+    ctx.fillStyle = shadeHex(pal.leather, -0.18); ctx.fillRect(-7 + leg,18,7,3); ctx.fillRect(1 - leg,18,7,3);
+    // Sleeved arms and gloves; not skin-color rectangles.
+    ctx.fillStyle = shadeHex(body, torsoId % 2 ? -0.12 : 0.02);
+    ctx.beginPath(); ctx.roundRect(-14 - sway,-6,5,17,2.5); ctx.roundRect(9 + sway,-6,5,17,2.5); ctx.fill(); ctx.stroke();
+    ctx.fillStyle = pal.skin; ctx.fillRect(-14 - sway,8,5,4); ctx.fillRect(9 + sway,8,5,4);
+    // Torso with trim bands tied to customization.
+    ctx.fillStyle = body; ctx.beginPath(); ctx.roundRect(-8,-9,16,23,5); ctx.fill(); ctx.stroke();
+    ctx.fillStyle = trim; ctx.fillRect(-7, -3, 14, 3);
+    if (torsoId > 2) { ctx.fillStyle = 'rgba(255,240,180,0.20)'; ctx.fillRect(-6, 2, 12, 2); }
+    // Head, hair, optional hat/crown/head style.
+    ctx.fillStyle = pal.skin; ctx.beginPath(); ctx.arc(0,-17,9,0,Math.PI*2); ctx.fill(); ctx.stroke();
+    ctx.fillStyle = pal.hair; ctx.beginPath(); ctx.arc(0,-21,8.8,Math.PI,Math.PI*2); ctx.fill();
+    if (headId % 3 === 1) { ctx.fillStyle = pal.hair; ctx.fillRect(-7, -19, 4, 7); ctx.fillRect(4, -19, 4, 7); }
+    else if (headId % 3 === 2) { ctx.fillStyle = trim; ctx.fillRect(-8, -22, 16, 3); ctx.fillStyle = 'rgba(255,236,130,0.86)'; ctx.fillRect(-2, -25, 4, 4); }
+    else { ctx.fillStyle = trim; ctx.fillRect(-9,-22,18,4); }
+    ctx.fillStyle = '#201915'; ctx.beginPath(); ctx.arc(-3,-17,1.25,0,Math.PI*2); ctx.arc(4,-17,1.25,0,Math.PI*2); ctx.fill();
+    ctx.strokeStyle = '#7a4135'; ctx.lineWidth = 1; ctx.beginPath(); ctx.arc(1,-14,3,0.15,Math.PI-0.15); ctx.stroke();
     if (isMe) drawHeldToolOverlay(sc);
     ctx.restore();
     const label = String(ply.name || (isMe ? 'You' : '') || '').slice(0, 18);
@@ -2011,6 +2152,7 @@ export function createCanvasPrismWorld(opts: CanvasWorldOptions): CanvasWorldApi
       ctx.restore();
     }
   }
+
   function drawHeldToolOverlay(sc: number) {
     const tool = String(ST?.tool || ST?.mode || "").toLowerCase();
     if (!tool || tool === "none" || tool === "explore") return;
@@ -2063,6 +2205,16 @@ export function createCanvasPrismWorld(opts: CanvasWorldOptions): CanvasWorldApi
       body: n.body || n.color || 0xceb443,
       hat: n.hat || 0x7dcfe8,
       name: n.name || n.nm || "Wanderer",
+      appearance: n.appearance || {
+        palette: {
+          skin: stableRand(Number(n.x||0), Number(n.z||0), 2191) > 0.55 ? '#d8a36f' : '#f1c27d',
+          hair: stableRand(Number(n.x||0), Number(n.z||0), 2192) > 0.5 ? '#2d211c' : '#6f4a26',
+          primaryCloth: numColorToHex(n.body || n.color || 0xceb443, '#ceb443'),
+          secondaryCloth: numColorToHex(n.hat || 0x7dcfe8, '#7dcfe8'),
+          leather: '#6e4b27',
+        },
+        parts: { head: Math.floor(stableRand(Number(n.x||0), Number(n.z||0), 2193) * 4), torso: Math.floor(stableRand(Number(n.x||0), Number(n.z||0), 2194) * 4), legs: 1 },
+      },
     };
     drawPlayerSprite(row, false);
     const p = proj(row.x, 1.26, row.z);
@@ -2248,6 +2400,7 @@ export function createCanvasPrismWorld(opts: CanvasWorldOptions): CanvasWorldApi
     drawTerrain();
     drawGroundWash();
     drawTerrainFeatures();
+    drawSettlementPlazas();
     drawCityRoads();
     drawCityGrid();
     drawSettlementPaths();
