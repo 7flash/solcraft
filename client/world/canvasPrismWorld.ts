@@ -124,6 +124,8 @@ export function createCanvasPrismWorld(opts: CanvasWorldOptions): CanvasWorldApi
   const maxInFlight = 4;
   const moveTimeoutMs = 1800;
   const pendingMoveSentAt = new Map<number, number>();
+  let lastMoveError = "";
+  let lastMoveErrorAt = 0;
 
   const me = {
     id: 0,
@@ -1640,25 +1642,34 @@ export function createCanvasPrismWorld(opts: CanvasWorldOptions): CanvasWorldApi
   }
   function visualFootprintForKind(kind: any) {
     const k = String(kind || "building").toLowerCase();
-    // Scale hierarchy decision: civic/defensive/Wonder buildings must dominate
-    // the skyline. Houses stay modest; landmarks become visible anchors.
-    if (k === "worldwonder") return 12.4;
-    if (k === "townhall" || k === "capital" || k === "cityhall") return 8.6;
-    if (k === "keep" || k.includes("gate") || k === "watchtower" || k === "tower" || k === "citytower" || k === "skyscraper" || k === "highrise") return 7.4;
-    if (k === "academy" || k === "bank" || k === "vault" || k === "warehouse" || k === "library" || k === "workshop" || k === "market" || k === "forge") return 6.0;
-    if (k === "garden" || k === "flowerbed" || k === "bench" || k === "campfire") return 2.8;
-    return 4.0;
+    // Visual-fit decision: landmarks should dominate by height and silhouette,
+    // not by exploding their ground footprint. The prior iteration inflated
+    // tower/townhall footprints so much that adjacent centered buildings looked
+    // like rectangular slabs clipping through each other and stole movement
+    // clicks. Keep almost every building visually inside its logical 4×4 lot;
+    // only Wonders/capital-class buildings extend slightly past it.
+    if (k === "worldwonder") return 5.6;
+    if (k === "townhall" || k === "capital" || k === "cityhall") return 4.4;
+    if (k === "keep" || k.includes("gate") || k === "watchtower" || k === "tower" || k === "citytower" || k === "skyscraper" || k === "highrise") return 3.9;
+    if (k === "academy" || k === "bank" || k === "vault" || k === "warehouse" || k === "library" || k === "workshop" || k === "market" || k === "forge") return 3.7;
+    if (k === "garden" || k === "flowerbed" || k === "bench" || k === "campfire") return 2.2;
+    if (k === "house" || k === "cottage" || k === "hut") return 3.1;
+    return 3.3;
   }
   function visualScaleForKind(kind: any) {
     const k = String(kind || "building").toLowerCase();
-    if (k === "worldwonder") return 8.95;
-    if (k === "townhall" || k === "capital" || k === "cityhall") return 6.65;
-    if (k === "keep" || k.includes("gate") || k === "watchtower") return 6.05;
-    if (k === "tower" || k === "citytower" || k === "skyscraper" || k === "highrise") return 6.35;
-    if (k === "academy" || k === "bank" || k === "vault" || k === "warehouse" || k === "library" || k === "workshop" || k === "market" || k === "forge") return 4.95;
-    if (k === "garden" || k === "flowerbed" || k === "bench" || k === "campfire") return 2.35;
-    if (k === "house" || k === "cottage" || k === "hut") return 3.00;
-    return 3.30;
+    // Height hierarchy is intentionally moderate. The tower recipe already has
+    // a tall internal stack; scaling it above ~3 makes it cover half the screen
+    // at normal zoom. Ratios still create landmarks: house < civic < tower <
+    // capital < Wonder, without making control hit areas feel like walls.
+    if (k === "worldwonder") return 4.10;
+    if (k === "townhall" || k === "capital" || k === "cityhall") return 3.55;
+    if (k === "keep" || k.includes("gate") || k === "watchtower") return 3.25;
+    if (k === "tower" || k === "citytower" || k === "skyscraper" || k === "highrise") return 3.05;
+    if (k === "academy" || k === "bank" || k === "vault" || k === "warehouse" || k === "library" || k === "workshop" || k === "market" || k === "forge") return 2.85;
+    if (k === "garden" || k === "flowerbed" || k === "bench" || k === "campfire") return 1.95;
+    if (k === "house" || k === "cottage" || k === "hut") return 2.25;
+    return 2.45;
   }
   function constructionStateFor(b: any) {
     const end = Number(b?.constructUntil || b?.cdUntil || b?.buildUntil || b?.finishAt || 0);
@@ -1972,9 +1983,16 @@ export function createCanvasPrismWorld(opts: CanvasWorldOptions): CanvasWorldApi
     return { kind, progress, construction, baseColor, plannedWonderRecipe, recipe, scale, ox, oz, fp, dist, maxParts };
   }
 
-  function canSliceBuildingEntity(b: any) {
-    const plan = buildingRenderPlanFor(b);
-    return plan.fp >= 3.5 && canSpriteBuilding(plan.kind, b, plan.construction);
+  function canSliceBuildingEntity(_b: any) {
+    // Disabled until we have true isometric/tile-column slices. The screen-space
+    // vertical-band slicing path split cached sprites by source X only, which
+    // made tall clustered buildings render as overlapping roof/wall bands. That
+    // looked like clipping and, worse, made the apparent footprint disagree with
+    // movement/picking. Use a single stable building entity for now; occlusion is
+    // less perfect than real column slicing, but it is playable and visually
+    // coherent. When slicing returns, it must slice by projected footprint column
+    // and come with a screenshot/regression test for adjacent towers.
+    return false;
   }
 
   function buildingSliceCountFor(fp: number) {
@@ -2649,7 +2667,7 @@ export function createCanvasPrismWorld(opts: CanvasWorldOptions): CanvasWorldApi
     // avoiding the "controls are frozen" failure mode.
     let purged = false;
     for (const [seq, at] of Array.from(pendingMoveSentAt.entries())) {
-      if (now - Number(at || 0) > moveTimeoutMs) { pendingMoveSentAt.delete(seq); purged = true; }
+      if (now - Number(at || 0) > moveTimeoutMs) { pendingMoveSentAt.delete(seq); purged = true; lastMoveError = "move timeout"; lastMoveErrorAt = now; }
     }
     if (purged) {
       inFlight = pendingMoveSentAt.size;
@@ -2725,6 +2743,7 @@ export function createCanvasPrismWorld(opts: CanvasWorldOptions): CanvasWorldApi
       settleMove(seq);
       if (!r || !r.ok) {
         opts.onError?.();
+        lastMoveError = String(r?.msg || r?.reasonCode || "move rejected"); lastMoveErrorAt = performance.now();
         const rx = Number(r?.x), rz = Number(r?.z);
         // Rejections correct immediately, but stale/lost responses do not keep
         // movement locked forever because purgeStaleMoves removes them above.
@@ -2739,13 +2758,14 @@ export function createCanvasPrismWorld(opts: CanvasWorldOptions): CanvasWorldApi
       if (!pendingPath.length && pendingMoveSentAt.size === 0 && Number.isFinite(serverX) && Number.isFinite(serverZ)) {
         reconcileAuthoritative(serverX, serverZ);
       }
-    }).catch(() => { settleMove(seq); opts.pollSoon?.(); });
+    }).catch(() => { settleMove(seq); lastMoveError = "move network"; lastMoveErrorAt = performance.now(); opts.pollSoon?.(); });
     return true;
   }
   function stepTo(x: number, z: number) {
+    x = Math.sign(Number(x) - me.x) + me.x; z = Math.sign(Number(z) - me.z) + me.z;
     x = Math.trunc(Number(x)); z = Math.trunc(Number(z));
-    if (!opts.sendAction || !canIssueMoveNow()) return false;
-    if (blocked(x,z)) return false;
+    if (!opts.sendAction || !canIssueMoveNow()) { lastMoveError = "move busy"; lastMoveErrorAt = performance.now(); return false; }
+    if (blocked(x,z)) { lastMoveError = "blocked tile"; lastMoveErrorAt = performance.now(); return false; }
     const prevX = me.x, prevZ = me.z;
     me.facingX = x - me.x; me.facingZ = z - me.z; me.walking = true; lastStepAt = performance.now();
     me.x = x; me.z = z;
@@ -2957,13 +2977,20 @@ export function createCanvasPrismWorld(opts: CanvasWorldOptions): CanvasWorldApi
     // by a visual tree/building/prop, walk to the nearest reachable neighbor
     // instead of doing nothing.
     if (!p.length) p = computePath(tx, tz, true);
-    if (!p.length) return false;
+    if (!p.length) { lastMoveError = "no path"; lastMoveErrorAt = performance.now(); return false; }
     pendingPath = p;
     return true;
   }
   function pathToNear(x:number,z:number) { const p = computePath(Math.trunc(x),Math.trunc(z),true); if (!p.length) return pathTo(x, z); pendingPath = p; return true; }
   function canIssueMove() { return canIssueMoveNow(); }
-  function tryMoveDelta(dx:number,dz:number) { if (!canIssueMoveNow()) return false; pendingPath.length = 0; return stepTo(me.x + Math.trunc(dx), me.z + Math.trunc(dz)); }
+  function stepIntent(v:number) { const n = Number(v || 0); return n > 0 ? 1 : n < 0 ? -1 : 0; }
+  function tryMoveDelta(dx:number,dz:number) {
+    if (!canIssueMoveNow()) { lastMoveError = "move busy"; lastMoveErrorAt = performance.now(); return false; }
+    const sx = stepIntent(dx), sz = stepIntent(dz);
+    if (!sx && !sz) return false;
+    pendingPath.length = 0;
+    return stepTo(me.x + sx, me.z + sz);
+  }
   function hardSnapMe(x:number,z:number) {
     me.x=Math.trunc(Number(x)); me.z=Math.trunc(Number(z));
     snapVisualToLogical();
@@ -2973,6 +3000,7 @@ export function createCanvasPrismWorld(opts: CanvasWorldOptions): CanvasWorldApi
   function setFacing(x:number,z:number) { me.facingX=x; me.facingZ=z; }
   function setWalking(v:boolean) { me.walking=!!v; if (!v) { me.inputX = 0; me.inputZ = 0; } }
   function setInputVelocity(x:number,z:number) { me.inputX = clamp(Number(x || 0), -1, 1); me.inputZ = clamp(Number(z || 0), -1, 1); }
+  function cancelLocalMovement() { pendingPath.length = 0; me.inputX = 0; me.inputZ = 0; me.walking = false; }
   function setHintCells(c:any[]) { hintCells = Array.isArray(c) ? c.slice(0, 512) : []; }
   function showBuildGhost(x:number,z:number,valid=true) { ghost = { x,z,valid }; }
   function hideBuildGhost() { ghost = null; }
@@ -3086,7 +3114,12 @@ export function createCanvasPrismWorld(opts: CanvasWorldOptions): CanvasWorldApi
   function worldToScreen(x:number, z:number, y = 0) { return proj(Number(x), Number(y), Number(z)); }
   function screenToWorldPoint(sx:number, sy:number) { return screenToWorld(Number(sx), Number(sy)); }
   function visibleCells() { return Array.from(cells.values()).map((c:any) => ({ x: c.cx ?? c.x, z: c.cz ?? c.z, owner: c.owner || 0 })); }
-  function movementState() { purgeStaleMoves(); return { x: me.x, z: me.z, visualX: me.vx, visualZ: me.vz, visualSpeed: me.renderSpeed, authoritativeX: lastAuthoritative.x, authoritativeZ: lastAuthoritative.z, inFlight: pendingMoveSentAt.size, maxInFlight, pending: pendingPath.length, ackSeq, moveSeq, canIssueMove: canIssueMoveNow(), renderDtMs, visualPath: visualPathName(), renderCounters: { ...renderCounters, staticReason: lastStaticRebuildReason } }; }
+  function movementState() {
+    purgeStaleMoves();
+    const now = performance.now();
+    const recentMoveError = now - lastMoveErrorAt < 3500 ? lastMoveError : "";
+    return { x: me.x, z: me.z, visualX: me.vx, visualZ: me.vz, visualSpeed: me.renderSpeed, authoritativeX: lastAuthoritative.x, authoritativeZ: lastAuthoritative.z, inFlight: pendingMoveSentAt.size, maxInFlight, pending: pendingPath.length, nextPath: pendingPath[0] || null, ackSeq, moveSeq, canIssueMove: canIssueMoveNow(), lastMoveError: recentMoveError, renderDtMs, visualPath: visualPathName(), renderCounters: { ...renderCounters, staticReason: lastStaticRebuildReason } };
+  }
   function capitalBearing() {
     const ax = Number(ST.ax || 0), az = Number(ST.az || 0);
     const dx = ax - Number(me.x || 0), dz = az - Number(me.z || 0);
@@ -3114,6 +3147,6 @@ export function createCanvasPrismWorld(opts: CanvasWorldOptions): CanvasWorldApi
     tileOwner, buildPool, buildAt, lootPool, rigPool, tradePostPool, npcPool, cells, updateMinimapInfo,
     rotateCam: () => {}, refreshCameraRotation: () => {}, refreshCameraZoom: () => { updateProjection(); invalidateStatic("camera"); rebuildCells(true); }, refreshEnvironment: () => { rainStreaks.splice(0); groundRipples.splice(0); windLeaves.splice(0); citySparkles.splice(0); invalidateStatic("environment"); },
     zoom: (delta = 0) => { zoomValue = clamp(zoomValue + Number(delta || 0), 0.72, 1.55); updateProjection(); invalidateStatic("zoom"); },
-    walkQueueClear: () => { pendingPath.length = 0; }, dispose, setFacing, setWalking, setInputVelocity,
+    walkQueueClear: cancelLocalMovement, cancelLocalMovement, dispose, setFacing, setWalking, setInputVelocity,
   };
 }
