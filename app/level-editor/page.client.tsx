@@ -62,6 +62,12 @@ function objectDefaults(kind) {
   return OBJECT_PALETTE.find((p) => p.kind === kind)?.defaults || {};
 }
 
+function previewFootprintForState(state) {
+  if (state.tool !== 'object') return null;
+  const d = objectDefaults(state.objectKind);
+  return { w: d.w || 1, d: d.d || 1 };
+}
+
 function makeObject(kind, x, z) {
   const d = objectDefaults(kind);
   return {
@@ -207,6 +213,7 @@ export default function mount() {
       selectedId: state.selectedId,
       player: state.player,
       showTileCoords: false,
+      previewFootprint: previewFootprintForState(state),
     }, rect.width, rect.height);
   }
 
